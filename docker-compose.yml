@@ -1,0 +1,73 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: noreon-db
+    environment:
+      POSTGRES_USER: noreon
+      POSTGRES_PASSWORD: noreon
+      POSTGRES_DB: noreon
+    ports:
+      - "5432:5432"
+    volumes:
+      - noreon_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noreon"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: noreon-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: noreon-backend
+    env_file: .env
+    environment:
+      NOREON_DATABASE_URL: postgresql+psycopg://noreon:noreon@db:5432/noreon
+      NOREON_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build: ./backend
+    container_name: noreon-worker
+    env_file: .env
+    environment:
+      NOREON_DATABASE_URL: postgresql+psycopg://noreon:noreon@db:5432/noreon
+      NOREON_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m app.worker.run
+
+  frontend:
+    build: ./frontend
+    container_name: noreon-frontend
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  noreon_pg:

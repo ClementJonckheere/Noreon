@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_owned_connection
+from app.core.db import get_db
+from app.models.connection import Connection
+from app.models.schema_catalog import DbColumn, DbRelation, DbTable
+from app.schemas import ColumnOut, RelationOut, ScanOut, TableOut
+from app.services import connections as conn_svc
+from app.services import scanner
+from app.services.schema_context import current_snapshot
+
+router = APIRouter(prefix="/connections/{connection_id}", tags=["schema"])
+
+
+@router.post("/scan", response_model=ScanOut)
+def scan(
+    conn: Connection = Depends(get_owned_connection),
+    db: Session = Depends(get_db),
+) -> ScanOut:
+    if conn.is_read_only is False:
+        raise HTTPException(
+            status_code=409,
+            detail="Connexion non read-only : scan refusé. Corrigez les droits d'abord.",
+        )
+    cfg = conn_svc.source_config(conn)
+    snapshot, changed = scanner.scan_and_persist(db, conn, cfg)
+    db.commit()
+    return ScanOut(
+        snapshot_id=snapshot.id, version=snapshot.version, signature=snapshot.signature,
+        table_count=snapshot.table_count, changed=changed,
+        message="Nouveau schéma détecté et versionné." if changed
+        else "Aucun changement de schéma (scan incrémental).",
+    )
+
+
+@router.get("/schema", response_model=list[TableOut])
+def get_schema(
+    conn: Connection = Depends(get_owned_connection),
+    db: Session = Depends(get_db),
+) -> list[TableOut]:
+    snapshot = current_snapshot(db, conn.id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Aucun schéma scanné. Lancez un scan.")
+    tables = db.execute(
+        select(DbTable).where(DbTable.snapshot_id == snapshot.id).order_by(DbTable.table_name)
+    ).scalars().all()
+    out: list[TableOut] = []
+    for t in tables:
+        cols = db.execute(
+            select(DbColumn).where(DbColumn.table_id == t.id).order_by(DbColumn.ordinal)
+        ).scalars().all()
+        out.append(TableOut(
+            id=t.id, schema_name=t.schema_name, table_name=t.table_name,
+            table_type=t.table_type, estimated_rows=t.estimated_rows,
+            columns=[ColumnOut.model_validate(c) for c in cols],
+        ))
+    return out
+
+
+@router.get("/relations", response_model=list[RelationOut])
+def get_relations(
+    conn: Connection = Depends(get_owned_connection),
+    db: Session = Depends(get_db),
+) -> list[RelationOut]:
+    snapshot = current_snapshot(db, conn.id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Aucun schéma scanné. Lancez un scan.")
+    rels = db.execute(
+        select(DbRelation).where(DbRelation.snapshot_id == snapshot.id)
+    ).scalars().all()
+    return [
+        RelationOut(
+            from_table=f"{r.from_schema}.{r.from_table}", from_column=r.from_column,
+            to_table=f"{r.to_schema}.{r.to_table}", to_column=r.to_column,
+            kind=r.kind, status=r.status, confidence=r.confidence,
+        )
+        for r in rels
+    ]

@@ -1,0 +1,130 @@
+"""Tests d'intégration bout-en-bout sur la base source réelle noreon_demo.
+
+Couvre : connexion + vérification read-only (Module 1), scan + FK implicites
+(Module 2), profilage + PII (Module 3), chat NL→SQL + garde-fous + confiance
+(Modules 7/8/10). Nécessite la base de démo (scripts/setup_demo.sh) et la base
+interne migrée.
+"""
+from __future__ import annotations
+
+import pytest
+
+from app.core.db import SessionLocal
+from app.models.schema_catalog import DbRelation
+from app.models.tenant import Tenant, TenantSettings
+from app.services import chat as chat_svc
+from app.services import connections as conn_svc
+from app.services import scanner
+from app.services.profiler import persist_profiles, profile_table
+from app.services.schema_context import current_snapshot
+from sqlalchemy import select
+
+from tests.conftest import DEMO, demo_required
+
+pytestmark = demo_required
+
+
+@pytest.fixture
+def session_with_conn():
+    db = SessionLocal()
+    tenant = Tenant(slug="itest", name="Itest")
+    tenant.settings = TenantSettings(tenant=tenant)
+    db.add(tenant)
+    db.flush()
+    conn, probe = conn_svc.create_connection(
+        db, tenant_id=tenant.id, name="demo", host=DEMO["host"], port=DEMO["port"],
+        database=DEMO["database"], username=DEMO["username"], password=DEMO["password"],
+    )
+    db.flush()
+    try:
+        yield db, conn, probe
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_connection_is_read_only(session_with_conn):
+    _, _, probe = session_with_conn
+    assert probe["connection_ok"] is True
+    assert probe["read_only"] is True
+
+
+def test_scan_detects_tables_and_implicit_fk(session_with_conn):
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, changed = scanner.scan_and_persist(db, conn, cfg)
+    assert changed is True
+    assert snapshot.table_count >= 6
+
+    relations = db.execute(
+        select(DbRelation).where(DbRelation.snapshot_id == snapshot.id)
+    ).scalars().all()
+    kinds = {(r.from_table, r.from_column, r.to_table, r.kind) for r in relations}
+    # FK déclarée orders.customer_id -> customers
+    assert any(t == "orders" and c == "customer_id" and k == "declared" for (t, c, _tt, k) in kinds)
+    # FK IMPLICITE customers.store_id -> stores (non déclarée en base)
+    assert any(
+        r.from_table == "customers" and r.from_column == "store_id"
+        and r.to_table == "stores" and r.kind == "inferred"
+        for r in relations
+    )
+
+
+def test_profiling_computes_stats_and_pii(session_with_conn):
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    tables = {t.table_name: t for t in snapshot.tables}
+    customers = tables["customers"]
+    columns = sorted(customers.columns, key=lambda c: c.ordinal)
+
+    profiles = profile_table(cfg, customers, columns)
+    persist_profiles(db, conn, customers, profiles)
+    by_col = {p.column_name: p for p in profiles}
+
+    # email : ~1/13 de NULL + détection PII
+    assert by_col["email"].null_rate is not None and by_col["email"].null_rate > 0
+    assert by_col["email"].pii_type == "email"
+    # loyalty_points : colonne numérique, distinct > 1
+    assert by_col["loyalty_points"].distinct_count and by_col["loyalty_points"].distinct_count > 1
+    # id : clé primaire, aucun NULL
+    assert by_col["id"].null_rate == 0
+
+
+def test_chat_count_end_to_end(session_with_conn):
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    scanner.scan_and_persist(db, conn, cfg)
+
+    resp = chat_svc.answer_question(db, conn, "Combien de clients ?")
+    assert resp.status == "answered"
+    assert "count(*)" in resp.sql.lower()
+    assert resp.row_count == 1
+    assert resp.rows[0][0] == 500
+    assert resp.confidence is not None
+    assert 0 <= resp.confidence["score"] <= 1
+    assert resp.confidence["factors"]  # jamais décoratif
+
+
+def test_chat_blocks_write_attempt(session_with_conn):
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    scanner.scan_and_persist(db, conn, cfg)
+
+    # On force un SQL d'écriture via le garde-fou directement (le LLM ne doit
+    # jamais en produire, mais la défense en profondeur doit bloquer).
+    from app.services.executor import run_query
+    from app.services.sql_guard import SQLGuardError
+
+    with pytest.raises(SQLGuardError):
+        run_query(cfg, "DELETE FROM customers", connection_id=conn.id)
+
+
+def test_chat_clarification_on_unknown(session_with_conn):
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    scanner.scan_and_persist(db, conn, cfg)
+
+    resp = chat_svc.answer_question(db, conn, "Quel est le taux de désabonnement SaaS mensuel ?")
+    assert resp.status == "clarification"
+    assert resp.message
