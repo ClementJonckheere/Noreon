@@ -127,6 +127,29 @@ class ColumnProfileOut(BaseModel):
         from_attributes = True
 
 
+# ---- Qualité ----
+class QualityRunOut(BaseModel):
+    base_score: float
+    tables_scored: int
+    columns_scored: int
+    relations_scored: int
+    computed_at: str
+
+
+class QualityScoreOut(BaseModel):
+    level: str
+    schema_name: str | None
+    table_name: str | None
+    column_name: str | None
+    relation_ref: str | None
+    score: float
+    detail: str
+    dimensions: list = []
+
+    class Config:
+        from_attributes = True
+
+
 # ---- Chat ----
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)

@@ -94,6 +94,24 @@ export interface Profile {
   max_value: string | null;
   top_values: { value: any; count: number }[];
 }
+export interface QualityDimension {
+  name: string;
+  applicable: boolean;
+  score: number | null;
+  weight: number;
+  detail: string;
+}
+export interface QualityScore {
+  level: string;
+  schema_name: string | null;
+  table_name: string | null;
+  column_name: string | null;
+  relation_ref: string | null;
+  score: number;
+  detail: string;
+  dimensions: QualityDimension[];
+}
+
 export interface ChatResponse {
   status: string;
   question: string;
@@ -112,6 +130,7 @@ export interface ChatResponse {
   warnings: string[];
   analysis: any | null;
   confidence: { percent: number; factors: string[] } | null;
+  table_quality: Record<string, number>;
 }
 
 // ---- Endpoints ----
@@ -136,6 +155,12 @@ export const api = {
   profiles: (id: number, table?: string) =>
     request<Profile[]>(
       `/connections/${id}/profiles${table ? `?table=${encodeURIComponent(table)}` : ""}`,
+    ),
+  runQuality: (id: number) =>
+    request<any>(`/connections/${id}/quality`, { method: "POST" }),
+  quality: (id: number, level?: string) =>
+    request<QualityScore[]>(
+      `/connections/${id}/quality${level ? `?level=${level}` : ""}`,
     ),
   chat: (id: number, question: string) =>
     request<ChatResponse>(`/connections/${id}/chat`, {

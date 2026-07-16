@@ -43,27 +43,40 @@ def compute(
     score = 1.0
     factors: list[str] = []
 
-    # 1) Qualité des données : taux de NULL moyen des tables utilisées.
+    # 1) Qualité des données : score qualité auditable des tables utilisées
+    # (Module 4). À défaut de score qualité, repli sur le taux de NULL.
     table_names = [t.split(".")[-1] for t in tables_used]
     if table_names:
-        profiles = db.execute(
-            select(ColumnProfile).where(
-                ColumnProfile.connection_id == connection_id,
-                ColumnProfile.table_name.in_(table_names),
-            )
-        ).scalars().all()
-        null_rates = [p.null_rate for p in profiles if p.null_rate is not None]
-        if null_rates:
-            avg_null = sum(null_rates) / len(null_rates)
-            if avg_null > 0.05:
-                penalty = min(0.25, avg_null)
+        from app.services.quality import table_scores_map  # import local (évite cycle)
+
+        tscores = table_scores_map(db, connection_id)
+        used = [tscores[t] for t in table_names if t in tscores]
+        if used:
+            avg_q = sum(used) / len(used)
+            if avg_q < 0.95:
+                penalty = min(0.3, (1 - avg_q))
                 score -= penalty
                 factors.append(
-                    f"les tables utilisées présentent en moyenne {avg_null*100:.0f}% de valeurs manquantes"
+                    f"score qualité moyen des tables utilisées : {avg_q*100:.0f}%"
                 )
         else:
-            score -= 0.1
-            factors.append("les tables utilisées ne sont pas encore profilées (qualité inconnue)")
+            profiles = db.execute(
+                select(ColumnProfile).where(
+                    ColumnProfile.connection_id == connection_id,
+                    ColumnProfile.table_name.in_(table_names),
+                )
+            ).scalars().all()
+            null_rates = [p.null_rate for p in profiles if p.null_rate is not None]
+            if null_rates:
+                avg_null = sum(null_rates) / len(null_rates)
+                if avg_null > 0.05:
+                    score -= min(0.25, avg_null)
+                    factors.append(
+                        f"les tables utilisées présentent en moyenne {avg_null*100:.0f}% de valeurs manquantes"
+                    )
+            else:
+                score -= 0.1
+                factors.append("les tables utilisées ne sont pas encore évaluées (qualité inconnue)")
 
     # 2) Concepts métier : aucun concept validé en V0.1.
     factors.append("aucun concept métier validé (compréhension métier disponible en V0.2)")

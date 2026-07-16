@@ -128,3 +128,59 @@ def test_chat_clarification_on_unknown(session_with_conn):
     resp = chat_svc.answer_question(db, conn, "Quel est le taux de désabonnement SaaS mensuel ?")
     assert resp.status == "clarification"
     assert resp.message
+
+
+def _profile_all(db, conn, cfg, snapshot):
+    from sqlalchemy import select as _select
+
+    from app.models.schema_catalog import DbColumn
+    from app.services.profiler import persist_profiles, profile_table
+
+    for t in snapshot.tables:
+        if t.table_type != "table":
+            continue
+        cols = db.execute(
+            _select(DbColumn).where(DbColumn.table_id == t.id).order_by(DbColumn.ordinal)
+        ).scalars().all()
+        persist_profiles(db, conn, t, profile_table(cfg, t, cols))
+
+
+def test_quality_scores_are_auditable(session_with_conn):
+    from app.services import quality as quality_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    summary = quality_svc.run_quality(db, conn, cfg)
+    assert 0 < summary["base_score"] <= 1
+    assert summary["columns_scored"] > 0
+    assert summary["relations_scored"] > 0
+
+    # Validité : les emails volontairement invalides doivent faire chuter la validité.
+    from app.models.quality import QualityScore
+    from sqlalchemy import select as _select
+
+    email_q = db.execute(
+        _select(QualityScore).where(
+            QualityScore.connection_id == conn.id,
+            QualityScore.level == "column",
+            QualityScore.table_name == "customers",
+            QualityScore.column_name == "email",
+        )
+    ).scalar_one()
+    validity = next(d for d in email_q.dimensions if d["name"] == "Validité")
+    assert validity["applicable"] is True
+    assert validity["score"] < 1.0  # emails 'pas-un-email' détectés
+
+    # Cohérence : store_id orphelins → intégrité < 100% sur au moins une relation.
+    relations = db.execute(
+        _select(QualityScore).where(
+            QualityScore.connection_id == conn.id, QualityScore.level == "relation"
+        )
+    ).scalars().all()
+    assert any(r.score < 1.0 for r in relations)
+
+    # Un score de table et le score base existent.
+    assert quality_svc.table_scores_map(db, conn.id)

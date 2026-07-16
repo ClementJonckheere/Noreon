@@ -49,6 +49,7 @@ class ChatResponse:
     warnings: list[str] = field(default_factory=list)
     analysis: dict | None = None
     confidence: dict | None = None
+    table_quality: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -192,6 +193,16 @@ def answer_question(
         confidence=conf.as_dict(),
     )
 
+    # Score qualité des tables utilisées (base d'arbitrage entre sources).
+    from app.services.quality import table_scores_map
+
+    tscores = table_scores_map(db, conn.id)
+    table_quality = {
+        t: round(tscores[t.split(".")[-1]] * 100)
+        for t in gen.tables_used
+        if t.split(".")[-1] in tscores
+    }
+
     return ChatResponse(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
@@ -199,7 +210,7 @@ def answer_question(
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
-        analysis=analysis, confidence=conf.as_dict(),
+        analysis=analysis, confidence=conf.as_dict(), table_quality=table_quality,
     )
 
 

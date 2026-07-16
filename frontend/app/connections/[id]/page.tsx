@@ -8,11 +8,12 @@ import {
   ChatResponse,
   Connection,
   Profile,
+  QualityScore,
   Relation,
   Table,
 } from "@/lib/api";
 
-type Tab = "schema" | "profiles" | "chat" | "log";
+type Tab = "schema" | "profiles" | "quality" | "chat" | "log";
 
 export default function Workspace() {
   const params = useParams();
@@ -47,6 +48,15 @@ export default function Workspace() {
       setNotice(`Erreur : ${e.message}`);
     }
   }
+  async function doQuality() {
+    setNotice("Calcul du score qualité…");
+    try {
+      const r = await api.runQuality(id);
+      setNotice(`Score qualité calculé : base ${Math.round(r.base_score * 100)}% (${r.columns_scored} colonnes, ${r.relations_scored} relations).`);
+    } catch (e: any) {
+      setNotice(`Erreur : ${e.message}`);
+    }
+  }
 
   if (!conn) return <div className="text-noreon-soft">Chargement…</div>;
 
@@ -69,6 +79,9 @@ export default function Workspace() {
           <button className="btn-ghost" onClick={doProfile}>
             Profiler
           </button>
+          <button className="btn-ghost" onClick={doQuality}>
+            Score qualité
+          </button>
         </div>
       </div>
 
@@ -90,6 +103,7 @@ export default function Workspace() {
             ["chat", "Chat"],
             ["schema", "Schéma"],
             ["profiles", "Profils"],
+            ["quality", "Qualité"],
             ["log", "Journal SQL"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
@@ -110,6 +124,7 @@ export default function Workspace() {
       {tab === "chat" && <ChatPanel id={id} />}
       {tab === "schema" && <SchemaPanel id={id} />}
       {tab === "profiles" && <ProfilesPanel id={id} />}
+      {tab === "quality" && <QualityPanel id={id} />}
       {tab === "log" && <LogPanel id={id} />}
     </div>
   );
@@ -231,7 +246,29 @@ function ChatResult({ r }: { r: ChatResponse }) {
             <pre className="mono bg-black/40 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
               {r.sql}
             </pre>
-            <Meta label="Tables utilisées" items={r.tables_used} />
+            <div>
+              <div className="text-noreon-soft mb-1">Tables utilisées</div>
+              <div className="flex flex-wrap gap-1">
+                {r.tables_used.map((t) => (
+                  <span key={t} className="badge bg-white/5 mono">
+                    {t}
+                    {r.table_quality?.[t] != null && (
+                      <span
+                        className={`ml-1 ${
+                          r.table_quality[t] >= 90
+                            ? "text-emerald-300"
+                            : r.table_quality[t] >= 70
+                            ? "text-amber-300"
+                            : "text-red-300"
+                        }`}
+                      >
+                        · qualité {r.table_quality[t]}%
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
             {r.columns_used.length > 0 && (
               <Meta label="Colonnes utilisées" items={r.columns_used} />
             )}
@@ -493,6 +530,148 @@ function ProfilesPanel({ id }: { id: number }) {
           </table>
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ------------------------------ QUALITY -------------------------------- */
+function scoreColor(pct: number) {
+  return pct >= 90 ? "text-emerald-300" : pct >= 70 ? "text-amber-300" : "text-red-300";
+}
+function barColor(pct: number) {
+  return pct >= 90 ? "bg-emerald-400" : pct >= 70 ? "bg-amber-400" : "bg-red-400";
+}
+
+function QualityPanel({ id }: { id: number }) {
+  const [scores, setScores] = useState<QualityScore[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.quality(id).then(setScores).catch(() => setScores([]));
+  }, [id]);
+
+  if (!scores) return <div className="text-noreon-soft">Chargement…</div>;
+  if (scores.length === 0)
+    return (
+      <div className="text-sm text-noreon-soft">
+        Aucun score qualité. Cliquez sur « Score qualité » (nécessite un scan et
+        un profilage préalables).
+      </div>
+    );
+
+  const base = scores.find((s) => s.level === "base");
+  const tables = scores.filter((s) => s.level === "table");
+  const relations = scores.filter((s) => s.level === "relation");
+  const columnsByTable: Record<string, QualityScore[]> = {};
+  scores
+    .filter((s) => s.level === "column")
+    .forEach((s) => {
+      (columnsByTable[s.table_name!] ||= []).push(s);
+    });
+
+  return (
+    <div className="space-y-6">
+      {base && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-medium">Score qualité de la base</span>
+            <span className={`text-2xl font-bold ${scoreColor(base.score * 100)}`}>
+              {Math.round(base.score * 100)}%
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className={`h-full ${barColor(base.score * 100)}`}
+              style={{ width: `${base.score * 100}%` }}
+            />
+          </div>
+          <div className="text-xs text-noreon-soft mt-2">{base.detail}</div>
+        </div>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-3">
+          <h3 className="text-sm font-medium">Tables & colonnes</h3>
+          {tables.map((t) => {
+            const isOpen = open === t.table_name;
+            const cols = columnsByTable[t.table_name!] || [];
+            return (
+              <div key={t.table_name} className="card">
+                <button
+                  className="w-full flex items-center justify-between p-4"
+                  onClick={() => setOpen(isOpen ? null : t.table_name!)}
+                >
+                  <span className="mono">{t.table_name}</span>
+                  <span className={`font-semibold ${scoreColor(t.score * 100)}`}>
+                    {Math.round(t.score * 100)}%
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-noreon-border divide-y divide-noreon-border/40">
+                    {cols.map((c) => (
+                      <ColumnQualityRow key={c.column_name} c={c} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div>
+          <h3 className="text-sm font-medium mb-2">
+            Intégrité des relations
+          </h3>
+          <div className="space-y-2">
+            {relations.map((r) => (
+              <div key={r.relation_ref} className="card p-3 text-xs">
+                <div className="mono">{r.relation_ref}</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className={`font-semibold ${scoreColor(r.score * 100)}`}>
+                    {Math.round(r.score * 100)}%
+                  </span>
+                  <span className="text-noreon-soft">{r.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ColumnQualityRow({ c }: { c: QualityScore }) {
+  return (
+    <div className="p-3">
+      <div className="flex items-center justify-between">
+        <span className="mono text-sm">{c.column_name}</span>
+        <span className={`text-sm font-semibold ${scoreColor(c.score * 100)}`}>
+          {Math.round(c.score * 100)}%
+        </span>
+      </div>
+      <div className="mt-2 grid gap-1">
+        {c.dimensions.map((d) => (
+          <div
+            key={d.name}
+            className={`text-xs flex items-center gap-2 ${
+              d.applicable ? "" : "text-noreon-soft/50"
+            }`}
+          >
+            <span className="w-24 shrink-0">{d.name}</span>
+            {d.applicable && d.score != null ? (
+              <>
+                <span className={`w-12 text-right ${scoreColor(d.score * 100)}`}>
+                  {Math.round(d.score * 100)}%
+                </span>
+                <span className="text-noreon-soft">{d.detail}</span>
+              </>
+            ) : (
+              <span className="italic">{d.detail}</span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

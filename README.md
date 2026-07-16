@@ -7,28 +7,43 @@ répond à des questions en langage naturel par des analyses **fiables,
 argumentées, auditables** — sans jamais exposer de données brutes identifiantes
 à un LLM externe.
 
-Ce dépôt contient l'implémentation **V0.1** conforme au cahier des charges
-(version 2.0). Périmètre V0.1 : **PostgreSQL**, scan automatique, profilage
-échantillonné, chat SQL avec garde-fous d'exécution et transparence.
+Ce dépôt contient l'implémentation conforme au cahier des charges (version 2.0).
+Périmètre livré : **V0.1** (PostgreSQL, scan, profilage, chat SQL avec garde-fous)
+et le **Module 4 — Score qualité auditable** du **V0.2**.
 
 ---
 
-## Ce qui est implémenté (V0.1)
+## Ce qui est implémenté
 
 | Module (CDC) | Statut | Détails |
 |---|---|---|
 | **1 — Connexions** | ✅ | Test obligatoire, **vérification read-only bloquante**, credentials chiffrés **AES-256-GCM**, jamais loggés ni transmis au LLM, SSL/TLS (`sslmode`), isolation par tenant |
 | **2 — Scanner** | ✅ | Introspection tables/colonnes/PK/FK, **détection des FK implicites** (`xxx_id`), snapshots **versionnés**, scan incrémental par signature |
-| **3 — Profilage** | ✅ | Taux de NULL, distinct, min/max, moyenne, top valeurs, **détection du type réel** (dates en VARCHAR…) et des **PII**, **échantillonnage** au-delà du seuil, exécution **asynchrone** (worker + file de priorité) |
-| **7 — Chat IA** | ✅ | NL→SQL, **désambiguïsation** (ne devine jamais silencieusement), transparence complète |
+| **3 — Profilage** | ✅ | Taux de NULL, distinct, min/max, moyenne, top valeurs, **détection du type réel** (dates en VARCHAR…) et des **PII**, comptes exacts (NULL, invalides), **échantillonnage** au-delà du seuil, exécution **asynchrone** |
+| **4 — Score qualité** | ✅ (V0.2) | 5 dimensions **auditables** (complétude, validité, unicité, cohérence, fraîcheur) avec détail chiffré vérifiable ; scores colonne/table/relation/base ; pondérations **par tenant** ; intégrité référentielle réelle (orphelins) ; alimente l'indice de confiance et l'arbitrage entre tables |
+| **7 — Chat IA** | ✅ | NL→SQL, **désambiguïsation** (ne devine jamais silencieusement), transparence complète, score qualité des tables utilisées |
 | **8 — SQL & garde-fous** | ✅ | Blocage **DDL/DML** (AST), **EXPLAIN + seuil de coût**, timeout, **LIMIT automatique**, file d'exécution par connexion, **journal d'audit immuable** |
-| **10 — Indice de confiance** | ✅ (partiel) | Indice **calibré** accompagné de ses facteurs (qualité, hypothèses, échantillonnage, couverture) |
+| **10 — Indice de confiance** | ✅ | Indice **calibré** (adossé au score qualité réel) accompagné de ses facteurs |
 | **§6 — Abstraction LLM** | ✅ | Interface unique multi-fournisseurs (OpenAI, Anthropic, Mistral via REST — **pas de SDK propriétaire**), + provider **heuristique hors-ligne** (fonctionne sans clé) |
 | **§5 — Privacy Engine** | 🟡 amorce | Détection PII + **masquage** des colonnes sensibles avant envoi au LLM ; anonymisation avancée formalisée en V0.3 |
 
-Roadmap : compréhension métier + boucle de validation humaine + score qualité
-(V0.2), Knowledge Graph + rapports + Privacy Engine complet (V0.3),
-multi-bases + SSO + rôles (V1.0).
+Reste du **V0.2** : compréhension métier + boucle de validation humaine (Module 5),
+graphiques (Module 9). Puis Knowledge Graph + rapports + Privacy Engine complet
+(V0.3), multi-bases + SSO + rôles (V1.0).
+
+### Score qualité — dimensions (Module 4)
+
+| Dimension | Poids défaut | Base de calcul (auditable) |
+|---|---|---|
+| Complétude | 30 % | 1 − (NULL / total), comptes exacts |
+| Validité | 25 % | % de valeurs conformes au format attendu (email, tél., IBAN, SIRET, date) |
+| Unicité | 15 % | distinct / non-null quand l'unicité est attendue (PK, email…) |
+| Cohérence | 15 % | intégrité référentielle réelle (taux d'orphelins) |
+| Fraîcheur | 15 % | ancienneté de la dernière valeur vs cadence attendue |
+
+Une dimension **non applicable** n'est pas pénalisée (poids renormalisés) ;
+chaque score porte son détail chiffré (« Validité 97,8 % (10 emails invalides
+sur 462) »). Pondérations configurables via `TenantSettings.quality_weights`.
 
 ---
 
@@ -108,10 +123,13 @@ puis poser des questions dans le **Chat**.
    (`customers.store_id → stores.id`…) apparaissent avec leur niveau de confiance.
 3. **Profilage** — statistiques par colonne, PII repérées (email, téléphone…),
    types réels détectés.
-4. **Chat** — « Quel est le montant moyen des commandes ? » →
-   `SELECT AVG(amount_ttc) …`, résultat, **indice de confiance** et
-   **transparence** (tables, colonnes, hypothèses, temps, coût estimé).
-5. **Journal SQL** — chaque exécution est tracée (audit immuable).
+4. **Score qualité** — chaque colonne, table, relation et la base reçoivent un
+   score **auditable** avec le détail chiffré de chaque dimension (emails
+   invalides, orphelins de FK, fraîcheur…).
+5. **Chat** — « Quel est le montant moyen des commandes ? » →
+   `SELECT AVG(amount_ttc) …`, résultat, **indice de confiance**, score qualité
+   des tables utilisées, et **transparence** (tables, colonnes, hypothèses, temps).
+6. **Journal SQL** — chaque exécution est tracée (audit immuable).
 
 ---
 
@@ -119,7 +137,7 @@ puis poser des questions dans le **Chat**.
 
 ```bash
 source .venv/bin/activate
-cd backend && python -m pytest        # 43 tests
+cd backend && python -m pytest        # 54 tests
 ```
 
 Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réelle
