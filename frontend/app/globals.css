@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-noreon-bg text-slate-100;
+}
+
+.card {
+  @apply bg-noreon-panel border border-noreon-border rounded-xl;
+}
+
+.btn {
+  @apply inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition;
+}
+.btn-primary {
+  @apply btn bg-noreon-accent text-white hover:brightness-110;
+}
+.btn-ghost {
+  @apply btn border border-noreon-border text-noreon-soft hover:bg-white/5;
+}
+
+.input {
+  @apply w-full rounded-lg bg-black/30 border border-noreon-border px-3 py-2 text-sm
+         outline-none focus:border-noreon-accent;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
