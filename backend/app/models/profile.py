@@ -55,6 +55,12 @@ class ColumnProfile(Base):
     row_count_estimate: Mapped[int | None] = mapped_column(default=None)
 
     null_rate: Mapped[float | None] = mapped_column(Float, default=None)
+    null_count: Mapped[int | None] = mapped_column(default=None)
+    non_null_count: Mapped[int | None] = mapped_column(default=None)
+    # Audit de la validité : nombre exact de valeurs non conformes au format
+    # attendu (email, téléphone, IBAN, SIRET, date-en-texte) + format vérifié.
+    invalid_count: Mapped[int | None] = mapped_column(default=None)
+    format_checked: Mapped[str | None] = mapped_column(String(32), default=None)
     distinct_count: Mapped[int | None] = mapped_column(default=None)
     distinct_ratio: Mapped[float | None] = mapped_column(Float, default=None)
     min_value: Mapped[str | None] = mapped_column(String, default=None)

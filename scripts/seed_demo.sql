@@ -99,4 +99,11 @@ SELECT
     TIMESTAMP '2024-01-01 09:00:00' + (g % 550) * INTERVAL '1 day'
 FROM generate_series(1, 3000) g;
 
+-- Imperfections volontaires pour rendre le score qualité significatif -----
+-- Emails invalides (dimension Validité)
+UPDATE customers SET email = 'pas-un-email' WHERE id % 50 = 0;
+-- store_id orphelins : le magasin 99 n'existe pas (dimension Cohérence)
+UPDATE customers SET store_id = 99 WHERE id % 60 = 0;
+UPDATE orders SET store_id = 99 WHERE id % 70 = 0;
+
 ANALYZE;

@@ -127,6 +127,76 @@ class ColumnProfileOut(BaseModel):
         from_attributes = True
 
 
+# ---- Qualité ----
+class QualityRunOut(BaseModel):
+    base_score: float
+    tables_scored: int
+    columns_scored: int
+    relations_scored: int
+    computed_at: str
+
+
+class QualityScoreOut(BaseModel):
+    level: str
+    schema_name: str | None
+    table_name: str | None
+    column_name: str | None
+    relation_ref: str | None
+    score: float
+    detail: str
+    dimensions: list = []
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Compréhension métier (Module 5) ----
+class SemanticProposeOut(BaseModel):
+    proposed: int
+    updated: int
+    kept_human_decisions: int
+    arbitrations_needed: int
+
+
+class ConceptMappingOut(BaseModel):
+    id: int
+    concept_name: str
+    concept_description: str
+    schema_name: str
+    table_name: str
+    column_name: str
+    confidence: float
+    rationale: str
+    status: str
+    needs_arbitration: bool
+    arbitration_note: str | None
+    review_note: str | None
+    reviewed_at: datetime | None
+
+
+class MappingReviewIn(BaseModel):
+    action: str = Field(..., pattern="^(validate|reject|correct)$")
+    concept_name: str | None = None  # requis pour correct
+    note: str | None = None
+
+
+class ConceptCreateIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    description: str = ""
+    synonyms: list[str] = Field(default_factory=list)
+
+
+class ConceptOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    synonyms: list
+    origin: str
+
+    class Config:
+        from_attributes = True
+
+
 # ---- Chat ----
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)

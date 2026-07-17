@@ -37,6 +37,20 @@ _NUMERIC_TYPES = {
 }
 _SORTABLE_UNSAFE = {"json", "jsonb", "xml", "bytea", "array", "USER-DEFINED"}
 
+_TEXT_TYPES = {"character varying", "varchar", "text", "char", "character", "citext", "bpchar"}
+
+# Motifs POSIX (côté PostgreSQL, opérateur ~) pour compter les valeurs
+# NON conformes au format attendu — base auditable de la dimension Validité.
+_FORMAT_REGEX = {
+    "email": r"^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$",
+    "phone": r"^\+?[0-9 ().-]{8,20}$",
+    "iban": r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$",
+    "siret": r"^[0-9]{14}$",
+    "date": r"^[0-9]{4}-[0-9]{2}-[0-9]{2}([ T][0-9]{2}:[0-9]{2}([0-9:]*)?)?$",
+    "integer": r"^-?[0-9]+$",
+    "numeric": r"^-?[0-9]+([.,][0-9]+)?$",
+}
+
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$")
 _INT_RE = re.compile(r"^-?\d+$")
 _FLOAT_RE = re.compile(r"^-?\d+[.,]\d+$")
@@ -51,6 +65,10 @@ class ColumnProfileData:
     sample_size: int
     row_count_estimate: int | None
     null_rate: float | None = None
+    null_count: int | None = None
+    non_null_count: int | None = None
+    invalid_count: int | None = None
+    format_checked: str | None = None
     distinct_count: int | None = None
     distinct_ratio: float | None = None
     min_value: str | None = None
@@ -156,6 +174,8 @@ def profile_table(cfg: SourceConfig, table: DbTable, columns: list[DbColumn]) ->
                     sample_size=n,
                     row_count_estimate=table.estimated_rows,
                     null_rate=(1 - nn / n) if n else None,
+                    null_count=(n - nn) if n else None,
+                    non_null_count=nn,
                     distinct_count=int(row.get(f"{a}__d") or 0),
                     distinct_ratio=((row.get(f"{a}__d") or 0) / nn) if nn else None,
                     min_value=_str_or_none(row.get(f"{a}__min")),
@@ -184,7 +204,47 @@ def profile_table(cfg: SourceConfig, table: DbTable, columns: list[DbColumn]) ->
                 data.detected_type = _detect_type(col.data_type, data.sample_values)
                 data.pii_type = pii.detect(col.name, data.sample_values)
 
+                # 3) Validité : nombre exact de valeurs mal formées (pour les
+                # colonnes TEXTE dont on a détecté un format attendu).
+                fmt = _expected_format(col.data_type, data.detected_type, data.pii_type)
+                if fmt and data.non_null_count:
+                    try:
+                        cur.execute(
+                            pgsql.SQL(
+                                "SELECT count(*) FROM {src} "
+                                "WHERE {c} IS NOT NULL AND {c}::text !~ %s"
+                            ).format(c=c, src=src),
+                            (_FORMAT_REGEX[fmt],),
+                        )
+                        data.invalid_count = int(cur.fetchone()[0])
+                        data.format_checked = fmt
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug("validity check skipped for %s.%s: %s", table.table_name, col.name, exc)
+                        conn.rollback()
+
     return results
+
+
+def _expected_format(declared_type: str, detected_type: str | None, pii_type: str | None) -> str | None:
+    """Format attendu d'une colonne TEXTE, sinon None (validité non applicable).
+
+    On ne vérifie que les colonnes textuelles : pour les types natifs (date,
+    integer…), le format est garanti par le SGBD et la validité n'est pas un
+    enjeu de qualité de donnée.
+    """
+    if declared_type.lower() not in _TEXT_TYPES:
+        return None
+    if pii_type in ("email", "phone", "iban", "siret"):
+        return pii_type
+    dt = (detected_type or "").lower()
+    if "stocké en texte" in dt or "stocke en texte" in dt:
+        if "date" in dt:
+            return "date"
+        if "integer" in dt:
+            return "integer"
+        if "numeric" in dt:
+            return "numeric"
+    return None
 
 
 def persist_profiles(db: Session, conn: Connection, table: DbTable, profiles: list[ColumnProfileData]) -> None:
@@ -198,6 +258,10 @@ def persist_profiles(db: Session, conn: Connection, table: DbTable, profiles: li
             sample_size=p.sample_size,
             row_count_estimate=p.row_count_estimate,
             null_rate=p.null_rate,
+            null_count=p.null_count,
+            non_null_count=p.non_null_count,
+            invalid_count=p.invalid_count,
+            format_checked=p.format_checked,
             distinct_count=p.distinct_count,
             distinct_ratio=p.distinct_ratio,
             min_value=p.min_value,

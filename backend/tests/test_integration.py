@@ -128,3 +128,135 @@ def test_chat_clarification_on_unknown(session_with_conn):
     resp = chat_svc.answer_question(db, conn, "Quel est le taux de désabonnement SaaS mensuel ?")
     assert resp.status == "clarification"
     assert resp.message
+
+
+def _profile_all(db, conn, cfg, snapshot):
+    from sqlalchemy import select as _select
+
+    from app.models.schema_catalog import DbColumn
+    from app.services.profiler import persist_profiles, profile_table
+
+    for t in snapshot.tables:
+        if t.table_type != "table":
+            continue
+        cols = db.execute(
+            _select(DbColumn).where(DbColumn.table_id == t.id).order_by(DbColumn.ordinal)
+        ).scalars().all()
+        persist_profiles(db, conn, t, profile_table(cfg, t, cols))
+
+
+def test_quality_scores_are_auditable(session_with_conn):
+    from app.services import quality as quality_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    summary = quality_svc.run_quality(db, conn, cfg)
+    assert 0 < summary["base_score"] <= 1
+    assert summary["columns_scored"] > 0
+    assert summary["relations_scored"] > 0
+
+    # Validité : les emails volontairement invalides doivent faire chuter la validité.
+    from app.models.quality import QualityScore
+    from sqlalchemy import select as _select
+
+    email_q = db.execute(
+        _select(QualityScore).where(
+            QualityScore.connection_id == conn.id,
+            QualityScore.level == "column",
+            QualityScore.table_name == "customers",
+            QualityScore.column_name == "email",
+        )
+    ).scalar_one()
+    validity = next(d for d in email_q.dimensions if d["name"] == "Validité")
+    assert validity["applicable"] is True
+    assert validity["score"] < 1.0  # emails 'pas-un-email' détectés
+
+    # Cohérence : store_id orphelins → intégrité < 100% sur au moins une relation.
+    relations = db.execute(
+        _select(QualityScore).where(
+            QualityScore.connection_id == conn.id, QualityScore.level == "relation"
+        )
+    ).scalars().all()
+    assert any(r.score < 1.0 for r in relations)
+
+    # Un score de table et le score base existent.
+    assert quality_svc.table_scores_map(db, conn.id)
+
+
+def test_semantic_loop_and_memory(session_with_conn):
+    from sqlalchemy import select as _select
+
+    from app.models.semantic import BusinessConcept, ConceptMapping
+    from app.services import semantic as semantic_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    # 1) Propositions générées, jamais auto-validées.
+    summary = semantic_svc.propose_and_persist(db, conn)
+    assert summary["proposed"] > 0
+    mappings = db.execute(
+        _select(ConceptMapping).where(ConceptMapping.connection_id == conn.id)
+    ).scalars().all()
+    assert mappings and all(m.status == "proposed" for m in mappings)
+
+    # 2) Piège sémantique : net_price (HT) vs amount_ttc (TTC) → arbitrage.
+    flagged = [m for m in mappings if m.needs_arbitration]
+    flagged_cols = {m.column_name for m in flagged}
+    assert {"net_price", "amount_ttc"} <= flagged_cols
+
+    # 3) Boucle humaine : on valide le mapping email → il devient une vérité.
+    email_m = next(m for m in mappings if m.column_name == "email")
+    email_m.status = "validated"
+    db.flush()
+
+    # 4) Mémoire entreprise : une re-proposition n'écrase pas la décision.
+    summary2 = semantic_svc.propose_and_persist(db, conn)
+    assert summary2["kept_human_decisions"] >= 1
+    db.refresh(email_m)
+    assert email_m.status == "validated"
+
+    # 5) Le dictionnaire validé alimente le contexte du chat.
+    text, syns = semantic_svc.validated_concepts_context(db, conn.id)
+    assert "Concept Email" in text
+    assert "customers" in syns
+
+
+def test_chat_uses_validated_concept_synonym(session_with_conn):
+    from sqlalchemy import select as _select
+
+    from app.models.semantic import BusinessConcept, ConceptMapping
+    from app.services import semantic as semantic_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+    semantic_svc.propose_and_persist(db, conn)
+
+    # « adhérent » : vocabulaire propre à l'entreprise, inconnu du lexique.
+    concept = semantic_svc._get_or_create_concept(db, conn.tenant_id, "Adhérent")
+    concept.synonyms = ["adherent", "adherents"]
+    mapping = db.execute(
+        _select(ConceptMapping).where(
+            ConceptMapping.connection_id == conn.id,
+            ConceptMapping.table_name == "customers",
+            ConceptMapping.column_name == "id",
+        )
+    ).scalars().first()
+    assert mapping is not None
+    mapping.concept_id = concept.id
+    mapping.status = "corrected"
+    db.flush()
+
+    resp = chat_svc.answer_question(db, conn, "Combien d'adhérents ?")
+    assert resp.status == "answered"
+    assert "public.customers" in resp.sql
+    assert resp.rows[0][0] == 500
+    # L'indice de confiance mentionne les concepts validés.
+    assert any("concept" in f for f in resp.confidence["factors"])
