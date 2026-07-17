@@ -158,6 +158,50 @@ export interface ConceptMapping {
   reviewed_at: string | null;
 }
 
+export interface BusinessDefinition {
+  id: number;
+  name: string;
+  kind: string;
+  schema_name: string;
+  table_name: string;
+  expression: string | null;
+  filter_sql: string | null;
+  description: string;
+  source_question: string | null;
+}
+
+export interface Alert {
+  id: number;
+  name: string;
+  description: string;
+  definition_id: number | null;
+  schema_name: string;
+  table_name: string | null;
+  expression: string | null;
+  filter_sql: string | null;
+  comparison: string;
+  threshold: number;
+  last_value: number | null;
+  previous_value: number | null;
+  last_status: string;
+  last_message: string | null;
+  last_checked_at: string | null;
+}
+
+export interface AlertEvent {
+  id: number;
+  value: number | null;
+  status: string;
+  message: string;
+  created_at: string;
+}
+
+export interface Preferences {
+  preferred_chart_type: string | null;
+  auto_learn: boolean;
+  auto_save_definitions: boolean;
+}
+
 export interface ChatResponse {
   status: string;
   question: string;
@@ -249,4 +293,38 @@ export const api = {
       body: JSON.stringify({ question }),
     }),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
+
+  // --- Définitions métier (V0.4, portée tenant) ---
+  definitions: () => request<BusinessDefinition[]>("/definitions"),
+  createDefinition: (payload: any) =>
+    request<BusinessDefinition>("/definitions", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deleteDefinition: (defId: number) =>
+    request<void>(`/definitions/${defId}`, { method: "DELETE" }),
+
+  // --- Alertes (V0.4) ---
+  alerts: (id: number) => request<Alert[]>(`/connections/${id}/alerts`),
+  createAlert: (id: number, payload: any) =>
+    request<Alert>(`/connections/${id}/alerts`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  checkAlert: (id: number, alertId: number) =>
+    request<Alert>(`/connections/${id}/alerts/${alertId}/check`, { method: "POST" }),
+  checkAllAlerts: (id: number) =>
+    request<Alert[]>(`/connections/${id}/alerts/check-all`, { method: "POST" }),
+  alertEvents: (id: number, alertId: number) =>
+    request<AlertEvent[]>(`/connections/${id}/alerts/${alertId}/events`),
+  deleteAlert: (id: number, alertId: number) =>
+    request<void>(`/connections/${id}/alerts/${alertId}`, { method: "DELETE" }),
+
+  // --- Préférences (V0.4, tenant) ---
+  preferences: () => request<Preferences>("/settings/preferences"),
+  updatePreferences: (payload: Partial<Preferences>) =>
+    request<Preferences>("/settings/preferences", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 };

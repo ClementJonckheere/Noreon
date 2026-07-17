@@ -8,9 +8,9 @@ argumentées, auditables** — sans jamais exposer de données brutes identifian
 à un LLM externe.
 
 Ce dépôt contient l'implémentation conforme au cahier des charges (version 2.0).
-Périmètre livré : **V0.1**, **V0.2** et **V0.3** complets — de la connexion
-PostgreSQL jusqu'au Knowledge Graph, aux rapports d'anomalies et au Privacy
-Engine.
+Périmètre livré : **V0.1 → V0.4 complets** — de la connexion PostgreSQL
+jusqu'aux définitions métier réutilisables, à l'apprentissage inter-connexions
+et aux alertes. Reste la **V1.0** (multi-bases, SSO, rôles, API publique).
 
 ---
 
@@ -28,13 +28,16 @@ Engine.
 | **9 — Graphiques** | ✅ (V0.2) | Type choisi **automatiquement selon la nature des données** (temporel→courbe, catégoriel→barres/secteurs, distribution→histogramme, 2 mesures→nuage), l'utilisateur peut **forcer un autre type** ; exports **PNG / SVG / CSV** ; repli tableau brut ; palette validée accessibilité (CVD) |
 | **10 — Rapport IA** | ✅ (V0.3) | Résumé + observations + **anomalies** (tendance, ruptures >30% entre périodes, valeurs aberrantes >2σ, concentration) + **recommandations**, calculés hors-ligne et chiffrés ; **historique rejouable** ; indice de confiance calibré |
 | **§5.1 — Privacy Engine** | ✅ (V0.3) | **Pseudonymisation déterministe** des PII (jetons `EMAIL-001`, `NOM-002`…) avant tout envoi au LLM → analyse sur données pseudonymisées → **ré-identification locale** dans le rapport ; audit des colonnes protégées ; la table de correspondance ne quitte jamais le processus |
+| **Définitions réutilisables** | ✅ (V0.4) | **Mesures** nommées (`CA = sum(amount_ttc)`) et **segments** (`client fidèle = ≥3 commandes`) définis une fois, réutilisés dans les questions (« CA par mois », « combien de clients fidèles ») ; prioritaires sur l'interprétation générique |
+| **Apprentissage** | ✅ (V0.4) | **Mémoire sémantique inter-connexions** : une décision validée sur une base renforce ou corrige les propositions sur les autres bases du tenant ; activable/désactivable |
+| **Préférences** | ✅ (V0.4) | Réglages par entreprise : type de graphique par défaut (appliqué au chat), apprentissage automatique |
+| **Alertes simples** | ✅ (V0.4) | Surveillance d'une mesure (définition ou expression) : seuil `>`/`<`, **chute en %** ou variation ; évaluation via les **garde-fous** (read-only, EXPLAIN, timeout) ; historique des évaluations |
 | **8 — SQL & garde-fous** | ✅ | Blocage **DDL/DML** (AST), **EXPLAIN + seuil de coût**, timeout, **LIMIT automatique**, file d'exécution par connexion, **journal d'audit immuable** |
 | **10 — Indice de confiance** | ✅ | Indice **calibré** (adossé au score qualité réel) accompagné de ses facteurs |
 | **§6 — Abstraction LLM** | ✅ | Interface unique multi-fournisseurs (OpenAI, Anthropic, Mistral via REST — **pas de SDK propriétaire**), + provider **heuristique hors-ligne** (fonctionne sans clé) |
-Prochaine étape (roadmap) : **V0.4** — apprentissage avancé, préférences,
-définitions métier réutilisables, alertes simples. Puis **V1.0** — multi-bases
-(MySQL, SQL Server, Snowflake, BigQuery, CSV/Excel, API REST), multi-utilisateurs
-& rôles, SSO, API publique, exports, alertes.
+Prochaine étape (roadmap) : **V1.0** — multi-bases (MySQL, SQL Server,
+Snowflake, BigQuery, CSV/Excel, API REST), multi-utilisateurs & rôles, SSO,
+API publique, exports.
 
 ### Score qualité — dimensions (Module 4)
 
@@ -142,7 +145,12 @@ puis poser des questions dans le **Chat**.
    **rapport d'anomalies** (« baisse -91 %, valeur atypique sur 2025-07 »),
    bandeau **Privacy Engine** sur les questions touchant des PII, et **transparence**
    (SQL, tables + score qualité, colonnes, hypothèses, temps).
-8. **Historique** — chaque analyse est tracée (audit immuable) et **rejouable**.
+8. **Définitions** — créez la mesure « CA » = `sum(amount_ttc)` et le segment
+   « client fidèle » ; le chat résout alors « CA par mois » et « combien de
+   clients fidèles » via ces définitions.
+9. **Alertes** — surveillez « chute du CA de plus de 20% » ou « plus de 100
+   clients » ; l'évaluation passe par les garde-fous et s'historise.
+10. **Historique** — chaque analyse est tracée (audit immuable) et **rejouable**.
 
 ---
 
@@ -150,7 +158,7 @@ puis poser des questions dans le **Chat**.
 
 ```bash
 source .venv/bin/activate
-cd backend && python -m pytest        # 95 tests
+cd backend && python -m pytest        # 109 tests
 ```
 
 Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réelle

@@ -336,3 +336,76 @@ def test_chat_privacy_engine_end_to_end(session_with_conn):
     email_idx = resp.columns.index("email")
     real_emails = [r[email_idx] for r in resp.rows if r[email_idx]]
     assert any("@" in str(e) for e in real_emails)
+
+
+def test_alert_threshold_evaluation(session_with_conn):
+    from app.models.alert import Alert
+    from app.services import alerts as alerts_svc
+
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.source_config(conn))
+
+    # Il y a 500 clients ; un seuil > 100 doit se déclencher.
+    alert = Alert(
+        tenant_id=conn.tenant_id, connection_id=conn.id, name="Trop de clients",
+        table_name="customers", expression="count(*)", comparison="gt", threshold=100,
+    )
+    db.add(alert)
+    db.flush()
+    event = alerts_svc.evaluate(db, alert, conn)
+    assert event.status == "triggered"
+    assert alert.last_value == 500
+
+    # Un seuil > 100000 ne se déclenche pas.
+    alert.threshold = 100000
+    event2 = alerts_svc.evaluate(db, alert, conn)
+    assert event2.status == "ok"
+
+
+def test_alert_pct_drop(session_with_conn):
+    from app.models.alert import Alert
+    from app.services import alerts as alerts_svc
+
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.source_config(conn))
+
+    alert = Alert(
+        tenant_id=conn.tenant_id, connection_id=conn.id, name="Chute",
+        table_name="customers", expression="count(*)", comparison="pct_drop", threshold=20,
+    )
+    db.add(alert)
+    db.flush()
+    # 1re évaluation : référence (500), pas de déclenchement.
+    e1 = alerts_svc.evaluate(db, alert, conn)
+    assert e1.status == "ok"
+    # On simule une chute en forçant last_value élevé.
+    alert.last_value = 1000
+    e2 = alerts_svc.evaluate(db, alert, conn)  # 500 vs 1000 → -50%
+    assert e2.status == "triggered"
+    assert "Chute" in e2.message
+
+
+def test_alert_via_definition(session_with_conn):
+    from app.models.alert import Alert
+    from app.models.definitions import BusinessDefinition
+    from app.services import alerts as alerts_svc
+
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.source_config(conn))
+
+    d = BusinessDefinition(
+        tenant_id=conn.tenant_id, name="CA", kind="measure",
+        table_name="orders", expression="sum(amount_ttc)",
+    )
+    db.add(d)
+    db.flush()
+    alert = Alert(
+        tenant_id=conn.tenant_id, connection_id=conn.id, name="CA mini",
+        definition_id=d.id, comparison="lt", threshold=1_000_000_000,
+    )
+    db.add(alert)
+    db.flush()
+    event = alerts_svc.evaluate(db, alert, conn)
+    # Le CA total de la démo est < 1 milliard → déclenché.
+    assert event.status == "triggered"
+    assert alert.last_value and alert.last_value > 0

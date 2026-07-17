@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AlertsPanel from "@/components/AlertsPanel";
 import ChartBlock from "@/components/ChartBlock";
+import DefinitionsPanel from "@/components/DefinitionsPanel";
 import GraphPanel from "@/components/GraphPanel";
 import {
   api,
@@ -18,7 +20,16 @@ import {
   TENANT,
 } from "@/lib/api";
 
-type Tab = "schema" | "graph" | "profiles" | "quality" | "concepts" | "chat" | "log";
+type Tab =
+  | "schema"
+  | "graph"
+  | "profiles"
+  | "quality"
+  | "concepts"
+  | "definitions"
+  | "alerts"
+  | "chat"
+  | "log";
 
 export default function Workspace() {
   const params = useParams();
@@ -113,6 +124,8 @@ export default function Workspace() {
             ["profiles", "Profils"],
             ["quality", "Qualité"],
             ["concepts", "Concepts"],
+            ["definitions", "Définitions"],
+            ["alerts", "Alertes"],
             ["log", "Historique"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
@@ -136,6 +149,8 @@ export default function Workspace() {
       {tab === "profiles" && <ProfilesPanel id={id} />}
       {tab === "quality" && <QualityPanel id={id} />}
       {tab === "concepts" && <ConceptsPanel id={id} />}
+      {tab === "definitions" && <DefinitionsPanel />}
+      {tab === "alerts" && <AlertsPanel id={id} />}
       {tab === "log" && (
         <LogPanel
           id={id}

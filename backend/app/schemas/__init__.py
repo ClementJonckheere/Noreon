@@ -204,6 +204,85 @@ class ConceptOut(BaseModel):
         from_attributes = True
 
 
+# ---- Définitions métier réutilisables (V0.4) ----
+class DefinitionCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    kind: str = Field(..., pattern="^(measure|segment)$")
+    schema_name: str = "public"
+    table_name: str
+    expression: str | None = None  # requis pour measure
+    filter_sql: str | None = None  # requis pour segment
+    description: str = ""
+    source_question: str | None = None
+
+
+class DefinitionOut(BaseModel):
+    id: int
+    name: str
+    kind: str
+    schema_name: str
+    table_name: str
+    expression: str | None
+    filter_sql: str | None
+    description: str
+    source_question: str | None
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Alertes simples (V0.4) ----
+class AlertCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str = ""
+    definition_id: int | None = None
+    schema_name: str = "public"
+    table_name: str | None = None
+    expression: str | None = None
+    filter_sql: str | None = None
+    comparison: str = Field(..., pattern="^(gt|lt|pct_drop|pct_change)$")
+    threshold: float
+
+
+class AlertOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    definition_id: int | None
+    schema_name: str
+    table_name: str | None
+    expression: str | None
+    filter_sql: str | None
+    comparison: str
+    threshold: float
+    last_value: float | None
+    previous_value: float | None
+    last_status: str
+    last_message: str | None
+    last_checked_at: datetime | None
+
+    class Config:
+        from_attributes = True
+
+
+class AlertEventOut(BaseModel):
+    id: int
+    value: float | None
+    status: str
+    message: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Préférences tenant (V0.4) ----
+class PreferencesIn(BaseModel):
+    preferred_chart_type: str | None = None
+    auto_learn: bool | None = None
+    auto_save_definitions: bool | None = None
+
+
 # ---- Chat ----
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)

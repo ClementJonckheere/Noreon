@@ -108,6 +108,13 @@ def answer_question(
     if concepts_text:
         context = context + "\n" + concepts_text
 
+    # Définitions métier réutilisables (V0.4) : mesures et segments nommés.
+    from app.services.definitions import definitions_context
+
+    defs_text = definitions_context(db, conn.tenant_id)
+    if defs_text:
+        context = context + "\n" + defs_text
+
     # 1) Génération SQL via la couche LLM (dialecte postgres).
     gen = provider.generate_sql(question, context, dialect="postgres")
 
@@ -192,10 +199,19 @@ def answer_question(
         confidence=conf.as_dict(),
     )
 
-    # Suggestion de graphique selon la nature des données (Module 9).
+    # Suggestion de graphique selon la nature des données (Module 9),
+    # en respectant la préférence de type par défaut du tenant (V0.4).
     from app.services.charting import suggest_chart
 
-    chart = suggest_chart(result.columns, result.rows).as_dict()
+    suggestion = suggest_chart(result.columns, result.rows)
+    prefs = getattr(tenant_settings, "preferences", None) or {}
+    preferred = prefs.get("preferred_chart_type") if isinstance(prefs, dict) else None
+    if preferred and suggestion.type != "table" and preferred != suggestion.type:
+        if preferred not in suggestion.alternatives:
+            suggestion.alternatives = [suggestion.type, *suggestion.alternatives]
+        suggestion.type = preferred
+        suggestion.reason = f"Type imposé par la préférence de l'entreprise ({preferred})."
+    chart = suggestion.as_dict()
 
     # Score qualité des tables utilisées (base d'arbitrage entre sources).
     from app.services.quality import table_scores_map

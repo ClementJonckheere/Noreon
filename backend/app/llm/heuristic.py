@@ -124,6 +124,40 @@ def parse_schema_context(schema_context: str) -> tuple[list[_Table], dict[str, s
     return tables, synonyms
 
 
+@dataclass
+class _Definition:
+    name: str          # nom normalisé (accents/casse)
+    raw_name: str      # nom d'origine
+    kind: str          # measure | segment
+    table: str         # nom court de la table
+    fq: str            # schema.table
+    expression: str | None
+    filter_sql: str | None
+
+
+def parse_definitions(schema_context: str) -> list[_Definition]:
+    """Extrait les définitions métier du contexte (voir definitions_context)."""
+    defs: list[_Definition] = []
+    for line in schema_context.splitlines():
+        s = line.strip()
+        m = re.match(r"^Mesure\s+(.+?)\s*=\s*(.+?)\s+sur\s+([\w]+)\.([\w]+)(?:\s+filtre:\s*(.+))?$", s)
+        if m:
+            defs.append(_Definition(
+                name=_norm(m.group(1)).strip(), raw_name=m.group(1).strip(), kind="measure",
+                table=m.group(4), fq=f"{m.group(3)}.{m.group(4)}",
+                expression=m.group(2).strip(), filter_sql=(m.group(5) or "").strip() or None,
+            ))
+            continue
+        sm = re.match(r"^Segment\s+(.+?)\s+sur\s+([\w]+)\.([\w]+)\s+filtre:\s*(.+)$", s)
+        if sm:
+            defs.append(_Definition(
+                name=_norm(sm.group(1)).strip(), raw_name=sm.group(1).strip(), kind="segment",
+                table=sm.group(3), fq=f"{sm.group(2)}.{sm.group(3)}",
+                expression=None, filter_sql=sm.group(4).strip(),
+            ))
+    return defs
+
+
 class HeuristicProvider(LLMProvider):
     name = "heuristic"
 
@@ -218,6 +252,90 @@ class HeuristicProvider(LLMProvider):
                 return col.name, col.name, False
         return None
 
+    def _mentions(self, name: str, q: str) -> bool:
+        """Vrai si tous les mots du nom de définition figurent dans la question
+        (tolérance singulier/pluriel), ex. « client fidele » ↔ « clients fideles »."""
+        name_toks = _tokens(name)
+        if not name_toks:
+            return False
+        q_toks = set(_tokens(q))
+        q_norm = {t.rstrip("s") for t in q_toks}
+        for tok in name_toks:
+            forms = {tok, tok.rstrip("s"), tok + "s"}
+            if not (forms & q_toks) and tok.rstrip("s") not in q_norm:
+                return False
+        return True
+
+    def _resolve_definition(
+        self, definitions: list[_Definition], tables: list[_Table], q: str
+    ) -> SQLGenerationResult | None:
+        """Résout une question qui mobilise une mesure ou un segment nommé."""
+        measures = [d for d in definitions if d.kind == "measure" and self._mentions(d.name, q)]
+        segments = [d for d in definitions if d.kind == "segment" and self._mentions(d.name, q)]
+        if not measures and not segments:
+            return None
+
+        def _alias(name: str) -> str:
+            a = re.sub(r"[^a-z0-9]+", "_", _norm(name)).strip("_")
+            return a or "valeur"
+
+        # --- Mesure (éventuellement restreinte par un segment de même table) ---
+        if measures:
+            d = measures[0]
+            table_obj = next((t for t in tables if t.name == d.table), None)
+            filters = [d.filter_sql] if d.filter_sql else []
+            used_segment = None
+            for seg in segments:
+                if seg.table == d.table and seg.filter_sql:
+                    filters.append(f"({seg.filter_sql})")
+                    used_segment = seg
+            where = f" WHERE {' AND '.join(filters)}" if filters else ""
+            alias = _alias(d.raw_name)
+            assumptions = [f"Mesure métier « {d.raw_name} » = {d.expression} sur {d.fq}."]
+            if used_segment:
+                assumptions.append(f"Restreinte au segment « {used_segment.raw_name} ».")
+
+            group = self._pick_group(table_obj, q) if table_obj else None
+            if group is not None:
+                gexpr, galias, is_time = group
+                order = "1" if is_time else "2 DESC"
+                sql = (
+                    f"SELECT {gexpr} AS {galias}, {d.expression} AS {alias} "
+                    f"FROM {d.fq}{where} GROUP BY 1 ORDER BY {order}"
+                )
+                assumptions.append(f"Ventilé par « {galias} ».")
+                cols = [alias, galias]
+            else:
+                sql = f"SELECT {d.expression} AS {alias} FROM {d.fq}{where}"
+                cols = [alias]
+            return SQLGenerationResult(
+                sql=sql, tables_used=[d.fq], columns_used=cols,
+                assumptions=assumptions,
+                rationale=f"Question résolue via la définition métier « {d.raw_name} ».",
+            )
+
+        # --- Segment seul : comptage ou liste de la population définie ---
+        d = segments[0]
+        where = f" WHERE {d.filter_sql}"
+        assumptions = [f"Segment métier « {d.raw_name} » sur {d.fq} : {d.filter_sql}."]
+        if re.search(r"\b(combien|nombre|count|compter|how many)\b", q):
+            sql = f"SELECT count(*) AS total FROM {d.fq}{where}"
+            return SQLGenerationResult(
+                sql=sql, tables_used=[d.fq], columns_used=[],
+                assumptions=assumptions,
+                rationale=f"Comptage du segment métier « {d.raw_name} ».",
+            )
+        table_obj = next((t for t in tables if t.name == d.table), None)
+        cols = _select_columns(table_obj) if table_obj else "*"
+        sql = f"SELECT {cols} FROM {d.fq}{where} LIMIT 100"
+        assumptions.append("Aperçu limité à 100 lignes.")
+        return SQLGenerationResult(
+            sql=sql, tables_used=[d.fq],
+            columns_used=[c.name for c in table_obj.columns[:12]] if table_obj else [],
+            assumptions=assumptions,
+            rationale=f"Liste du segment métier « {d.raw_name} ».",
+        )
+
     # ---- interface -------------------------------------------------------
     def generate_sql(
         self,
@@ -227,8 +345,15 @@ class HeuristicProvider(LLMProvider):
         history: list[LLMMessage] | None = None,
     ) -> SQLGenerationResult:
         tables, biz_syns = parse_schema_context(schema_context)
+        definitions = parse_definitions(schema_context)
         q = _norm(question)
         q_tokens = set(_tokens(question))
+
+        # Définitions métier réutilisables (V0.4) : prioritaires — une mesure
+        # ou un segment nommé fait foi sur l'interprétation générique.
+        resolved = self._resolve_definition(definitions, tables, q)
+        if resolved is not None:
+            return resolved
 
         table = self._pick_table(tables, q_tokens, biz_syns)
         if table is None:
