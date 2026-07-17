@@ -17,7 +17,7 @@ from app.core.logging import get_logger
 from app.models.connection import Connection
 from app.models.profile import ColumnProfile, ProfilingJob
 from app.models.schema_catalog import DbColumn, DbTable
-from app.services.connections import source_config
+from app.services.connections import get_source_adapter
 from app.services.profiler import persist_profiles, profile_table
 from app.services.schema_context import current_snapshot
 
@@ -55,7 +55,7 @@ def run_profiling_job(job_id: int) -> None:
         job.tables_total = len(tables)
         db.commit()
 
-        cfg = source_config(conn)
+        adapter = get_source_adapter(conn)
         for table in tables:
             # Re-profilage : on purge les anciens profils de la table.
             db.query(ColumnProfile).filter(
@@ -67,7 +67,7 @@ def run_profiling_job(job_id: int) -> None:
                 select(DbColumn).where(DbColumn.table_id == table.id).order_by(DbColumn.ordinal)
             ).scalars().all()
             try:
-                profiles = profile_table(cfg, table, columns)
+                profiles = profile_table(adapter, table, columns)
                 persist_profiles(db, conn, table, profiles)
             except Exception as exc:  # noqa: BLE001 - échantillonnage dégradé/signalement
                 log.warning("Profilage échoué pour %s : %s", table.fqtn, exc)

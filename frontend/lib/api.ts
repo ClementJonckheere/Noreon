@@ -32,6 +32,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface Connection {
   id: number;
   name: string;
+  engine: string;
   host: string;
   port: number;
   database: string;
@@ -245,6 +246,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  uploadFileConnection: async (name: string, file: File): Promise<CreateResult> => {
+    const form = new FormData();
+    form.append("name", name);
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/connections/upload`, {
+      method: "POST",
+      headers: { "X-Tenant": TENANT },
+      body: form,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        detail = (await res.json()).detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  },
   testConnection: (id: number) =>
     request<Probe>(`/connections/${id}/test`, { method: "POST" }),
   deleteConnection: (id: number) =>

@@ -22,8 +22,8 @@ from app.models.profile import ColumnProfile
 from app.models.query_log import QueryLog
 from app.models.tenant import TenantSettings
 from app.services import confidence as confidence_svc
-from app.services.connections import source_config
-from app.services.executor import CostThresholdExceeded, run_query
+from app.services.connections import get_source_adapter
+from app.services.executor import CostThresholdExceeded
 from app.services.schema_context import build_context, current_snapshot
 from app.services.sql_guard import SQLGuardError
 
@@ -115,8 +115,9 @@ def answer_question(
     if defs_text:
         context = context + "\n" + defs_text
 
-    # 1) Génération SQL via la couche LLM (dialecte postgres).
-    gen = provider.generate_sql(question, context, dialect="postgres")
+    # 1) Génération SQL via la couche LLM, dans le dialecte du moteur source.
+    adapter = get_source_adapter(conn)
+    gen = provider.generate_sql(question, context, dialect=adapter.dialect)
 
     if gen.clarification_needed:
         # « Il ne devine jamais silencieusement » — on remonte la question.
@@ -137,12 +138,10 @@ def answer_question(
     max_cost = tenant_settings.sql_max_cost if tenant_settings else 1_000_000.0
     max_conc = tenant_settings.sql_max_concurrent_per_connection if tenant_settings else 1
 
-    cfg = source_config(conn)
-
     # 2) Garde-fous + exécution read-only.
     try:
-        result = run_query(
-            cfg, gen.sql, connection_id=conn.id,
+        result = adapter.run_query(
+            gen.sql, connection_id=conn.id,
             row_limit=row_limit, timeout_seconds=timeout,
             max_cost=max_cost, max_concurrent=max_conc,
         )

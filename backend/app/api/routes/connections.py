@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import os
+import uuid
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.core.config import settings
 
 from app.api.deps import current_tenant, get_owned_connection
 from app.core.db import get_db
@@ -44,9 +49,9 @@ def create_connection(
         raise HTTPException(status_code=409, detail="Une connexion porte déjà ce nom.")
 
     conn, probe = conn_svc.create_connection(
-        db, tenant_id=tenant.id, name=payload.name, host=payload.host,
-        port=payload.port, database=payload.database, username=payload.username,
-        password=payload.password, options=payload.options,
+        db, tenant_id=tenant.id, name=payload.name, engine=payload.engine,
+        host=payload.host, port=payload.port, database=payload.database,
+        username=payload.username, password=payload.password, options=payload.options,
     )
     db.commit()
     db.refresh(conn)
@@ -58,6 +63,42 @@ def create_connection(
         connection=ConnectionOut.model_validate(conn),
         probe=ProbeResult(**probe),
         read_only_alert=alert,
+    )
+
+
+@router.post("/upload", response_model=ConnectionCreateResult, status_code=201)
+async def upload_file_connection(
+    name: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(current_tenant),
+) -> ConnectionCreateResult:
+    """Crée une connexion à partir d'un fichier CSV/Excel téléversé (V1.0)."""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    fmt = "excel" if ext in (".xlsx", ".xls", ".xlsm") else "csv"
+
+    dest_dir = os.path.join(settings.data_dir, "uploads", tenant.slug)
+    os.makedirs(dest_dir, exist_ok=True)
+    safe = os.path.basename(file.filename or "source")
+    dest = os.path.join(dest_dir, f"{uuid.uuid4().hex}_{safe}")
+    with open(dest, "wb") as out:
+        out.write(await file.read())
+
+    existing = db.execute(
+        select(Connection).where(Connection.tenant_id == tenant.id, Connection.name == name)
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Une connexion porte déjà ce nom.")
+
+    conn, probe = conn_svc.create_connection(
+        db, tenant_id=tenant.id, name=name, engine=fmt,
+        options={"file_path": dest, "format": fmt, "original_name": safe},
+    )
+    db.commit()
+    db.refresh(conn)
+    return ConnectionCreateResult(
+        connection=ConnectionOut.model_validate(conn),
+        probe=ProbeResult(**probe), read_only_alert=None,
     )
 
 
@@ -82,8 +123,8 @@ def test_connection(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),
 ) -> ProbeResult:
-    cfg = conn_svc.source_config(conn)
-    probe = conn_svc.probe(cfg)
+    adapter = conn_svc.get_source_adapter(conn)
+    probe = conn_svc.probe(adapter)
     conn_svc.persist_probe_result(conn, probe)
     db.commit()
     return ProbeResult(**probe)

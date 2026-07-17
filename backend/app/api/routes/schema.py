@@ -26,8 +26,8 @@ def scan(
             status_code=409,
             detail="Connexion non read-only : scan refusé. Corrigez les droits d'abord.",
         )
-    cfg = conn_svc.source_config(conn)
-    snapshot, changed = scanner.scan_and_persist(db, conn, cfg)
+    adapter = conn_svc.get_source_adapter(conn)
+    snapshot, changed = scanner.scan_and_persist(db, conn, adapter)
     db.commit()
     return ScanOut(
         snapshot_id=snapshot.id, version=snapshot.version, signature=snapshot.signature,

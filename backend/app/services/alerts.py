@@ -21,8 +21,7 @@ from app.models.alert import Alert, AlertEvent
 from app.models.connection import Connection
 from app.models.definitions import BusinessDefinition
 from app.models.tenant import TenantSettings
-from app.services.connections import source_config
-from app.services.executor import run_query
+from app.services.connections import get_source_adapter
 
 log = get_logger("noreon.alerts")
 
@@ -85,9 +84,9 @@ def evaluate(db: Session, alert: Alert, conn: Connection) -> AlertEvent:
 
     try:
         sql = _alert_sql(db, alert)
-        cfg = source_config(conn)
-        result = run_query(
-            cfg, sql, connection_id=conn.id,
+        adapter = get_source_adapter(conn)
+        result = adapter.run_query(
+            sql, connection_id=conn.id,
             row_limit=10, timeout_seconds=timeout, max_cost=max_cost, max_concurrent=1,
         )
         raw = result.rows[0][0] if result.rows and result.rows[0] else None

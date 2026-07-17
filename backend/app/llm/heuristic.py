@@ -160,6 +160,7 @@ def parse_definitions(schema_context: str) -> list[_Definition]:
 
 class HeuristicProvider(LLMProvider):
     name = "heuristic"
+    dialect = "postgres"
 
     # ---- appariement -----------------------------------------------------
     def _score_table(
@@ -227,6 +228,18 @@ class HeuristicProvider(LLMProvider):
         "trimestre": "quarter", "quarter": "quarter",
     }
 
+    def _date_trunc(self, unit: str, col: str) -> str:
+        """Troncature de date selon le dialecte du moteur source."""
+        if self.dialect == "mysql":
+            fmt = {"year": "%Y-01-01", "quarter": "%Y-%m-01", "month": "%Y-%m-01",
+                   "week": "%x-%v", "day": "%Y-%m-%d"}.get(unit, "%Y-%m-%d")
+            return f"DATE_FORMAT({col}, '{fmt}')"
+        if self.dialect == "sqlite":
+            fmt = {"year": "%Y-01-01", "month": "%Y-%m-01", "day": "%Y-%m-%d",
+                   "week": "%Y-%W"}.get(unit, "%Y-%m-%d")
+            return f"strftime('{fmt}', {col})"
+        return f"date_trunc('{unit}', {col})::date"  # postgres
+
     def _pick_group(self, table: _Table, q: str) -> tuple[str, str, bool] | None:
         """Détecte un « par X » → (expression SQL, alias, est_temporel)."""
         m = re.search(r"\b(?:par|by|per)\s+([a-z0-9_]+)", q)
@@ -234,15 +247,15 @@ class HeuristicProvider(LLMProvider):
             return None
         token = m.group(1)
 
-        # « par mois/jour/… » → date_trunc sur la première colonne temporelle.
+        # « par mois/jour/… » → troncature de date (dialecte) sur la 1re colonne temporelle.
         unit = self._TIME_UNITS.get(token)
         if unit:
             date_col = next(
-                (c for c in table.columns if any(k in c.dtype.lower() for k in ("date", "timestamp"))),
+                (c for c in table.columns if any(k in c.dtype.lower() for k in ("date", "timestamp", "time"))),
                 None,
             )
             if date_col is not None:
-                expr = f"date_trunc('{unit}', {date_col.name})::date"
+                expr = self._date_trunc(unit, date_col.name)
                 return expr, unit, True
 
         # « par <colonne> » → colonne correspondante de la table.
@@ -344,6 +357,7 @@ class HeuristicProvider(LLMProvider):
         dialect: str = "postgres",
         history: list[LLMMessage] | None = None,
     ) -> SQLGenerationResult:
+        self.dialect = dialect  # oriente la troncature de date (_date_trunc)
         tables, biz_syns = parse_schema_context(schema_context)
         definitions = parse_definitions(schema_context)
         q = _norm(question)

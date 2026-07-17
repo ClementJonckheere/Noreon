@@ -87,7 +87,10 @@ export default function Workspace() {
           </Link>
           <h1 className="text-2xl font-semibold">{conn.name}</h1>
           <div className="text-xs text-noreon-soft mono">
-            {conn.username}@{conn.host}:{conn.port}/{conn.database}
+            <span className="uppercase mr-2">{conn.engine}</span>
+            {conn.engine === "csv" || conn.engine === "excel"
+              ? "fichier importé (SQLite local)"
+              : `${conn.username}@${conn.host}:${conn.port}/${conn.database}`}
           </div>
         </div>
         <div className="flex gap-2">

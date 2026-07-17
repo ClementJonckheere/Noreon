@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    # Répertoire de stockage des fichiers sources (CSV/Excel) et de leur
+    # matérialisation SQLite (V1.0).
+    data_dir: str = "./data"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

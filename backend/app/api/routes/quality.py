@@ -22,9 +22,9 @@ def run_quality(
 ) -> QualityRunOut:
     if conn.is_read_only is False:
         raise HTTPException(status_code=409, detail="Connexion non read-only : calcul refusé.")
-    cfg = conn_svc.source_config(conn)
+    adapter = conn_svc.get_source_adapter(conn)
     try:
-        summary = quality_svc.run_quality(db, conn, cfg)
+        summary = quality_svc.run_quality(db, conn, adapter)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()

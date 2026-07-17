@@ -8,9 +8,11 @@ argumentées, auditables** — sans jamais exposer de données brutes identifian
 à un LLM externe.
 
 Ce dépôt contient l'implémentation conforme au cahier des charges (version 2.0).
-Périmètre livré : **V0.1 → V0.4 complets** — de la connexion PostgreSQL
-jusqu'aux définitions métier réutilisables, à l'apprentissage inter-connexions
-et aux alertes. Reste la **V1.0** (multi-bases, SSO, rôles, API publique).
+Périmètre livré : **V0.1 → V1.0 (multi-sources)** — de la connexion PostgreSQL
+jusqu'aux définitions métier, aux alertes et au **support multi-moteurs
+(PostgreSQL, MySQL/MariaDB, CSV, Excel)** via une couche d'abstraction des
+sources. Reste, pour compléter la V1.0 : authentification & rôles, SSO, API
+publique.
 
 ---
 
@@ -18,7 +20,8 @@ et aux alertes. Reste la **V1.0** (multi-bases, SSO, rôles, API publique).
 
 | Module (CDC) | Statut | Détails |
 |---|---|---|
-| **1 — Connexions** | ✅ | Test obligatoire, **vérification read-only bloquante**, credentials chiffrés **AES-256-GCM**, jamais loggés ni transmis au LLM, SSL/TLS (`sslmode`), isolation par tenant |
+| **1 — Connexions** | ✅ | **Multi-moteurs** (PostgreSQL, MySQL/MariaDB, CSV, Excel), test obligatoire, **vérification read-only bloquante** (par moteur), credentials chiffrés **AES-256-GCM**, jamais loggés ni transmis au LLM, isolation par tenant |
+| **Multi-sources (V1.0)** | ✅ | Couche d'**abstraction des sources** (`SourceAdapter`) : introspection, profilage, garde-fous et chat identiques sur tous les moteurs ; CSV/Excel matérialisés en **SQLite** local (lecture seule) ; upload de fichier ; NL→SQL dans le **dialecte** du moteur |
 | **2 — Scanner** | ✅ | Introspection tables/colonnes/PK/FK, **détection des FK implicites** (`xxx_id`), snapshots **versionnés**, scan incrémental par signature |
 | **3 — Profilage** | ✅ | Taux de NULL, distinct, min/max, moyenne, top valeurs, **détection du type réel** (dates en VARCHAR…) et des **PII**, comptes exacts (NULL, invalides), **échantillonnage** au-delà du seuil, exécution **asynchrone** |
 | **4 — Score qualité** | ✅ (V0.2) | 5 dimensions **auditables** (complétude, validité, unicité, cohérence, fraîcheur) avec détail chiffré vérifiable ; scores colonne/table/relation/base ; pondérations **par tenant** ; intégrité référentielle réelle (orphelins) ; alimente l'indice de confiance et l'arbitrage entre tables |
@@ -35,9 +38,10 @@ et aux alertes. Reste la **V1.0** (multi-bases, SSO, rôles, API publique).
 | **8 — SQL & garde-fous** | ✅ | Blocage **DDL/DML** (AST), **EXPLAIN + seuil de coût**, timeout, **LIMIT automatique**, file d'exécution par connexion, **journal d'audit immuable** |
 | **10 — Indice de confiance** | ✅ | Indice **calibré** (adossé au score qualité réel) accompagné de ses facteurs |
 | **§6 — Abstraction LLM** | ✅ | Interface unique multi-fournisseurs (OpenAI, Anthropic, Mistral via REST — **pas de SDK propriétaire**), + provider **heuristique hors-ligne** (fonctionne sans clé) |
-Prochaine étape (roadmap) : **V1.0** — multi-bases (MySQL, SQL Server,
-Snowflake, BigQuery, CSV/Excel, API REST), multi-utilisateurs & rôles, SSO,
-API publique, exports.
+Multi-moteurs livrés : **PostgreSQL, MySQL/MariaDB, CSV, Excel** (l'architecture
+d'adaptateurs rend l'ajout de SQL Server / Snowflake / BigQuery / API REST
+mécanique). Reste pour finaliser la V1.0 : **authentification & rôles, SSO/MFA,
+API publique**.
 
 ### Score qualité — dimensions (Module 4)
 
@@ -158,7 +162,7 @@ puis poser des questions dans le **Chat**.
 
 ```bash
 source .venv/bin/activate
-cd backend && python -m pytest        # 109 tests
+cd backend && python -m pytest        # 119 tests (dont MySQL + CSV/Excel)
 ```
 
 Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réelle

@@ -8,11 +8,12 @@ from pydantic import BaseModel, Field
 # ---- Connexions ----
 class ConnectionCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    host: str
-    port: int = 5432
-    database: str
-    username: str
-    password: str
+    engine: str = "postgresql"  # postgresql | mysql | csv | excel
+    host: str = ""
+    port: int | None = None
+    database: str = ""
+    username: str = ""
+    password: str = ""
     options: dict = Field(default_factory=dict)
 
 
