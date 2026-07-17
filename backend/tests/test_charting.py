@@ -46,6 +46,27 @@ def test_categorical_suggests_bar_with_pie_alternative():
     assert "pie" in s.alternatives
 
 
+def test_phone_text_not_a_numeric_measure():
+    # « +33600000001 » est un téléphone, jamais une mesure à tracer.
+    s = suggest_chart(
+        ["full_name", "phone"],
+        [["Client 1", "+33600000001"], ["Client 2", "+33600000002"], ["Client 3", "+33600000003"]],
+    )
+    assert s.type == "table"
+
+
+def test_unsorted_temporal_dump_not_line():
+    # Liste brute non triée sur la date → pas une courbe.
+    rows = [
+        ["2023-05-01", 10],
+        ["2023-01-01", 500],
+        ["2023-09-01", 3],
+        ["2023-02-01", 250],
+    ]
+    s = suggest_chart(["signup_date", "loyalty_points"], rows)
+    assert s.type != "line"
+
+
 def test_id_column_is_categorical_not_scatter():
     # store_id est un identifiant : barres, jamais un nuage de points.
     s = suggest_chart(

@@ -51,15 +51,17 @@ class ChatResponse:
     confidence: dict | None = None
     table_quality: dict = field(default_factory=dict)
     chart: dict | None = None
+    privacy: dict | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
 
 
-def _pii_columns(db: Session, connection_id: int, tables_used: list[str]) -> set[str]:
+def _pii_columns(db: Session, connection_id: int, tables_used: list[str]) -> dict[str, str]:
+    """Colonnes PII des tables utilisées (détectées par le profilage) → type."""
     names = [t.split(".")[-1] for t in tables_used]
     if not names:
-        return set()
+        return {}
     profiles = db.execute(
         select(ColumnProfile).where(
             ColumnProfile.connection_id == connection_id,
@@ -67,24 +69,7 @@ def _pii_columns(db: Session, connection_id: int, tables_used: list[str]) -> set
             ColumnProfile.pii_type.is_not(None),
         )
     ).scalars().all()
-    return {p.column_name for p in profiles}
-
-
-def _anonymize(columns: list[str], rows: list[list], pii_cols: set[str]) -> list[list]:
-    """Masque les colonnes PII avant tout envoi au LLM (contrat Privacy Engine).
-
-    En V0.1 on pseudonymise par masquage ; l'anonymisation avancée
-    (agrégation, généralisation) sera formalisée par le Privacy Engine en V0.3.
-    """
-    if not pii_cols:
-        return rows
-    mask_idx = {i for i, c in enumerate(columns) if c in pii_cols}
-    if not mask_idx:
-        return rows
-    masked: list[list] = []
-    for r in rows:
-        masked.append([("***" if i in mask_idx else v) for i, v in enumerate(r)])
-    return masked
+    return {p.column_name: p.pii_type for p in profiles}
 
 
 def answer_question(
@@ -174,15 +159,20 @@ def answer_question(
             message=f"Erreur d'exécution : {exc}",
         )
 
-    # 3) Anonymisation PII avant analyse LLM.
+    # 3) Privacy Engine (§5.1) : pseudonymisation des PII avant analyse LLM,
+    # puis ré-identification LOCALE dans le rapport produit.
+    from app.services import privacy as privacy_svc
+
     pii_cols = _pii_columns(db, conn.id, gen.tables_used or result.columns)
-    safe_rows = _anonymize(result.columns, result.rows, pii_cols)
+    protection = privacy_svc.protect(result.columns, result.rows, pii_cols)
 
     analysis = None
     if run_analysis:
         try:
-            a = provider.analyze_results(question, result.guarded_sql, result.columns, safe_rows)
-            analysis = asdict(a)
+            a = provider.analyze_results(
+                question, result.guarded_sql, result.columns, protection.rows
+            )
+            analysis = privacy_svc.reidentify_analysis(asdict(a), protection.token_map)
         except Exception as exc:  # noqa: BLE001 - repli sur tableau brut (agent Reporting)
             log.warning("Analyse LLM indisponible, repli tableau brut : %s", exc)
 
@@ -225,7 +215,7 @@ def answer_question(
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
         analysis=analysis, confidence=conf.as_dict(), table_quality=table_quality,
-        chart=chart,
+        chart=chart, privacy=protection.audit,
     )
 
 

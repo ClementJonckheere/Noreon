@@ -40,16 +40,22 @@ def build_context(db: Session, snapshot: SchemaSnapshot, max_tables: int = 60) -
             pk = " PK" if c.is_primary_key else ""
             lines.append(f"  - {c.name} {c.data_type}{pk}")
 
+    # Les relations REJETÉES par l'utilisateur (boucle de validation, Module 6)
+    # ne guident plus le choix des jointures.
     relations = db.execute(
-        select(DbRelation).where(DbRelation.snapshot_id == snapshot.id)
+        select(DbRelation).where(
+            DbRelation.snapshot_id == snapshot.id,
+            DbRelation.status != "rejected",
+        )
     ).scalars().all()
     if relations:
         lines.append("")
         lines.append("Relations connues (jointures possibles) :")
         for r in relations:
             tag = {"declared": "FK", "inferred": "FK inférée", "validated": "FK validée"}.get(r.kind, r.kind)
+            card = f", {r.cardinality}" if r.cardinality else ""
             lines.append(
                 f"  {r.from_schema}.{r.from_table}.{r.from_column} -> "
-                f"{r.to_schema}.{r.to_table}.{r.to_column} [{tag}]"
+                f"{r.to_schema}.{r.to_table}.{r.to_column} [{tag}{card}]"
             )
     return "\n".join(lines)

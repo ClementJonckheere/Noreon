@@ -215,10 +215,15 @@ def column_quality(
 # Intégrité référentielle (dimension Cohérence + score relation)
 # --------------------------------------------------------------------------
 def compute_integrity(cfg: SourceConfig, rel: DbRelation, timeout_ms: int) -> dict | None:
-    """Taux d'orphelins réel d'une relation (LEFT JOIN sur la source)."""
+    """Taux d'orphelins réel + cardinalité d'une relation (Module 6).
+
+    La cardinalité est mesurée sur les données, pas supposée : si chaque
+    valeur de la colonne source est unique, la relation est 1-1, sinon n-1.
+    """
     q = pgsql.SQL(
         "SELECT count(*) AS total, "
-        "count(*) FILTER (WHERE t.{tocol} IS NULL) AS orphans "
+        "count(*) FILTER (WHERE t.{tocol} IS NULL) AS orphans, "
+        "count(DISTINCT f.{fcol}) AS distinct_from "
         "FROM {ftab} f LEFT JOIN {ttab} t ON f.{fcol} = t.{tocol} "
         "WHERE f.{fcol} IS NOT NULL"
     ).format(
@@ -231,16 +236,19 @@ def compute_integrity(cfg: SourceConfig, rel: DbRelation, timeout_ms: int) -> di
         with open_source(cfg, statement_timeout_ms=timeout_ms) as conn:
             with conn.cursor() as cur:
                 cur.execute(q)
-                total, orphans = cur.fetchone()
+                total, orphans, distinct_from = cur.fetchone()
     except Exception as exc:  # noqa: BLE001
         log.warning("Intégrité non calculée pour %s.%s: %s", rel.from_table, rel.from_column, exc)
         return None
     total = int(total or 0)
     orphans = int(orphans or 0)
+    distinct_from = int(distinct_from or 0)
     ratio = 1.0 if total == 0 else 1 - orphans / total
+    cardinality = "1-1" if total > 0 and distinct_from == total else "n-1"
     return {
         "ratio": ratio, "orphans": orphans, "total": total,
         "to_table": f"{rel.to_schema}.{rel.to_table}",
+        "cardinality": cardinality,
     }
 
 
@@ -277,6 +285,7 @@ def run_quality(db: Session, conn: Connection, cfg: SourceConfig, timeout_second
         if info is None:
             continue
         rel.integrity_ratio = info["ratio"]
+        rel.cardinality = info["cardinality"]
         key = (rel.from_table, rel.from_column)
         # En cas de FK multiples on garde la pire intégrité (la plus prudente).
         if key not in integrity_map or info["ratio"] < integrity_map[key]["ratio"]:

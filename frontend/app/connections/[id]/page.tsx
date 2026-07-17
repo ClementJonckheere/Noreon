@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import ChartBlock from "@/components/ChartBlock";
+import GraphPanel from "@/components/GraphPanel";
 import {
   api,
   API_BASE,
@@ -17,7 +18,7 @@ import {
   TENANT,
 } from "@/lib/api";
 
-type Tab = "schema" | "profiles" | "quality" | "concepts" | "chat" | "log";
+type Tab = "schema" | "graph" | "profiles" | "quality" | "concepts" | "chat" | "log";
 
 export default function Workspace() {
   const params = useParams();
@@ -25,6 +26,8 @@ export default function Workspace() {
   const [conn, setConn] = useState<Connection | null>(null);
   const [tab, setTab] = useState<Tab>("chat");
   const [notice, setNotice] = useState<string | null>(null);
+  // Historique rejouable : question relancée depuis l'onglet Historique.
+  const [replay, setReplay] = useState<{ q: string; n: number } | null>(null);
 
   async function refresh() {
     setConn(await api.getConnection(id));
@@ -106,10 +109,11 @@ export default function Workspace() {
           [
             ["chat", "Chat"],
             ["schema", "Schéma"],
+            ["graph", "Graphe"],
             ["profiles", "Profils"],
             ["quality", "Qualité"],
             ["concepts", "Concepts"],
-            ["log", "Journal SQL"],
+            ["log", "Historique"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button
@@ -126,22 +130,46 @@ export default function Workspace() {
         ))}
       </nav>
 
-      {tab === "chat" && <ChatPanel id={id} />}
+      {tab === "chat" && <ChatPanel id={id} replay={replay} />}
       {tab === "schema" && <SchemaPanel id={id} />}
+      {tab === "graph" && <GraphPanel id={id} />}
       {tab === "profiles" && <ProfilesPanel id={id} />}
       {tab === "quality" && <QualityPanel id={id} />}
       {tab === "concepts" && <ConceptsPanel id={id} />}
-      {tab === "log" && <LogPanel id={id} />}
+      {tab === "log" && (
+        <LogPanel
+          id={id}
+          onReplay={(q) => {
+            setReplay({ q, n: Date.now() });
+            setTab("chat");
+          }}
+        />
+      )}
     </div>
   );
 }
 
 /* ------------------------------- CHAT ---------------------------------- */
-function ChatPanel({ id }: { id: number }) {
+function ChatPanel({
+  id,
+  replay,
+}: {
+  id: number;
+  replay?: { q: string; n: number } | null;
+}) {
   const [q, setQ] = useState("Combien de clients ?");
   const [busy, setBusy] = useState(false);
   const [resp, setResp] = useState<ChatResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Historique rejouable : une question relancée depuis l'onglet Historique.
+  useEffect(() => {
+    if (replay?.q) {
+      setQ(replay.q);
+      ask(replay.q);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replay?.n]);
 
   const suggestions = [
     "Combien de clients ?",
@@ -224,15 +252,45 @@ function ChatResult({ r }: { r: ChatResponse }) {
       )}
 
       {r.analysis?.summary && (
-        <div className="card p-4">
-          <div className="text-sm">{r.analysis.summary}</div>
+        <div className="card p-4 space-y-2">
+          <div className="text-sm font-medium">{r.analysis.summary}</div>
           {r.analysis.observations?.length > 0 && (
-            <ul className="mt-2 text-xs text-noreon-soft list-disc pl-4">
+            <ul className="text-xs text-noreon-soft list-disc pl-4">
               {r.analysis.observations.map((o: string, i: number) => (
                 <li key={i}>{o}</li>
               ))}
             </ul>
           )}
+          {r.analysis.anomalies?.length > 0 && (
+            <div className="text-xs bg-amber-500/10 rounded-lg p-2 space-y-1">
+              <div className="font-medium text-amber-200">Anomalies détectées</div>
+              <ul className="list-disc pl-4 text-amber-200/90">
+                {r.analysis.anomalies.map((a: string, i: number) => (
+                  <li key={i}>{a}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {r.analysis.recommendations?.length > 0 && (
+            <div className="text-xs space-y-1">
+              <div className="font-medium text-sky-300">Recommandations</div>
+              <ul className="list-disc pl-4 text-noreon-soft">
+                {r.analysis.recommendations.map((rec: string, i: number) => (
+                  <li key={i}>{rec}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {r.privacy && r.privacy.values_protected > 0 && (
+        <div className="text-xs text-emerald-300/90 bg-emerald-500/10 rounded-lg px-3 py-2">
+          🛡 Privacy Engine — {Object.entries(r.privacy.protected_columns)
+            .map(([c, t]) => `${c} (${t})`)
+            .join(", ")}{" "}
+          : {r.privacy.values_protected} valeur(s) pseudonymisée(s) avant envoi au
+          LLM, ré-identifiées localement.
         </div>
       )}
 
@@ -893,31 +951,47 @@ function MappingCard({
   );
 }
 
-/* -------------------------------- LOG ---------------------------------- */
-function LogPanel({ id }: { id: number }) {
+/* ----------------------------- HISTORIQUE ------------------------------ */
+function LogPanel({
+  id,
+  onReplay,
+}: {
+  id: number;
+  onReplay?: (question: string) => void;
+}) {
   const [rows, setRows] = useState<any[] | null>(null);
   useEffect(() => {
     api.queries(id).then(setRows).catch(() => setRows([]));
   }, [id]);
   if (!rows) return <div className="text-noreon-soft">Chargement…</div>;
   if (rows.length === 0)
-    return <div className="text-sm text-noreon-soft">Aucune requête journalisée.</div>;
+    return <div className="text-sm text-noreon-soft">Aucune analyse dans l'historique.</div>;
 
   return (
     <div className="space-y-2">
       {rows.map((r) => (
         <div key={r.id} className="card p-3 text-xs space-y-1">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-noreon-soft">{r.question}</span>
-            <span
-              className={`badge ${
-                r.status === "ok"
-                  ? "bg-emerald-500/15 text-emerald-300"
-                  : "bg-red-500/15 text-red-300"
-              }`}
-            >
-              {r.status}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {r.question && onReplay && (
+                <button
+                  className="btn-ghost !py-0.5 !px-2 text-xs"
+                  onClick={() => onReplay(r.question)}
+                >
+                  ↻ Rejouer
+                </button>
+              )}
+              <span
+                className={`badge ${
+                  r.status === "ok"
+                    ? "bg-emerald-500/15 text-emerald-300"
+                    : "bg-red-500/15 text-red-300"
+                }`}
+              >
+                {r.status}
+              </span>
+            </div>
           </div>
           <pre className="mono bg-black/40 rounded p-2 overflow-x-auto whitespace-pre-wrap">
             {r.sql}
