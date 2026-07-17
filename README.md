@@ -8,9 +8,9 @@ argumentées, auditables** — sans jamais exposer de données brutes identifian
 à un LLM externe.
 
 Ce dépôt contient l'implémentation conforme au cahier des charges (version 2.0).
-Périmètre livré : **V0.1** complet (PostgreSQL, scan, profilage, chat SQL avec
-garde-fous) et **V0.2** complet (score qualité auditable, compréhension métier
-avec boucle de validation humaine et mémoire entreprise, graphiques).
+Périmètre livré : **V0.1**, **V0.2** et **V0.3** complets — de la connexion
+PostgreSQL jusqu'au Knowledge Graph, aux rapports d'anomalies et au Privacy
+Engine.
 
 ---
 
@@ -23,15 +23,18 @@ avec boucle de validation humaine et mémoire entreprise, graphiques).
 | **3 — Profilage** | ✅ | Taux de NULL, distinct, min/max, moyenne, top valeurs, **détection du type réel** (dates en VARCHAR…) et des **PII**, comptes exacts (NULL, invalides), **échantillonnage** au-delà du seuil, exécution **asynchrone** |
 | **4 — Score qualité** | ✅ (V0.2) | 5 dimensions **auditables** (complétude, validité, unicité, cohérence, fraîcheur) avec détail chiffré vérifiable ; scores colonne/table/relation/base ; pondérations **par tenant** ; intégrité référentielle réelle (orphelins) ; alimente l'indice de confiance et l'arbitrage entre tables |
 | **5 — Compréhension métier** | ✅ (V0.2) | Concepts identifiés depuis les **noms ET le contenu réel** (PII, types profilés) ; **boucle de validation humaine** (proposé/validé/corrigé/rejeté, jamais auto-validé) ; **mémoire entreprise** (décisions conservées, corrections → synonymes réutilisés) ; détection des **variantes piégeuses HT/TTC** avec arbitrage obligatoire ; dictionnaire **exportable CSV/JSON** ; synonymes manuels ; concepts validés injectés dans le moteur SQL et signalés dans la confiance |
+| **6 — Knowledge Graph** | ✅ (V0.3) | Graphe **navigable** des entités métier (nœuds = tables + concepts-entités validés, taille = volumétrie, bordure = score qualité) ; relations **documentées** (source déclarée/inférée/validée, **cardinalité mesurée**, taux d'intégrité) ; **boucle de validation** des relations inférées ; sert de contexte au moteur SQL |
 | **7 — Chat IA** | ✅ | NL→SQL (agrégats, comptages, **GROUP BY « par X » / « par mois »**), **désambiguïsation** (ne devine jamais silencieusement), transparence complète, score qualité des tables utilisées |
 | **9 — Graphiques** | ✅ (V0.2) | Type choisi **automatiquement selon la nature des données** (temporel→courbe, catégoriel→barres/secteurs, distribution→histogramme, 2 mesures→nuage), l'utilisateur peut **forcer un autre type** ; exports **PNG / SVG / CSV** ; repli tableau brut ; palette validée accessibilité (CVD) |
+| **10 — Rapport IA** | ✅ (V0.3) | Résumé + observations + **anomalies** (tendance, ruptures >30% entre périodes, valeurs aberrantes >2σ, concentration) + **recommandations**, calculés hors-ligne et chiffrés ; **historique rejouable** ; indice de confiance calibré |
+| **§5.1 — Privacy Engine** | ✅ (V0.3) | **Pseudonymisation déterministe** des PII (jetons `EMAIL-001`, `NOM-002`…) avant tout envoi au LLM → analyse sur données pseudonymisées → **ré-identification locale** dans le rapport ; audit des colonnes protégées ; la table de correspondance ne quitte jamais le processus |
 | **8 — SQL & garde-fous** | ✅ | Blocage **DDL/DML** (AST), **EXPLAIN + seuil de coût**, timeout, **LIMIT automatique**, file d'exécution par connexion, **journal d'audit immuable** |
 | **10 — Indice de confiance** | ✅ | Indice **calibré** (adossé au score qualité réel) accompagné de ses facteurs |
 | **§6 — Abstraction LLM** | ✅ | Interface unique multi-fournisseurs (OpenAI, Anthropic, Mistral via REST — **pas de SDK propriétaire**), + provider **heuristique hors-ligne** (fonctionne sans clé) |
-| **§5 — Privacy Engine** | 🟡 amorce | Détection PII + **masquage** des colonnes sensibles avant envoi au LLM ; anonymisation avancée formalisée en V0.3 |
-
-Prochaine étape (roadmap) : **V0.3** — Knowledge Graph, rapports IA, historique,
-Privacy Engine complet. Puis multi-bases + SSO + rôles + API publique (V1.0).
+Prochaine étape (roadmap) : **V0.4** — apprentissage avancé, préférences,
+définitions métier réutilisables, alertes simples. Puis **V1.0** — multi-bases
+(MySQL, SQL Server, Snowflake, BigQuery, CSV/Excel, API REST), multi-utilisateurs
+& rôles, SSO, API publique, exports, alertes.
 
 ### Score qualité — dimensions (Module 4)
 
@@ -132,11 +135,14 @@ puis poser des questions dans le **Chat**.
    Montant, Email…) avec justification auditable ; les 3 colonnes de montant
    (`amount_ttc` TTC, `net_price` HT, `amount`) déclenchent une **alerte
    d'arbitrage** ; validez/corrigez/rejetez, exportez le dictionnaire.
-6. **Chat** — « montant total des commandes par mois » →
+6. **Graphe** — Knowledge Graph navigable ; les relations inférées (avec
+   cardinalité et intégrité) se valident d'un clic.
+7. **Chat** — « montant total des commandes par mois » →
    `date_trunc('month', …) GROUP BY`, **courbe automatique** (exports PNG/SVG/CSV),
-   indice de confiance signalant les concepts non validés, et **transparence**
+   **rapport d'anomalies** (« baisse -91 %, valeur atypique sur 2025-07 »),
+   bandeau **Privacy Engine** sur les questions touchant des PII, et **transparence**
    (SQL, tables + score qualité, colonnes, hypothèses, temps).
-7. **Journal SQL** — chaque exécution est tracée (audit immuable).
+8. **Historique** — chaque analyse est tracée (audit immuable) et **rejouable**.
 
 ---
 
@@ -144,7 +150,7 @@ puis poser des questions dans le **Chat**.
 
 ```bash
 source .venv/bin/activate
-cd backend && python -m pytest        # 76 tests
+cd backend && python -m pytest        # 95 tests
 ```
 
 Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réelle
@@ -158,7 +164,9 @@ Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réell
   blocage syntaxique DDL/DML en défense en profondeur, aucune écriture sur les sources.
 - **Credentials** chiffrés AES-256-GCM au repos, jamais loggés (filtre de redaction),
   jamais transmis au LLM.
-- **PII** détectées au profilage et masquées avant tout envoi au LLM.
+- **Privacy Engine** : PII détectées au profilage, **pseudonymisées** avant tout
+  envoi au LLM, ré-identifiées localement dans la réponse ; la table de
+  correspondance jeton ↔ valeur ne quitte jamais le processus.
 - **Isolation tenant** sur toutes les entités.
 
 ## Limites connues de la V0.1 (transparence)
@@ -169,5 +177,6 @@ Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réell
   résolu via l'en-tête `X-Tenant`.
 - Tunnel SSH : champ d'option présent, implémentation prévue ultérieurement
   (SSL/TLS opérationnel).
-- Knowledge Graph navigable, rapports IA complets et Privacy Engine formalisé :
-  V0.3 (la détection PII + masquage avant LLM est déjà active).
+- L'agent Analyste fonctionne **hors-ligne** (tendances, anomalies, concentration
+  calculées) ; brancher une clé LLM enrichit l'interprétation en langage naturel.
+- Apprentissage avancé et alertes proactives : V0.4.

@@ -80,6 +80,7 @@ class TableOut(BaseModel):
 
 
 class RelationOut(BaseModel):
+    id: int
     from_table: str
     from_column: str
     to_table: str
@@ -87,6 +88,12 @@ class RelationOut(BaseModel):
     kind: str
     status: str
     confidence: float
+    cardinality: str | None = None
+    integrity_ratio: float | None = None
+
+
+class RelationReviewIn(BaseModel):
+    action: str = Field(..., pattern="^(validate|reject)$")
 
 
 # ---- Profilage ----

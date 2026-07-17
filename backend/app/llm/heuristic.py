@@ -374,36 +374,16 @@ class HeuristicProvider(LLMProvider):
         columns: list[str],
         rows: list[list],
     ) -> AnalysisResult:
-        n = len(rows)
-        if n == 0:
-            return AnalysisResult(
-                summary="La requête n'a retourné aucune ligne.",
-                observations=["Le périmètre filtré est peut-être trop restrictif."],
-            )
-        obs: list[str] = [f"{n} ligne(s) retournée(s), {len(columns)} colonne(s)."]
-        # Petit résumé numérique si une seule cellule numérique (agrégat)
-        if n == 1 and len(columns) == 1 and _is_number(rows[0][0]):
-            return AnalysisResult(
-                summary=f"Résultat : {columns[0]} = {rows[0][0]}.",
-                observations=obs,
-            )
-        return AnalysisResult(
-            summary=f"{n} enregistrement(s) correspondant à la question.",
-            observations=obs,
-            recommendations=[
-                "Fournisseur heuristique actif : configurez une clé LLM (OpenAI/Anthropic/Mistral) "
-                "pour une interprétation métier complète."
-            ],
-        )
+        # Rapport chiffré calculé hors-ligne (Module 10) : tendances,
+        # anomalies, concentration — voir app/services/analyst.py.
+        from app.services.analyst import analyze
+
+        return analyze(question, columns, rows)
 
 
 def _is_numeric(dtype: str) -> bool:
     d = dtype.lower()
     return any(k in d for k in ("int", "numeric", "decimal", "real", "double", "float", "money"))
-
-
-def _is_number(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 def _select_columns(table: _Table, max_cols: int = 12) -> str:

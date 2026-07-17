@@ -8,7 +8,7 @@ from app.api.deps import get_owned_connection
 from app.core.db import get_db
 from app.models.connection import Connection
 from app.models.schema_catalog import DbColumn, DbRelation, DbTable
-from app.schemas import ColumnOut, RelationOut, ScanOut, TableOut
+from app.schemas import ColumnOut, RelationOut, RelationReviewIn, ScanOut, TableOut
 from app.services import connections as conn_svc
 from app.services import scanner
 from app.services.schema_context import current_snapshot
@@ -72,11 +72,56 @@ def get_relations(
     rels = db.execute(
         select(DbRelation).where(DbRelation.snapshot_id == snapshot.id)
     ).scalars().all()
-    return [
-        RelationOut(
-            from_table=f"{r.from_schema}.{r.from_table}", from_column=r.from_column,
-            to_table=f"{r.to_schema}.{r.to_table}", to_column=r.to_column,
-            kind=r.kind, status=r.status, confidence=r.confidence,
+    return [_relation_out(r) for r in rels]
+
+
+def _relation_out(r: DbRelation) -> RelationOut:
+    return RelationOut(
+        id=r.id,
+        from_table=f"{r.from_schema}.{r.from_table}", from_column=r.from_column,
+        to_table=f"{r.to_schema}.{r.to_table}", to_column=r.to_column,
+        kind=r.kind, status=r.status, confidence=r.confidence,
+        cardinality=r.cardinality, integrity_ratio=r.integrity_ratio,
+    )
+
+
+@router.get("/graph")
+def get_graph(
+    conn: Connection = Depends(get_owned_connection),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Knowledge Graph (Module 6) : entités métier + relations documentées."""
+    from app.services.graph import build_graph
+
+    try:
+        return build_graph(db, conn)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/relations/{relation_id}/review", response_model=RelationOut)
+def review_relation(
+    relation_id: int,
+    payload: RelationReviewIn,
+    conn: Connection = Depends(get_owned_connection),
+    db: Session = Depends(get_db),
+) -> RelationOut:
+    """Boucle de validation des relations inférées (Module 6) — même
+    mécanique que le dictionnaire métier : l'humain valide ou rejette."""
+    snapshot = current_snapshot(db, conn.id)
+    rel = db.get(DbRelation, relation_id)
+    if rel is None or snapshot is None or rel.snapshot_id != snapshot.id:
+        raise HTTPException(status_code=404, detail="Relation introuvable.")
+    if rel.kind == "declared":
+        raise HTTPException(
+            status_code=409,
+            detail="Relation déclarée en base (FK) : elle n'est pas soumise à validation.",
         )
-        for r in rels
-    ]
+    if payload.action == "validate":
+        rel.status = "validated"
+        rel.kind = "validated"
+    else:
+        rel.status = "rejected"
+    db.commit()
+    db.refresh(rel)
+    return _relation_out(rel)

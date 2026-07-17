@@ -72,14 +72,24 @@ def _classify(columns: list[str], rows: list[list]) -> dict[str, str]:
     return kinds
 
 
+_CLEAN_NUMBER = re.compile(r"^-?\d+([.,]\d+)?$")
+
+
 def _is_numeric_str(v) -> bool:
-    if not isinstance(v, str):
-        return False
-    try:
-        float(v.replace(",", "."))
+    # Un « nombre » textuel valide ne contient ni « + » (téléphone), ni espaces,
+    # ni parenthèses : « +33600000001 » est un téléphone, pas une mesure.
+    return isinstance(v, str) and bool(_CLEAN_NUMBER.match(v.strip()))
+
+
+def _sorted_monotonic(values: list) -> bool:
+    """True si la colonne est triée (asc ou desc) — signature d'une série
+    agrégée (GROUP BY … ORDER BY), par opposition à un dump brut non ordonné."""
+    keys = [str(v) for v in values]
+    if len(keys) < 2:
         return True
-    except ValueError:
-        return False
+    asc = all(keys[i] <= keys[i + 1] for i in range(len(keys) - 1))
+    desc = all(keys[i] >= keys[i + 1] for i in range(len(keys) - 1))
+    return asc or desc
 
 
 def suggest_chart(columns: list[str], rows: list[list]) -> ChartSuggestion:
@@ -91,13 +101,16 @@ def suggest_chart(columns: list[str], rows: list[list]) -> ChartSuggestion:
     numeric = [c for c in columns if kinds[c] == "numeric"]
     categorical = [c for c in columns if kinds[c] == "categorical"]
 
-    # Série temporelle → courbe.
+    # Série temporelle → courbe, MAIS seulement si l'axe temps est ordonné
+    # (série agrégée). Un dump brut non trié n'est pas une courbe.
     if temporal and numeric:
-        return ChartSuggestion(
-            type="line", x=temporal[0], y=numeric[:3],
-            reason=f"Données temporelles ({temporal[0]}) : évolution en courbe.",
-            alternatives=["bar", "table"],
-        )
+        tvals = [r[columns.index(temporal[0])] for r in rows]
+        if _sorted_monotonic(tvals):
+            return ChartSuggestion(
+                type="line", x=temporal[0], y=numeric[:3],
+                reason=f"Données temporelles ({temporal[0]}) : évolution en courbe.",
+                alternatives=["bar", "table"],
+            )
 
     # Catégories + mesure → barres (secteurs si peu de catégories).
     if categorical and numeric:

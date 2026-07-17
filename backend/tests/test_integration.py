@@ -260,3 +260,79 @@ def test_chat_uses_validated_concept_synonym(session_with_conn):
     assert resp.rows[0][0] == 500
     # L'indice de confiance mentionne les concepts validés.
     assert any("concept" in f for f in resp.confidence["factors"])
+
+
+def test_knowledge_graph(session_with_conn):
+    from app.services import quality as quality_svc
+    from app.services.graph import build_graph
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+    quality_svc.run_quality(db, conn, cfg)
+
+    graph = build_graph(db, conn)
+    names = {n["name"] for n in graph["nodes"]}
+    assert {"customers", "orders", "stores"} <= names
+
+    # Chaque nœud profilé porte son score qualité et sa volumétrie.
+    customers = next(n for n in graph["nodes"] if n["name"] == "customers")
+    assert customers["quality"] is not None and customers["rows"]
+
+    # Chaque relation est documentée : source, cardinalité, intégrité.
+    edges = graph["edges"]
+    assert edges
+    inferred = next(
+        e for e in edges
+        if e["from"].endswith("customers") and e["from_column"] == "store_id"
+    )
+    assert inferred["kind"] == "inferred"
+    assert inferred["cardinality"] == "n-1"
+    assert inferred["integrity_ratio"] is not None and inferred["integrity_ratio"] < 1.0
+
+    # payments.order_id : une commande a au plus un paiement dans la démo ? Non —
+    # on vérifie simplement qu'une cardinalité est mesurée partout où l'intégrité l'est.
+    assert all(e["cardinality"] for e in edges if e["integrity_ratio"] is not None)
+
+
+def test_rejected_relation_leaves_sql_context(session_with_conn):
+    from sqlalchemy import select as _select
+
+    from app.models.schema_catalog import DbRelation
+    from app.services.schema_context import build_context
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+
+    rel = db.execute(
+        _select(DbRelation).where(
+            DbRelation.snapshot_id == snapshot.id, DbRelation.kind == "inferred"
+        )
+    ).scalars().first()
+    assert rel is not None
+    ref = f"{rel.from_schema}.{rel.from_table}.{rel.from_column}"
+    assert ref in build_context(db, snapshot)
+    rel.status = "rejected"
+    db.flush()
+    assert ref not in build_context(db, snapshot)
+
+
+def test_chat_privacy_engine_end_to_end(session_with_conn):
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    resp = chat_svc.answer_question(db, conn, "Montre les clients")
+    assert resp.status == "answered"
+    # L'audit du Privacy Engine expose les colonnes protégées.
+    assert resp.privacy is not None
+    assert resp.privacy["method"] == "pseudonymisation"
+    assert "email" in resp.privacy["protected_columns"]
+    # Les lignes AFFICHÉES à l'utilisateur restent réelles (ré-identification
+    # locale) : la protection ne concerne que ce qui part au LLM.
+    email_idx = resp.columns.index("email")
+    real_emails = [r[email_idx] for r in resp.rows if r[email_idx]]
+    assert any("@" in str(e) for e in real_emails)

@@ -72,6 +72,7 @@ export interface Table {
   columns: Column[];
 }
 export interface Relation {
+  id: number;
   from_table: string;
   from_column: string;
   to_table: string;
@@ -79,6 +80,35 @@ export interface Relation {
   kind: string;
   status: string;
   confidence: number;
+  cardinality: string | null;
+  integrity_ratio: number | null;
+}
+
+export interface GraphNode {
+  table: string;
+  name: string;
+  entity: string | null;
+  concepts: string[];
+  rows: number | null;
+  columns: number;
+  quality: number | null;
+  table_type: string;
+}
+export interface GraphEdge {
+  id: number;
+  from: string;
+  to: string;
+  from_column: string;
+  to_column: string;
+  kind: string;
+  status: string;
+  confidence: number;
+  cardinality: string | null;
+  integrity_ratio: number | null;
+}
+export interface Graph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
 }
 export interface Profile {
   schema_name: string;
@@ -154,6 +184,12 @@ export interface ChatResponse {
     reason: string;
     alternatives: string[];
   } | null;
+  privacy: {
+    engine: string;
+    method: string;
+    protected_columns: Record<string, string>;
+    values_protected: number;
+  } | null;
 }
 
 // ---- Endpoints ----
@@ -172,6 +208,12 @@ export const api = {
   scan: (id: number) => request<any>(`/connections/${id}/scan`, { method: "POST" }),
   schema: (id: number) => request<Table[]>(`/connections/${id}/schema`),
   relations: (id: number) => request<Relation[]>(`/connections/${id}/relations`),
+  graph: (id: number) => request<Graph>(`/connections/${id}/graph`),
+  relationReview: (id: number, relationId: number, action: "validate" | "reject") =>
+    request<Relation>(`/connections/${id}/relations/${relationId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    }),
   profile: (id: number) =>
     request<any>(`/connections/${id}/profile`, { method: "POST" }),
   jobs: (id: number) => request<any[]>(`/connections/${id}/profile/jobs`),
