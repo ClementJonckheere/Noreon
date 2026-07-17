@@ -50,6 +50,7 @@ class ChatResponse:
     analysis: dict | None = None
     confidence: dict | None = None
     table_quality: dict = field(default_factory=dict)
+    chart: dict | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -113,6 +114,14 @@ def answer_question(
         )
 
     context = build_context(db, snapshot)
+
+    # Dictionnaire métier validé (Module 5) : la mémoire entreprise enrichit
+    # le contexte du moteur SQL (LLM cloud comme heuristique hors-ligne).
+    from app.services.semantic import validated_concepts_context
+
+    concepts_text, _ = validated_concepts_context(db, conn.id)
+    if concepts_text:
+        context = context + "\n" + concepts_text
 
     # 1) Génération SQL via la couche LLM (dialecte postgres).
     gen = provider.generate_sql(question, context, dialect="postgres")
@@ -193,6 +202,11 @@ def answer_question(
         confidence=conf.as_dict(),
     )
 
+    # Suggestion de graphique selon la nature des données (Module 9).
+    from app.services.charting import suggest_chart
+
+    chart = suggest_chart(result.columns, result.rows).as_dict()
+
     # Score qualité des tables utilisées (base d'arbitrage entre sources).
     from app.services.quality import table_scores_map
 
@@ -211,6 +225,7 @@ def answer_question(
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
         analysis=analysis, confidence=conf.as_dict(), table_quality=table_quality,
+        chart=chart,
     )
 
 

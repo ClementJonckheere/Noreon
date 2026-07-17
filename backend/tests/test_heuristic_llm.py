@@ -14,10 +14,29 @@ Table public.orders (rows~120000)
 
 
 def test_parse_schema_context():
-    tables = parse_schema_context(SCHEMA)
+    tables, syns = parse_schema_context(SCHEMA)
     assert {t.name for t in tables} == {"customers", "orders"}
     customers = next(t for t in tables if t.name == "customers")
     assert any(c.name == "email" for c in customers.columns)
+    assert syns == {}
+
+
+def test_parse_validated_concepts():
+    ctx = SCHEMA + "\nDictionnaire métier validé :\n  Concept Acheteur = customers.id, customers.full_name\n"
+    _, syns = parse_schema_context(ctx)
+    assert "acheteur" in syns["customers"]
+
+
+def test_validated_concept_drives_table_choice():
+    # « acheteurs » n'est pas un synonyme du lexique statique : seul le
+    # dictionnaire métier validé permet de router vers customers.
+    ctx = SCHEMA + "\nDictionnaire métier validé :\n  Concept Acheteur = customers.id\n"
+    p = HeuristicProvider()
+    r = p.generate_sql("Combien d'acheteurs ?", ctx)
+    assert "public.customers" in r.sql
+    # Sans le dictionnaire : clarification demandée (pas de devinette).
+    r2 = p.generate_sql("Combien d'acheteurs ?", SCHEMA)
+    assert r2.clarification_needed is not None
 
 
 def test_count_question():

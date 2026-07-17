@@ -184,3 +184,79 @@ def test_quality_scores_are_auditable(session_with_conn):
 
     # Un score de table et le score base existent.
     assert quality_svc.table_scores_map(db, conn.id)
+
+
+def test_semantic_loop_and_memory(session_with_conn):
+    from sqlalchemy import select as _select
+
+    from app.models.semantic import BusinessConcept, ConceptMapping
+    from app.services import semantic as semantic_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    # 1) Propositions générées, jamais auto-validées.
+    summary = semantic_svc.propose_and_persist(db, conn)
+    assert summary["proposed"] > 0
+    mappings = db.execute(
+        _select(ConceptMapping).where(ConceptMapping.connection_id == conn.id)
+    ).scalars().all()
+    assert mappings and all(m.status == "proposed" for m in mappings)
+
+    # 2) Piège sémantique : net_price (HT) vs amount_ttc (TTC) → arbitrage.
+    flagged = [m for m in mappings if m.needs_arbitration]
+    flagged_cols = {m.column_name for m in flagged}
+    assert {"net_price", "amount_ttc"} <= flagged_cols
+
+    # 3) Boucle humaine : on valide le mapping email → il devient une vérité.
+    email_m = next(m for m in mappings if m.column_name == "email")
+    email_m.status = "validated"
+    db.flush()
+
+    # 4) Mémoire entreprise : une re-proposition n'écrase pas la décision.
+    summary2 = semantic_svc.propose_and_persist(db, conn)
+    assert summary2["kept_human_decisions"] >= 1
+    db.refresh(email_m)
+    assert email_m.status == "validated"
+
+    # 5) Le dictionnaire validé alimente le contexte du chat.
+    text, syns = semantic_svc.validated_concepts_context(db, conn.id)
+    assert "Concept Email" in text
+    assert "customers" in syns
+
+
+def test_chat_uses_validated_concept_synonym(session_with_conn):
+    from sqlalchemy import select as _select
+
+    from app.models.semantic import BusinessConcept, ConceptMapping
+    from app.services import semantic as semantic_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.source_config(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+    semantic_svc.propose_and_persist(db, conn)
+
+    # « adhérent » : vocabulaire propre à l'entreprise, inconnu du lexique.
+    concept = semantic_svc._get_or_create_concept(db, conn.tenant_id, "Adhérent")
+    concept.synonyms = ["adherent", "adherents"]
+    mapping = db.execute(
+        _select(ConceptMapping).where(
+            ConceptMapping.connection_id == conn.id,
+            ConceptMapping.table_name == "customers",
+            ConceptMapping.column_name == "id",
+        )
+    ).scalars().first()
+    assert mapping is not None
+    mapping.concept_id = concept.id
+    mapping.status = "corrected"
+    db.flush()
+
+    resp = chat_svc.answer_question(db, conn, "Combien d'adhérents ?")
+    assert resp.status == "answered"
+    assert "public.customers" in resp.sql
+    assert resp.rows[0][0] == 500
+    # L'indice de confiance mentionne les concepts validés.
+    assert any("concept" in f for f in resp.confidence["factors"])

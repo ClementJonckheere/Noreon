@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.logging import configure_logging
-from app.api.routes import chat, connections, health, profiling, quality, schema
+from app.api.routes import chat, connections, health, profiling, quality, schema, semantic
 
 configure_logging()
 
@@ -33,6 +33,8 @@ app.include_router(connections.router)
 app.include_router(schema.router)
 app.include_router(profiling.router)
 app.include_router(quality.router)
+app.include_router(semantic.router)
+app.include_router(semantic.concepts_router)
 app.include_router(chat.router)
 
 

@@ -12,6 +12,7 @@ from app.models.schema_catalog import (
     DbTable,
     SchemaSnapshot,
 )
+from app.models.semantic import BusinessConcept, ConceptMapping
 from app.models.tenant import Tenant, TenantSettings
 
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     "ProfilingJob",
     "QualityScore",
     "QueryLog",
+    "BusinessConcept",
+    "ConceptMapping",
 ]

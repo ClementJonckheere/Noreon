@@ -78,9 +78,29 @@ def compute(
                 score -= 0.1
                 factors.append("les tables utilisées ne sont pas encore évaluées (qualité inconnue)")
 
-    # 2) Concepts métier : aucun concept validé en V0.1.
-    factors.append("aucun concept métier validé (compréhension métier disponible en V0.2)")
-    score -= 0.05
+    # 2) Concepts métier (Module 5) : les analyses s'appuyant sur des concepts
+    # non validés le signalent ; les concepts validés renforcent la confiance.
+    from app.models.semantic import ConceptMapping  # import local (évite cycle)
+
+    if table_names:
+        mappings = db.execute(
+            select(ConceptMapping.status).where(
+                ConceptMapping.connection_id == connection_id,
+                ConceptMapping.table_name.in_(table_names),
+            )
+        ).scalars().all()
+        statuses = set(mappings)
+        if not mappings:
+            score -= 0.05
+            factors.append("aucun concept métier défini sur les tables utilisées")
+        elif statuses & {"validated", "corrected"}:
+            factors.append("des concepts métier validés couvrent les tables utilisées")
+            if "proposed" in statuses:
+                score -= 0.03
+                factors.append("certains concepts mobilisés restent proposés (non validés)")
+        else:
+            score -= 0.05
+            factors.append("les concepts métier des tables utilisées ne sont pas encore validés")
 
     # 3) Ambiguïté / hypothèses retenues par le moteur SQL.
     if assumptions:

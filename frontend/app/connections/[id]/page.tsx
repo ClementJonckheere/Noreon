@@ -3,17 +3,21 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import ChartBlock from "@/components/ChartBlock";
 import {
   api,
+  API_BASE,
   ChatResponse,
+  ConceptMapping,
   Connection,
   Profile,
   QualityScore,
   Relation,
   Table,
+  TENANT,
 } from "@/lib/api";
 
-type Tab = "schema" | "profiles" | "quality" | "chat" | "log";
+type Tab = "schema" | "profiles" | "quality" | "concepts" | "chat" | "log";
 
 export default function Workspace() {
   const params = useParams();
@@ -104,6 +108,7 @@ export default function Workspace() {
             ["schema", "Schéma"],
             ["profiles", "Profils"],
             ["quality", "Qualité"],
+            ["concepts", "Concepts"],
             ["log", "Journal SQL"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
@@ -125,6 +130,7 @@ export default function Workspace() {
       {tab === "schema" && <SchemaPanel id={id} />}
       {tab === "profiles" && <ProfilesPanel id={id} />}
       {tab === "quality" && <QualityPanel id={id} />}
+      {tab === "concepts" && <ConceptsPanel id={id} />}
       {tab === "log" && <LogPanel id={id} />}
     </div>
   );
@@ -231,6 +237,10 @@ function ChatResult({ r }: { r: ChatResponse }) {
       )}
 
       {r.confidence && <ConfidenceBar c={r.confidence} />}
+
+      {r.chart && r.chart.type !== "table" && r.columns.length > 0 && (
+        <ChartBlock columns={r.columns} rows={r.rows} suggestion={r.chart} />
+      )}
 
       {r.columns.length > 0 && (
         <ResultTable columns={r.columns} rows={r.rows} truncated={r.truncated} />
@@ -672,6 +682,213 @@ function ColumnQualityRow({ c }: { c: QualityScore }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------ CONCEPTS ------------------------------- */
+const STATUS_LABELS: Record<string, [string, string]> = {
+  proposed: ["proposé", "bg-amber-500/15 text-amber-200"],
+  validated: ["validé", "bg-emerald-500/15 text-emerald-300"],
+  corrected: ["corrigé", "bg-sky-500/15 text-sky-300"],
+  rejected: ["rejeté", "bg-red-500/15 text-red-300"],
+};
+
+function ConceptsPanel({ id }: { id: number }) {
+  const [mappings, setMappings] = useState<ConceptMapping[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [correcting, setCorrecting] = useState<number | null>(null);
+  const [correctName, setCorrectName] = useState("");
+
+  async function load() {
+    setMappings(await api.semanticList(id).catch(() => []));
+  }
+  useEffect(() => {
+    load();
+  }, [id]);
+
+  async function propose() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const r = await api.semanticPropose(id);
+      setNotice(
+        `${r.proposed} proposition(s), ${r.updated} mise(s) à jour, ` +
+          `${r.kept_human_decisions} décision(s) humaine(s) conservée(s), ` +
+          `${r.arbitrations_needed} arbitrage(s) requis.`,
+      );
+      load();
+    } catch (e: any) {
+      setNotice(`Erreur : ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function review(
+    m: ConceptMapping,
+    action: "validate" | "reject" | "correct",
+    conceptName?: string,
+  ) {
+    try {
+      await api.semanticReview(id, m.id, action, conceptName);
+      setCorrecting(null);
+      setCorrectName("");
+      load();
+    } catch (e: any) {
+      setNotice(`Erreur : ${e.message}`);
+    }
+  }
+
+  async function download(format: "csv" | "json") {
+    const res = await fetch(api.semanticExportUrl(id, format), {
+      headers: { "X-Tenant": TENANT },
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dictionnaire_metier.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (!mappings) return <div className="text-noreon-soft">Chargement…</div>;
+
+  const proposed = mappings.filter((m) => m.status === "proposed");
+  const decided = mappings.filter((m) => m.status !== "proposed");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn-primary" onClick={propose} disabled={busy}>
+          {busy ? "Analyse…" : "Analyser la sémantique"}
+        </button>
+        <button className="btn-ghost" onClick={() => download("csv")}>
+          Export CSV
+        </button>
+        <button className="btn-ghost" onClick={() => download("json")}>
+          Export JSON
+        </button>
+        <span className="text-xs text-noreon-soft">
+          Noreon propose, vous validez : les corrections enrichissent la mémoire
+          entreprise.
+        </span>
+      </div>
+
+      {notice && (
+        <div className="text-sm text-noreon-soft bg-white/5 rounded-lg p-3">{notice}</div>
+      )}
+
+      {mappings.length === 0 && (
+        <div className="text-sm text-noreon-soft">
+          Aucun concept. Lancez « Analyser la sémantique » (nécessite un profilage).
+        </div>
+      )}
+
+      {proposed.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-medium">À réviser ({proposed.length})</h3>
+          {proposed.map((m) => (
+            <MappingCard
+              key={m.id}
+              m={m}
+              actions={
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    className="btn bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                    onClick={() => review(m, "validate")}
+                  >
+                    Valider
+                  </button>
+                  {correcting === m.id ? (
+                    <form
+                      className="flex gap-1"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (correctName.trim()) review(m, "correct", correctName.trim());
+                      }}
+                    >
+                      <input
+                        autoFocus
+                        className="input !w-40 !py-1"
+                        placeholder="Bon concept…"
+                        value={correctName}
+                        onChange={(e) => setCorrectName(e.target.value)}
+                      />
+                      <button className="btn bg-sky-500/20 text-sky-300">OK</button>
+                    </form>
+                  ) : (
+                    <button
+                      className="btn bg-sky-500/20 text-sky-300 hover:bg-sky-500/30"
+                      onClick={() => {
+                        setCorrecting(m.id);
+                        setCorrectName("");
+                      }}
+                    >
+                      Corriger
+                    </button>
+                  )}
+                  <button
+                    className="btn bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                    onClick={() => review(m, "reject")}
+                  >
+                    Rejeter
+                  </button>
+                </div>
+              }
+            />
+          ))}
+        </section>
+      )}
+
+      {decided.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-medium">Dictionnaire ({decided.length})</h3>
+          {decided.map((m) => (
+            <MappingCard key={m.id} m={m} />
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function MappingCard({
+  m,
+  actions,
+}: {
+  m: ConceptMapping;
+  actions?: React.ReactNode;
+}) {
+  const [label, cls] = STATUS_LABELS[m.status] || STATUS_LABELS.proposed;
+  return (
+    <div
+      className={`card p-4 space-y-2 ${
+        m.needs_arbitration ? "border-amber-500/40" : ""
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="mono text-noreon-soft">
+            {m.table_name}.{m.column_name}
+          </span>
+          <span>→</span>
+          <span className="font-medium">{m.concept_name}</span>
+          <span className={`badge ${cls}`}>{label}</span>
+          <span className="text-xs text-noreon-soft">
+            confiance {Math.round(m.confidence * 100)}%
+          </span>
+        </div>
+        {actions}
+      </div>
+      <div className="text-xs text-noreon-soft">{m.rationale}</div>
+      {m.needs_arbitration && m.arbitration_note && (
+        <div className="text-xs text-amber-200 bg-amber-500/10 rounded-lg p-2">
+          ⚠ Arbitrage requis — {m.arbitration_note}
+        </div>
+      )}
     </div>
   );
 }

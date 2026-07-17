@@ -8,8 +8,9 @@ argumentées, auditables** — sans jamais exposer de données brutes identifian
 à un LLM externe.
 
 Ce dépôt contient l'implémentation conforme au cahier des charges (version 2.0).
-Périmètre livré : **V0.1** (PostgreSQL, scan, profilage, chat SQL avec garde-fous)
-et le **Module 4 — Score qualité auditable** du **V0.2**.
+Périmètre livré : **V0.1** complet (PostgreSQL, scan, profilage, chat SQL avec
+garde-fous) et **V0.2** complet (score qualité auditable, compréhension métier
+avec boucle de validation humaine et mémoire entreprise, graphiques).
 
 ---
 
@@ -21,15 +22,16 @@ et le **Module 4 — Score qualité auditable** du **V0.2**.
 | **2 — Scanner** | ✅ | Introspection tables/colonnes/PK/FK, **détection des FK implicites** (`xxx_id`), snapshots **versionnés**, scan incrémental par signature |
 | **3 — Profilage** | ✅ | Taux de NULL, distinct, min/max, moyenne, top valeurs, **détection du type réel** (dates en VARCHAR…) et des **PII**, comptes exacts (NULL, invalides), **échantillonnage** au-delà du seuil, exécution **asynchrone** |
 | **4 — Score qualité** | ✅ (V0.2) | 5 dimensions **auditables** (complétude, validité, unicité, cohérence, fraîcheur) avec détail chiffré vérifiable ; scores colonne/table/relation/base ; pondérations **par tenant** ; intégrité référentielle réelle (orphelins) ; alimente l'indice de confiance et l'arbitrage entre tables |
-| **7 — Chat IA** | ✅ | NL→SQL, **désambiguïsation** (ne devine jamais silencieusement), transparence complète, score qualité des tables utilisées |
+| **5 — Compréhension métier** | ✅ (V0.2) | Concepts identifiés depuis les **noms ET le contenu réel** (PII, types profilés) ; **boucle de validation humaine** (proposé/validé/corrigé/rejeté, jamais auto-validé) ; **mémoire entreprise** (décisions conservées, corrections → synonymes réutilisés) ; détection des **variantes piégeuses HT/TTC** avec arbitrage obligatoire ; dictionnaire **exportable CSV/JSON** ; synonymes manuels ; concepts validés injectés dans le moteur SQL et signalés dans la confiance |
+| **7 — Chat IA** | ✅ | NL→SQL (agrégats, comptages, **GROUP BY « par X » / « par mois »**), **désambiguïsation** (ne devine jamais silencieusement), transparence complète, score qualité des tables utilisées |
+| **9 — Graphiques** | ✅ (V0.2) | Type choisi **automatiquement selon la nature des données** (temporel→courbe, catégoriel→barres/secteurs, distribution→histogramme, 2 mesures→nuage), l'utilisateur peut **forcer un autre type** ; exports **PNG / SVG / CSV** ; repli tableau brut ; palette validée accessibilité (CVD) |
 | **8 — SQL & garde-fous** | ✅ | Blocage **DDL/DML** (AST), **EXPLAIN + seuil de coût**, timeout, **LIMIT automatique**, file d'exécution par connexion, **journal d'audit immuable** |
 | **10 — Indice de confiance** | ✅ | Indice **calibré** (adossé au score qualité réel) accompagné de ses facteurs |
 | **§6 — Abstraction LLM** | ✅ | Interface unique multi-fournisseurs (OpenAI, Anthropic, Mistral via REST — **pas de SDK propriétaire**), + provider **heuristique hors-ligne** (fonctionne sans clé) |
 | **§5 — Privacy Engine** | 🟡 amorce | Détection PII + **masquage** des colonnes sensibles avant envoi au LLM ; anonymisation avancée formalisée en V0.3 |
 
-Reste du **V0.2** : compréhension métier + boucle de validation humaine (Module 5),
-graphiques (Module 9). Puis Knowledge Graph + rapports + Privacy Engine complet
-(V0.3), multi-bases + SSO + rôles (V1.0).
+Prochaine étape (roadmap) : **V0.3** — Knowledge Graph, rapports IA, historique,
+Privacy Engine complet. Puis multi-bases + SSO + rôles + API publique (V1.0).
 
 ### Score qualité — dimensions (Module 4)
 
@@ -126,10 +128,15 @@ puis poser des questions dans le **Chat**.
 4. **Score qualité** — chaque colonne, table, relation et la base reçoivent un
    score **auditable** avec le détail chiffré de chaque dimension (emails
    invalides, orphelins de FK, fraîcheur…).
-5. **Chat** — « Quel est le montant moyen des commandes ? » →
-   `SELECT AVG(amount_ttc) …`, résultat, **indice de confiance**, score qualité
-   des tables utilisées, et **transparence** (tables, colonnes, hypothèses, temps).
-6. **Journal SQL** — chaque exécution est tracée (audit immuable).
+5. **Concepts** — « Analyser la sémantique » propose 27 mappings (Client,
+   Montant, Email…) avec justification auditable ; les 3 colonnes de montant
+   (`amount_ttc` TTC, `net_price` HT, `amount`) déclenchent une **alerte
+   d'arbitrage** ; validez/corrigez/rejetez, exportez le dictionnaire.
+6. **Chat** — « montant total des commandes par mois » →
+   `date_trunc('month', …) GROUP BY`, **courbe automatique** (exports PNG/SVG/CSV),
+   indice de confiance signalant les concepts non validés, et **transparence**
+   (SQL, tables + score qualité, colonnes, hypothèses, temps).
+7. **Journal SQL** — chaque exécution est tracée (audit immuable).
 
 ---
 
@@ -137,7 +144,7 @@ puis poser des questions dans le **Chat**.
 
 ```bash
 source .venv/bin/activate
-cd backend && python -m pytest        # 54 tests
+cd backend && python -m pytest        # 76 tests
 ```
 
 Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réelle
@@ -159,7 +166,8 @@ Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réell
 - Provider LLM par défaut = **heuristique** (couvre comptage, agrégats, listes,
   top N) ; brancher une clé OpenAI/Anthropic/Mistral pour le NL→SQL complet.
 - Authentification complète (SSO, rôles, MFA) prévue en V1.0 — le tenant est
-  résolu via l'en-tête `X-Tenant` en V0.1.
+  résolu via l'en-tête `X-Tenant`.
 - Tunnel SSH : champ d'option présent, implémentation prévue ultérieurement
   (SSL/TLS opérationnel).
-- Score qualité complet et compréhension métier : V0.2.
+- Knowledge Graph navigable, rapports IA complets et Privacy Engine formalisé :
+  V0.3 (la détection PII + masquage avant LLM est déjà active).

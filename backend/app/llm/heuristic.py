@@ -77,7 +77,7 @@ class _Table:
         return f"{self.schema}.{self.name}"
 
 
-def parse_schema_context(schema_context: str) -> list[_Table]:
+def parse_schema_context(schema_context: str) -> tuple[list[_Table], dict[str, set[str]]]:
     """Parse le contexte de schéma textuel produit par le service chat.
 
     Format attendu (aussi lisible par un vrai LLM) :
@@ -85,8 +85,15 @@ def parse_schema_context(schema_context: str) -> list[_Table]:
         Table public.customers (rows~39000)
           - id integer PK
           - email varchar
+
+        Dictionnaire métier validé :
+          Concept Client = customers.id, customers.full_name
+
+    Renvoie (tables, synonymes métier {nom_table: {termes}}), le dictionnaire
+    validé servant de mémoire entreprise à l'appariement.
     """
     tables: list[_Table] = []
+    synonyms: dict[str, set[str]] = {}
     current: _Table | None = None
     for line in schema_context.splitlines():
         m = re.match(r"^Table\s+([\w]+)\.([\w]+)(?:\s*\(rows~?(\d+)\))?", line.strip())
@@ -104,38 +111,64 @@ def parse_schema_context(schema_context: str) -> list[_Table]:
             current.columns.append(
                 _Column(name=cm.group(1), dtype=cm.group(2), is_pk=bool(cm.group(3)))
             )
-    return tables
+            continue
+        # Dictionnaire métier validé : « Concept Client = customers.id, orders.customer_id »
+        km = re.match(r"^Concept\s+(.+?)\s*=\s*(.+)$", line.strip())
+        if km:
+            concept = _norm(km.group(1)).strip()
+            for ref in km.group(2).split(","):
+                ref = ref.strip()
+                if "." in ref:
+                    tname = ref.split(".")[0].strip()
+                    synonyms.setdefault(tname, set()).add(concept)
+    return tables, synonyms
 
 
 class HeuristicProvider(LLMProvider):
     name = "heuristic"
 
     # ---- appariement -----------------------------------------------------
-    def _score_table(self, table: _Table, q_tokens: set[str]) -> float:
+    def _score_table(
+        self, table: _Table, q_tokens: set[str], biz_syns: dict[str, set[str]] | None = None
+    ) -> float:
         score = 0.0
         name_variants = {table.name, table.name.rstrip("s"), table.name + "s"}
+        table_biz = (biz_syns or {}).get(table.name, set())
         for tok in q_tokens:
             variants = set(_SYNONYMS.get(tok, [])) | {tok, tok.rstrip("s"), tok + "s"}
-            if variants & name_variants:
+            if variants & table_biz:
+                # Dictionnaire métier validé par l'humain : signal le plus fort.
+                score += 3.0
+            elif variants & name_variants:
                 score += 2.0
             elif tok in table.name or table.name in tok:
                 score += 1.0
         return score
 
-    def _pick_table(self, tables: list[_Table], q_tokens: set[str]) -> _Table | None:
+    def _pick_table(
+        self, tables: list[_Table], q_tokens: set[str], biz_syns: dict[str, set[str]] | None = None
+    ) -> _Table | None:
         if not tables:
             return None
-        scored = sorted(tables, key=lambda t: self._score_table(t, q_tokens), reverse=True)
+        scored = sorted(
+            tables, key=lambda t: self._score_table(t, q_tokens, biz_syns), reverse=True
+        )
         best = scored[0]
         # Seuil : on exige une vraie correspondance (synonyme métier ou nom
         # exact/pluriel), pas une simple coïncidence de sous-chaîne, sinon on
         # demande une clarification plutôt que de deviner.
-        if self._score_table(best, q_tokens) < 2.0:
+        if self._score_table(best, q_tokens, biz_syns) < 2.0:
             return None
         return best
 
-    def _pick_column(self, table: _Table, q_tokens: set[str], numeric_only: bool = False) -> _Column | None:
-        candidates = table.columns
+    def _pick_column(
+        self,
+        table: _Table,
+        q_tokens: set[str],
+        numeric_only: bool = False,
+        exclude: set[str] | None = None,
+    ) -> _Column | None:
+        candidates = [c for c in table.columns if c.name not in (exclude or set())]
         if numeric_only:
             candidates = [c for c in candidates if _is_numeric(c.dtype)]
         best: _Column | None = None
@@ -152,6 +185,39 @@ class HeuristicProvider(LLMProvider):
         # hasard (ex. la clé primaire). Le caller demandera une clarification.
         return best
 
+    _TIME_UNITS = {
+        "mois": "month", "month": "month",
+        "jour": "day", "day": "day", "jours": "day",
+        "semaine": "week", "week": "week",
+        "an": "year", "annee": "year", "annees": "year", "year": "year",
+        "trimestre": "quarter", "quarter": "quarter",
+    }
+
+    def _pick_group(self, table: _Table, q: str) -> tuple[str, str, bool] | None:
+        """Détecte un « par X » → (expression SQL, alias, est_temporel)."""
+        m = re.search(r"\b(?:par|by|per)\s+([a-z0-9_]+)", q)
+        if not m:
+            return None
+        token = m.group(1)
+
+        # « par mois/jour/… » → date_trunc sur la première colonne temporelle.
+        unit = self._TIME_UNITS.get(token)
+        if unit:
+            date_col = next(
+                (c for c in table.columns if any(k in c.dtype.lower() for k in ("date", "timestamp"))),
+                None,
+            )
+            if date_col is not None:
+                expr = f"date_trunc('{unit}', {date_col.name})::date"
+                return expr, unit, True
+
+        # « par <colonne> » → colonne correspondante de la table.
+        variants = set(_SYNONYMS.get(token, [])) | {token, token.rstrip("s"), token + "s"}
+        for col in table.columns:
+            if col.name in variants or any(v and v in col.name for v in variants):
+                return col.name, col.name, False
+        return None
+
     # ---- interface -------------------------------------------------------
     def generate_sql(
         self,
@@ -160,11 +226,11 @@ class HeuristicProvider(LLMProvider):
         dialect: str = "postgres",
         history: list[LLMMessage] | None = None,
     ) -> SQLGenerationResult:
-        tables = parse_schema_context(schema_context)
+        tables, biz_syns = parse_schema_context(schema_context)
         q = _norm(question)
         q_tokens = set(_tokens(question))
 
-        table = self._pick_table(tables, q_tokens)
+        table = self._pick_table(tables, q_tokens, biz_syns)
         if table is None:
             return SQLGenerationResult(
                 sql="",
@@ -177,6 +243,7 @@ class HeuristicProvider(LLMProvider):
             )
 
         assumptions: list[str] = []
+        group = self._pick_group(table, q)
 
         # --- agrégats : moyenne / somme ---
         agg = None
@@ -186,13 +253,51 @@ class HeuristicProvider(LLMProvider):
             agg = "sum"
 
         if agg:
-            col = self._pick_column(table, q_tokens, numeric_only=True)
+            # La colonne de regroupement (et les clés techniques) ne sont pas
+            # des candidates à l'agrégat : « total par magasin » agrège le
+            # montant, pas store_id.
+            excluded = {group[1]} if group else set()
+            if group and not group[2]:
+                excluded.add(group[0])
+            col = self._pick_column(table, q_tokens, numeric_only=True, exclude=excluded)
             if col is None:
-                return SQLGenerationResult(
-                    sql="",
-                    clarification_needed="Sur quelle colonne numérique dois-je calculer cet agrégat ?",
-                )
+                # Hypothèse explicite (jamais silencieuse) : s'il n'existe
+                # qu'UNE colonne numérique métier (hors clés techniques),
+                # on la retient en le signalant dans les hypothèses.
+                business_numeric = [
+                    c for c in table.columns
+                    if _is_numeric(c.dtype) and not c.is_pk
+                    and not c.name.lower().endswith("id") and c.name not in excluded
+                ]
+                if len(business_numeric) == 1:
+                    col = business_numeric[0]
+                    assumptions.append(
+                        f"Aucune colonne nommée dans la question : « {col.name} » retenue "
+                        f"(seule mesure numérique de {table.name})."
+                    )
+                else:
+                    return SQLGenerationResult(
+                        sql="",
+                        clarification_needed="Sur quelle colonne numérique dois-je calculer cet agrégat ?",
+                    )
             fn = "avg" if agg == "avg" else "sum"
+            if group is not None:
+                gexpr, galias, is_time = group
+                order = "1" if is_time else "2 DESC"
+                sql = (
+                    f"SELECT {gexpr} AS {galias}, {fn}({col.name}) AS {fn}_{col.name} "
+                    f"FROM {table.fq} GROUP BY 1 ORDER BY {order}"
+                )
+                assumptions.append(
+                    f"Agrégat {fn} sur « {col.name} », regroupé par « {galias} »."
+                )
+                return SQLGenerationResult(
+                    sql=sql,
+                    tables_used=[table.fq],
+                    columns_used=[col.name, galias],
+                    assumptions=assumptions,
+                    rationale=f"Calcul de {fn} sur {table.name}, ventilé par {galias}.",
+                )
             sql = f"SELECT {fn}({col.name}) AS {fn}_{col.name} FROM {table.fq}"
             assumptions.append(f"Agrégat {fn} appliqué sur la colonne « {col.name} ».")
             return SQLGenerationResult(
@@ -205,6 +310,21 @@ class HeuristicProvider(LLMProvider):
 
         # --- comptage ---
         if re.search(r"\b(combien|nombre|count|compter|how many)\b", q):
+            if group is not None:
+                gexpr, galias, is_time = group
+                order = "1" if is_time else "2 DESC"
+                sql = (
+                    f"SELECT {gexpr} AS {galias}, count(*) AS total "
+                    f"FROM {table.fq} GROUP BY 1 ORDER BY {order}"
+                )
+                assumptions.append(f"Comptage regroupé par « {galias} ».")
+                return SQLGenerationResult(
+                    sql=sql,
+                    tables_used=[table.fq],
+                    columns_used=[galias],
+                    assumptions=assumptions,
+                    rationale=f"Comptage des lignes de {table.name}, ventilé par {galias}.",
+                )
             sql = f"SELECT count(*) AS total FROM {table.fq}"
             return SQLGenerationResult(
                 sql=sql,
