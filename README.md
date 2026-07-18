@@ -74,6 +74,12 @@ sur 462) »). Pondérations configurables via `TenantSettings.quality_weights`.
 
 ---
 
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — architecture technique détaillée
+- [`docs/status.md`](docs/status.md) — état par module, historique, **handoff** (lancement, reprise)
+- [`docs/decision-log.md`](docs/decision-log.md) — journal des décisions (ADR) et dettes connues
+
 ## Architecture
 
 ```
