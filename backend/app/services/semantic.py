@@ -23,6 +23,7 @@ from app.core.logging import get_logger
 from app.models.connection import Connection
 from app.models.profile import ColumnProfile
 from app.models.semantic import BusinessConcept, ConceptMapping
+from app.models.tenant import TenantSettings
 
 log = get_logger("noreon.semantic")
 
@@ -248,12 +249,79 @@ def _get_or_create_concept(db: Session, tenant_id: int, name: str) -> BusinessCo
     return concept
 
 
+def _apply_learning(
+    proposals: list[Proposal],
+    profiles: list[ColumnProfile],
+    learned: dict[str, tuple[str, int]],
+) -> list[Proposal]:
+    """Renforce/corrige les propositions avec la mémoire tenant apprise."""
+    by_col: dict[tuple[str, str], Proposal] = {
+        (p.table_name, p.column_name): p for p in proposals
+    }
+    for prof in profiles:
+        key_learn = prof.column_name.lower()
+        if key_learn not in learned:
+            continue
+        concept, support = learned[key_learn]
+        note = (
+            f"appris de {support} validation(s) humaine(s) sur les bases de l'entreprise"
+        )
+        pr = by_col.get((prof.table_name, prof.column_name))
+        if pr is None:
+            new = Proposal(
+                concept_name=concept, schema_name=prof.schema_name,
+                table_name=prof.table_name, column_name=prof.column_name,
+                confidence=min(0.9, 0.8 + 0.03 * support),
+                rationale=f"Concept {note}.",
+            )
+            by_col[(prof.table_name, prof.column_name)] = new
+            proposals.append(new)
+        elif pr.concept_name == concept:
+            pr.confidence = round(min(0.98, pr.confidence + 0.05 + 0.02 * support), 2)
+            pr.rationale += f" ; renforcé ({note})"
+        else:
+            pr.concept_name = concept
+            pr.confidence = round(min(0.95, 0.85 + 0.03 * support), 2)
+            pr.rationale = f"Concept {note} (prime sur l'analyse locale)"
+            pr.needs_arbitration = False
+    return proposals
+
+
+def learned_patterns(db: Session, tenant_id: int) -> dict[str, tuple[str, int]]:
+    """Apprentissage inter-connexions (V0.4).
+
+    Agrège les décisions humaines (mappings validés/corrigés) du tenant sur
+    TOUTES ses connexions : pour chaque nom de colonne, le concept dominant et
+    son nombre de confirmations. C'est la mémoire qui apprend des corrections
+    dès les premiers usages et se réutilise sur les bases suivantes.
+    """
+    rows = db.execute(
+        select(ConceptMapping.column_name, BusinessConcept.name)
+        .join(BusinessConcept, ConceptMapping.concept_id == BusinessConcept.id)
+        .where(
+            ConceptMapping.tenant_id == tenant_id,
+            ConceptMapping.status.in_(["validated", "corrected"]),
+        )
+    ).all()
+    tally: dict[str, dict[str, int]] = {}
+    for col, concept in rows:
+        tally.setdefault(col.lower(), {}).setdefault(concept, 0)
+        tally[col.lower()][concept] += 1
+    learned: dict[str, tuple[str, int]] = {}
+    for col, concepts in tally.items():
+        best = max(concepts.items(), key=lambda kv: kv[1])
+        learned[col] = best  # (concept_name, support)
+    return learned
+
+
 def propose_and_persist(db: Session, conn: Connection) -> dict:
     """Génère les propositions et les persiste en respectant la mémoire.
 
     - Un mapping déjà validé/corrigé/rejeté n'est JAMAIS écrasé (mémoire
       entreprise : les décisions humaines priment).
     - Un mapping déjà proposé est mis à jour (confiance/justification).
+    - Apprentissage inter-connexions : les décisions validées du tenant sur
+      d'autres bases renforcent/corrigent les propositions (si auto_learn).
     """
     profiles = db.execute(
         select(ColumnProfile).where(ColumnProfile.connection_id == conn.id)
@@ -262,6 +330,16 @@ def propose_and_persist(db: Session, conn: Connection) -> dict:
         raise ValueError("Aucun profil de colonne — lancez un profilage avant l'analyse sémantique.")
 
     proposals = generate_proposals(profiles)
+
+    # Apprentissage : applique la mémoire tenant aux propositions.
+    settings = db.get(TenantSettings, conn.tenant_id)
+    auto_learn = True
+    if settings and isinstance(settings.preferences, dict):
+        auto_learn = settings.preferences.get("auto_learn", True)
+    if auto_learn:
+        learned = learned_patterns(db, conn.tenant_id)
+        if learned:
+            proposals = _apply_learning(proposals, profiles, learned)
 
     existing = db.execute(
         select(ConceptMapping).where(ConceptMapping.connection_id == conn.id)

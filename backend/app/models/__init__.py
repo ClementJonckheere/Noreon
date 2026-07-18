@@ -2,7 +2,9 @@
 
 Import centralisé pour qu'Alembic voie toutes les tables via Base.metadata.
 """
+from app.models.alert import Alert, AlertEvent
 from app.models.connection import Connection
+from app.models.definitions import BusinessDefinition
 from app.models.profile import ColumnProfile, ProfilingJob
 from app.models.quality import QualityScore
 from app.models.query_log import QueryLog
@@ -14,6 +16,7 @@ from app.models.schema_catalog import (
 )
 from app.models.semantic import BusinessConcept, ConceptMapping
 from app.models.tenant import Tenant, TenantSettings
+from app.models.user import ConnectionAccess, User
 
 __all__ = [
     "Tenant",
@@ -29,4 +32,9 @@ __all__ = [
     "QueryLog",
     "BusinessConcept",
     "ConceptMapping",
+    "BusinessDefinition",
+    "Alert",
+    "AlertEvent",
+    "User",
+    "ConnectionAccess",
 ]

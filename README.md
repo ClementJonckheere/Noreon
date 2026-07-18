@@ -8,9 +8,11 @@ argumentées, auditables** — sans jamais exposer de données brutes identifian
 à un LLM externe.
 
 Ce dépôt contient l'implémentation conforme au cahier des charges (version 2.0).
-Périmètre livré : **V0.1**, **V0.2** et **V0.3** complets — de la connexion
-PostgreSQL jusqu'au Knowledge Graph, aux rapports d'anomalies et au Privacy
-Engine.
+Périmètre livré : **V0.1 → V1.0 (multi-sources)** — de la connexion PostgreSQL
+jusqu'aux définitions métier, aux alertes et au **support multi-moteurs
+(PostgreSQL, MySQL/MariaDB, CSV, Excel)** via une couche d'abstraction des
+sources. Reste, pour compléter la V1.0 : authentification & rôles, SSO, API
+publique.
 
 ---
 
@@ -18,7 +20,8 @@ Engine.
 
 | Module (CDC) | Statut | Détails |
 |---|---|---|
-| **1 — Connexions** | ✅ | Test obligatoire, **vérification read-only bloquante**, credentials chiffrés **AES-256-GCM**, jamais loggés ni transmis au LLM, SSL/TLS (`sslmode`), isolation par tenant |
+| **1 — Connexions** | ✅ | **Multi-moteurs** (PostgreSQL, MySQL/MariaDB, CSV, Excel), test obligatoire, **vérification read-only bloquante** (par moteur), credentials chiffrés **AES-256-GCM**, jamais loggés ni transmis au LLM, isolation par tenant |
+| **Multi-sources (V1.0)** | ✅ | Couche d'**abstraction des sources** (`SourceAdapter`) : introspection, profilage, garde-fous et chat identiques sur tous les moteurs ; CSV/Excel matérialisés en **SQLite** local (lecture seule) ; upload de fichier ; NL→SQL dans le **dialecte** du moteur |
 | **2 — Scanner** | ✅ | Introspection tables/colonnes/PK/FK, **détection des FK implicites** (`xxx_id`), snapshots **versionnés**, scan incrémental par signature |
 | **3 — Profilage** | ✅ | Taux de NULL, distinct, min/max, moyenne, top valeurs, **détection du type réel** (dates en VARCHAR…) et des **PII**, comptes exacts (NULL, invalides), **échantillonnage** au-delà du seuil, exécution **asynchrone** |
 | **4 — Score qualité** | ✅ (V0.2) | 5 dimensions **auditables** (complétude, validité, unicité, cohérence, fraîcheur) avec détail chiffré vérifiable ; scores colonne/table/relation/base ; pondérations **par tenant** ; intégrité référentielle réelle (orphelins) ; alimente l'indice de confiance et l'arbitrage entre tables |
@@ -28,13 +31,32 @@ Engine.
 | **9 — Graphiques** | ✅ (V0.2) | Type choisi **automatiquement selon la nature des données** (temporel→courbe, catégoriel→barres/secteurs, distribution→histogramme, 2 mesures→nuage), l'utilisateur peut **forcer un autre type** ; exports **PNG / SVG / CSV** ; repli tableau brut ; palette validée accessibilité (CVD) |
 | **10 — Rapport IA** | ✅ (V0.3) | Résumé + observations + **anomalies** (tendance, ruptures >30% entre périodes, valeurs aberrantes >2σ, concentration) + **recommandations**, calculés hors-ligne et chiffrés ; **historique rejouable** ; indice de confiance calibré |
 | **§5.1 — Privacy Engine** | ✅ (V0.3) | **Pseudonymisation déterministe** des PII (jetons `EMAIL-001`, `NOM-002`…) avant tout envoi au LLM → analyse sur données pseudonymisées → **ré-identification locale** dans le rapport ; audit des colonnes protégées ; la table de correspondance ne quitte jamais le processus |
+| **11 — Auth & rôles** | ✅ (V1.0) | Email/mot de passe (**PBKDF2**), jetons **JWT**, **MFA TOTP** ; rôles **administrateur / analyste / lecteur** appliqués sur les endpoints ; **droits par connexion source** (un utilisateur n'interroge que les sources autorisées) ; gestion des utilisateurs et des accès (admin). SSO SAML/OIDC : à venir |
+| **Définitions réutilisables** | ✅ (V0.4) | **Mesures** nommées (`CA = sum(amount_ttc)`) et **segments** (`client fidèle = ≥3 commandes`) définis une fois, réutilisés dans les questions (« CA par mois », « combien de clients fidèles ») ; prioritaires sur l'interprétation générique |
+| **Apprentissage** | ✅ (V0.4) | **Mémoire sémantique inter-connexions** : une décision validée sur une base renforce ou corrige les propositions sur les autres bases du tenant ; activable/désactivable |
+| **Préférences** | ✅ (V0.4) | Réglages par entreprise : type de graphique par défaut (appliqué au chat), apprentissage automatique |
+| **Alertes simples** | ✅ (V0.4) | Surveillance d'une mesure (définition ou expression) : seuil `>`/`<`, **chute en %** ou variation ; évaluation via les **garde-fous** (read-only, EXPLAIN, timeout) ; historique des évaluations |
 | **8 — SQL & garde-fous** | ✅ | Blocage **DDL/DML** (AST), **EXPLAIN + seuil de coût**, timeout, **LIMIT automatique**, file d'exécution par connexion, **journal d'audit immuable** |
 | **10 — Indice de confiance** | ✅ | Indice **calibré** (adossé au score qualité réel) accompagné de ses facteurs |
 | **§6 — Abstraction LLM** | ✅ | Interface unique multi-fournisseurs (OpenAI, Anthropic, Mistral via REST — **pas de SDK propriétaire**), + provider **heuristique hors-ligne** (fonctionne sans clé) |
-Prochaine étape (roadmap) : **V0.4** — apprentissage avancé, préférences,
-définitions métier réutilisables, alertes simples. Puis **V1.0** — multi-bases
-(MySQL, SQL Server, Snowflake, BigQuery, CSV/Excel, API REST), multi-utilisateurs
-& rôles, SSO, API publique, exports, alertes.
+Multi-moteurs livrés : **PostgreSQL, MySQL/MariaDB, CSV, Excel** (l'architecture
+d'adaptateurs rend l'ajout de SQL Server / Snowflake / BigQuery / API REST
+mécanique). **Authentification, rôles, MFA et droits par source** livrés
+(Module 11). Restent pour compléter la V1.0 : **SSO SAML/OIDC** et **API
+publique**.
+
+### Authentification & rôles (Module 11)
+
+- Login email/mot de passe (**PBKDF2-SHA256**), jetons **JWT HS256**, **MFA TOTP**
+  (RFC 6238) — tout en bibliothèque standard, sans dépendance sensible ajoutée.
+- Rôles **administrateur > analyste > lecteur** appliqués sur les endpoints
+  mutables ; le lecteur consulte et interroge, l'analyste crée et analyse,
+  l'admin gère les utilisateurs et les accès.
+- **Droits par connexion source** : un utilisateur n'accède qu'aux sources qui
+  lui sont explicitement accordées (les administrateurs accèdent à tout).
+- En développement, un repli sur l'en-tête `X-Tenant` (admin implicite) reste
+  actif pour l'exploration API et les tests ; mettre `NOREON_DEV_AUTH_FALLBACK=false`
+  en production pour exiger un jeton.
 
 ### Score qualité — dimensions (Module 4)
 
@@ -51,6 +73,12 @@ chaque score porte son détail chiffré (« Validité 97,8 % (10 emails invalide
 sur 462) »). Pondérations configurables via `TenantSettings.quality_weights`.
 
 ---
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — architecture technique détaillée
+- [`docs/status.md`](docs/status.md) — état par module, historique, **handoff** (lancement, reprise)
+- [`docs/decision-log.md`](docs/decision-log.md) — journal des décisions (ADR) et dettes connues
 
 ## Architecture
 
@@ -142,7 +170,12 @@ puis poser des questions dans le **Chat**.
    **rapport d'anomalies** (« baisse -91 %, valeur atypique sur 2025-07 »),
    bandeau **Privacy Engine** sur les questions touchant des PII, et **transparence**
    (SQL, tables + score qualité, colonnes, hypothèses, temps).
-8. **Historique** — chaque analyse est tracée (audit immuable) et **rejouable**.
+8. **Définitions** — créez la mesure « CA » = `sum(amount_ttc)` et le segment
+   « client fidèle » ; le chat résout alors « CA par mois » et « combien de
+   clients fidèles » via ces définitions.
+9. **Alertes** — surveillez « chute du CA de plus de 20% » ou « plus de 100
+   clients » ; l'évaluation passe par les garde-fous et s'historise.
+10. **Historique** — chaque analyse est tracée (audit immuable) et **rejouable**.
 
 ---
 
@@ -150,7 +183,7 @@ puis poser des questions dans le **Chat**.
 
 ```bash
 source .venv/bin/activate
-cd backend && python -m pytest        # 95 tests
+cd backend && python -m pytest        # 124 tests (dont MySQL, CSV/Excel, auth)
 ```
 
 Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réelle

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_owned_connection
+from app.api.deps import get_owned_connection, require_analyst
 from app.core.db import get_db
 from app.models.connection import Connection
 from app.models.profile import ColumnProfile, ProfilingJob
@@ -16,7 +16,8 @@ from app.worker.queue import QUEUE_PROFILING, enqueue
 router = APIRouter(prefix="/connections/{connection_id}", tags=["profiling"])
 
 
-@router.post("/profile", response_model=ProfilingJobOut, status_code=202)
+@router.post("/profile", response_model=ProfilingJobOut, status_code=202,
+             dependencies=[Depends(require_analyst)])
 def start_profiling(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_tenant, get_owned_connection
+from app.api.deps import current_tenant, get_owned_connection, require_analyst
 from app.core.db import get_db
 from app.models.connection import Connection
 from app.models.semantic import BusinessConcept, ConceptMapping
@@ -32,7 +32,8 @@ router = APIRouter(prefix="/connections/{connection_id}/semantic", tags=["semant
 concepts_router = APIRouter(prefix="/concepts", tags=["semantic"])
 
 
-@router.post("/propose", response_model=SemanticProposeOut)
+@router.post("/propose", response_model=SemanticProposeOut,
+             dependencies=[Depends(require_analyst)])
 def propose(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),
@@ -74,7 +75,8 @@ def list_mappings(
     return [_mapping_out(m, c) for m, c in rows]
 
 
-@router.post("/{mapping_id}/review", response_model=ConceptMappingOut)
+@router.post("/{mapping_id}/review", response_model=ConceptMappingOut,
+             dependencies=[Depends(require_analyst)])
 def review_mapping(
     mapping_id: int,
     payload: MappingReviewIn,
@@ -170,7 +172,8 @@ def list_concepts(
     return [ConceptOut.model_validate(r) for r in rows]
 
 
-@concepts_router.post("", response_model=ConceptOut, status_code=201)
+@concepts_router.post("", response_model=ConceptOut, status_code=201,
+             dependencies=[Depends(require_analyst)])
 def create_concept(
     payload: ConceptCreateIn,
     db: Session = Depends(get_db),

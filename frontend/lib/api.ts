@@ -1,22 +1,44 @@
 // Client API Noreon — centralise les appels au backend FastAPI.
-// Le tenant est passé via l'en-tête X-Tenant (isolation multi-entreprise).
+// Authentification (Module 11) : si un jeton est présent, on envoie
+// `Authorization: Bearer`. Sinon, en dev, on retombe sur l'en-tête X-Tenant
+// (admin implicite du tenant démo).
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export const TENANT = "demo";
+const TOKEN_KEY = "noreon_token";
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+export function setToken(token: string) {
+  window.localStorage.setItem(TOKEN_KEY, token);
+}
+export function clearToken() {
+  window.localStorage.removeItem(TOKEN_KEY);
+}
+
+export function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : { "X-Tenant": TENANT };
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      "X-Tenant": TENANT,
+      ...authHeaders(),
       ...(init?.headers || {}),
     },
     cache: "no-store",
   });
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") {
+      clearToken();
+    }
     let detail = res.statusText;
     try {
       const body = await res.json();
@@ -32,6 +54,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface Connection {
   id: number;
   name: string;
+  engine: string;
   host: string;
   port: number;
   database: string;
@@ -158,6 +181,72 @@ export interface ConceptMapping {
   reviewed_at: string | null;
 }
 
+export interface BusinessDefinition {
+  id: number;
+  name: string;
+  kind: string;
+  schema_name: string;
+  table_name: string;
+  expression: string | null;
+  filter_sql: string | null;
+  description: string;
+  source_question: string | null;
+}
+
+export interface Alert {
+  id: number;
+  name: string;
+  description: string;
+  definition_id: number | null;
+  schema_name: string;
+  table_name: string | null;
+  expression: string | null;
+  filter_sql: string | null;
+  comparison: string;
+  threshold: number;
+  last_value: number | null;
+  previous_value: number | null;
+  last_status: string;
+  last_message: string | null;
+  last_checked_at: string | null;
+}
+
+export interface AlertEvent {
+  id: number;
+  value: number | null;
+  status: string;
+  message: string;
+  created_at: string;
+}
+
+export interface Preferences {
+  preferred_chart_type: string | null;
+  auto_learn: boolean;
+  auto_save_definitions: boolean;
+}
+
+export interface TokenResp {
+  access_token: string;
+  token_type: string;
+  role: string;
+  email: string;
+  mfa_required: boolean;
+}
+export interface Me {
+  user_id: number | null;
+  email: string | null;
+  role: string;
+  tenant_id: number;
+}
+export interface User {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  mfa_enabled: boolean;
+}
+
 export interface ChatResponse {
   status: string;
   question: string;
@@ -201,6 +290,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  uploadFileConnection: async (name: string, file: File): Promise<CreateResult> => {
+    const form = new FormData();
+    form.append("name", name);
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/connections/upload`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: form,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        detail = (await res.json()).detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  },
   testConnection: (id: number) =>
     request<Probe>(`/connections/${id}/test`, { method: "POST" }),
   deleteConnection: (id: number) =>
@@ -249,4 +356,68 @@ export const api = {
       body: JSON.stringify({ question }),
     }),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
+
+  // --- Authentification & rôles (Module 11) ---
+  register: (tenant_slug: string, email: string, password: string, full_name = "") =>
+    request<TokenResp>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ tenant_slug, email, password, full_name }),
+    }),
+  login: (tenant_slug: string, email: string, password: string, mfa_code?: string) =>
+    request<TokenResp>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ tenant_slug, email, password, mfa_code: mfa_code ?? null }),
+    }),
+  me: () => request<Me>("/auth/me"),
+  mfaEnroll: () => request<{ secret: string; otpauth_uri: string }>("/auth/mfa/enroll", { method: "POST" }),
+  mfaVerify: (code: string) =>
+    request<void>("/auth/mfa/verify", { method: "POST", body: JSON.stringify({ code }) }),
+  users: () => request<User[]>("/users"),
+  createUser: (payload: any) =>
+    request<User>("/users", { method: "POST", body: JSON.stringify(payload) }),
+  updateUser: (id: number, payload: any) =>
+    request<User>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteUser: (id: number) => request<void>(`/users/${id}`, { method: "DELETE" }),
+  userConnections: (id: number) => request<number[]>(`/users/${id}/connections`),
+  grantConnection: (id: number, connection_id: number) =>
+    request<void>(`/users/${id}/connections`, {
+      method: "POST",
+      body: JSON.stringify({ connection_id }),
+    }),
+  revokeConnection: (id: number, connection_id: number) =>
+    request<void>(`/users/${id}/connections/${connection_id}`, { method: "DELETE" }),
+
+  // --- Définitions métier (V0.4, portée tenant) ---
+  definitions: () => request<BusinessDefinition[]>("/definitions"),
+  createDefinition: (payload: any) =>
+    request<BusinessDefinition>("/definitions", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deleteDefinition: (defId: number) =>
+    request<void>(`/definitions/${defId}`, { method: "DELETE" }),
+
+  // --- Alertes (V0.4) ---
+  alerts: (id: number) => request<Alert[]>(`/connections/${id}/alerts`),
+  createAlert: (id: number, payload: any) =>
+    request<Alert>(`/connections/${id}/alerts`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  checkAlert: (id: number, alertId: number) =>
+    request<Alert>(`/connections/${id}/alerts/${alertId}/check`, { method: "POST" }),
+  checkAllAlerts: (id: number) =>
+    request<Alert[]>(`/connections/${id}/alerts/check-all`, { method: "POST" }),
+  alertEvents: (id: number, alertId: number) =>
+    request<AlertEvent[]>(`/connections/${id}/alerts/${alertId}/events`),
+  deleteAlert: (id: number, alertId: number) =>
+    request<void>(`/connections/${id}/alerts/${alertId}`, { method: "DELETE" }),
+
+  // --- Préférences (V0.4, tenant) ---
+  preferences: () => request<Preferences>("/settings/preferences"),
+  updatePreferences: (payload: Partial<Preferences>) =>
+    request<Preferences>("/settings/preferences", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 };

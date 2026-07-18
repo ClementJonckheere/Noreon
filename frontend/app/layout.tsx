@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Link from "next/link";
+import SessionBar from "@/components/SessionBar";
 
 export const metadata: Metadata = {
   title: "Noreon — Data Analyst IA",
@@ -23,7 +24,10 @@ export default function RootLayout({
                 Comprendre. Relier. Éclairer.
               </span>
             </Link>
-            <span className="badge bg-noreon-accent/15 text-noreon-accent">V0.1</span>
+            <div className="flex items-center gap-4">
+              <SessionBar />
+              <span className="badge bg-noreon-accent/15 text-noreon-accent">V1.0</span>
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>

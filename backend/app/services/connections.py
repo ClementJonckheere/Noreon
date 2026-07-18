@@ -1,49 +1,32 @@
-"""Logique métier des connexions sources (Module 1)."""
+"""Logique métier des connexions sources (Module 1) — multi-moteurs (V1.0)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.core.security import SecretBox, get_secret_box
+from app.core.security import get_secret_box
 from app.models.connection import Connection
-from app.services.source_db import SourceConfig, check_read_only, test_connection
+from app.services.sources.base import SourceAdapter, SourceConfig
+from app.services.sources.factory import adapter_for_config, get_adapter
 
 
-def source_config(conn: Connection, box: SecretBox | None = None) -> SourceConfig:
-    """Construit la config source (déchiffre le mot de passe en mémoire, jamais loggé)."""
-    box = box or get_secret_box()
-    secret = box.decrypt_json(conn.secret_encrypted)
-    opts = conn.options or {}
-    return SourceConfig(
-        host=conn.host,
-        port=conn.port,
-        database=conn.database,
-        username=conn.username,
-        password=secret.get("password", ""),
-        sslmode=opts.get("sslmode", "prefer"),
-        options=opts,
-    )
+def get_source_adapter(conn: Connection) -> SourceAdapter:
+    return get_adapter(conn)
 
 
-def probe(cfg: SourceConfig) -> dict:
+def probe(adapter: SourceAdapter) -> dict:
     """Teste connexion + lecture seule. Résultat agrégé pour l'API."""
-    conn_result = test_connection(cfg)
+    conn_result = adapter.test_connection()
     if not conn_result["ok"]:
         return {
-            "connection_ok": False,
-            "server_version": None,
-            "read_only": None,
-            "read_only_detail": None,
-            "error": conn_result["error"],
+            "connection_ok": False, "server_version": None,
+            "read_only": None, "read_only_detail": None, "error": conn_result["error"],
         }
-    ro = check_read_only(cfg)
+    ro = adapter.check_read_only()
     return {
-        "connection_ok": True,
-        "server_version": conn_result["server_version"],
-        "read_only": ro["read_only"],
-        "read_only_detail": ro["detail"],
-        "error": ro["error"],
+        "connection_ok": True, "server_version": conn_result["server_version"],
+        "read_only": ro["read_only"], "read_only_detail": ro["detail"], "error": ro["error"],
     }
 
 
@@ -59,47 +42,41 @@ def persist_probe_result(conn: Connection, probe_result: dict) -> None:
         conn.last_error = probe_result["error"]
 
 
+_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "mariadb": 3306}
+
+
 def create_connection(
     db: Session,
     *,
     tenant_id: int,
     name: str,
-    host: str,
-    port: int,
-    database: str,
-    username: str,
-    password: str,
+    engine: str = "postgresql",
+    host: str = "",
+    port: int | None = None,
+    database: str = "",
+    username: str = "",
+    password: str = "",
     options: dict | None = None,
 ) -> tuple[Connection, dict]:
-    """Crée une connexion : chiffre le secret, teste, vérifie le read-only.
-
-    Le test de connexion est OBLIGATOIRE avant validation (Module 1). Si le
-    compte n'est pas read-only, la connexion est enregistrée mais marquée
-    bloquante (l'API renvoie une alerte).
-    """
+    """Crée une connexion (n'importe quel moteur) : chiffre le secret, teste,
+    vérifie le read-only. Le test est OBLIGATOIRE avant validation (Module 1)."""
     box = get_secret_box()
     options = options or {}
-    cfg = SourceConfig(
-        host=host,
-        port=port,
-        database=database,
-        username=username,
-        password=password,
-        sslmode=options.get("sslmode", "prefer"),
-        options=options,
-    )
-    result = probe(cfg)
+    port = port or _DEFAULT_PORTS.get(engine, 0)
 
+    cfg = SourceConfig(
+        engine=engine, host=host or "localhost", port=port, database=database,
+        username=username, password=password,
+        sslmode=options.get("sslmode", "prefer"), options=options,
+        file_path=options.get("file_path"),
+    )
+    result = probe(adapter_for_config(cfg))
+
+    secret_encrypted = box.encrypt_json({"password": password}) if password else box.encrypt_json({})
     conn = Connection(
-        tenant_id=tenant_id,
-        name=name,
-        engine="postgresql",
-        host=host,
-        port=port,
-        database=database,
-        username=username,
-        secret_encrypted=box.encrypt_json({"password": password}),
-        options=options,
+        tenant_id=tenant_id, name=name, engine=engine, host=host or "localhost",
+        port=port, database=database, username=username,
+        secret_encrypted=secret_encrypted, options=options,
     )
     persist_probe_result(conn, result)
     db.add(conn)

@@ -8,11 +8,12 @@ from pydantic import BaseModel, Field
 # ---- Connexions ----
 class ConnectionCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    host: str
-    port: int = 5432
-    database: str
-    username: str
-    password: str
+    engine: str = "postgresql"  # postgresql | mysql | csv | excel
+    host: str = ""
+    port: int | None = None
+    database: str = ""
+    username: str = ""
+    password: str = ""
     options: dict = Field(default_factory=dict)
 
 
@@ -202,6 +203,153 @@ class ConceptOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---- Définitions métier réutilisables (V0.4) ----
+class DefinitionCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    kind: str = Field(..., pattern="^(measure|segment)$")
+    schema_name: str = "public"
+    table_name: str
+    expression: str | None = None  # requis pour measure
+    filter_sql: str | None = None  # requis pour segment
+    description: str = ""
+    source_question: str | None = None
+
+
+class DefinitionOut(BaseModel):
+    id: int
+    name: str
+    kind: str
+    schema_name: str
+    table_name: str
+    expression: str | None
+    filter_sql: str | None
+    description: str
+    source_question: str | None
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Alertes simples (V0.4) ----
+class AlertCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str = ""
+    definition_id: int | None = None
+    schema_name: str = "public"
+    table_name: str | None = None
+    expression: str | None = None
+    filter_sql: str | None = None
+    comparison: str = Field(..., pattern="^(gt|lt|pct_drop|pct_change)$")
+    threshold: float
+
+
+class AlertOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    definition_id: int | None
+    schema_name: str
+    table_name: str | None
+    expression: str | None
+    filter_sql: str | None
+    comparison: str
+    threshold: float
+    last_value: float | None
+    previous_value: float | None
+    last_status: str
+    last_message: str | None
+    last_checked_at: datetime | None
+
+    class Config:
+        from_attributes = True
+
+
+class AlertEventOut(BaseModel):
+    id: int
+    value: float | None
+    status: str
+    message: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Préférences tenant (V0.4) ----
+class PreferencesIn(BaseModel):
+    preferred_chart_type: str | None = None
+    auto_learn: bool | None = None
+    auto_save_definitions: bool | None = None
+
+
+# ---- Authentification & rôles (Module 11) ----
+class RegisterIn(BaseModel):
+    tenant_slug: str = Field(..., min_length=1, max_length=64)
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8)
+    full_name: str = ""
+
+
+class LoginIn(BaseModel):
+    tenant_slug: str
+    email: str
+    password: str
+    mfa_code: str | None = None
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    email: str
+    mfa_required: bool = False
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    mfa_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UserCreateIn(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8)
+    full_name: str = ""
+    role: str = Field("analyst", pattern="^(admin|analyst|reader)$")
+
+
+class UserUpdateIn(BaseModel):
+    role: str | None = Field(None, pattern="^(admin|analyst|reader)$")
+    is_active: bool | None = None
+    password: str | None = Field(None, min_length=8)
+
+
+class MfaEnrollOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class MfaVerifyIn(BaseModel):
+    code: str
+
+
+class ConnectionGrantIn(BaseModel):
+    connection_id: int
+
+
+class MeOut(BaseModel):
+    user_id: int | None
+    email: str | None
+    role: str
+    tenant_id: int
 
 
 # ---- Chat ----

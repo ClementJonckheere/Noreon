@@ -15,7 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from psycopg import sql as pgsql
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,7 +24,7 @@ from app.models.profile import ColumnProfile
 from app.models.quality import QualityScore
 from app.models.query_log import QueryLog
 from app.models.schema_catalog import DbColumn, DbRelation, DbTable, SchemaSnapshot
-from app.services.source_db import SourceConfig, open_source
+from app.services.sources.base import SourceAdapter
 
 log = get_logger("noreon.quality")
 
@@ -212,50 +211,9 @@ def column_quality(
 
 
 # --------------------------------------------------------------------------
-# Intégrité référentielle (dimension Cohérence + score relation)
-# --------------------------------------------------------------------------
-def compute_integrity(cfg: SourceConfig, rel: DbRelation, timeout_ms: int) -> dict | None:
-    """Taux d'orphelins réel + cardinalité d'une relation (Module 6).
-
-    La cardinalité est mesurée sur les données, pas supposée : si chaque
-    valeur de la colonne source est unique, la relation est 1-1, sinon n-1.
-    """
-    q = pgsql.SQL(
-        "SELECT count(*) AS total, "
-        "count(*) FILTER (WHERE t.{tocol} IS NULL) AS orphans, "
-        "count(DISTINCT f.{fcol}) AS distinct_from "
-        "FROM {ftab} f LEFT JOIN {ttab} t ON f.{fcol} = t.{tocol} "
-        "WHERE f.{fcol} IS NOT NULL"
-    ).format(
-        tocol=pgsql.Identifier(rel.to_column),
-        fcol=pgsql.Identifier(rel.from_column),
-        ftab=pgsql.SQL("{}.{}").format(pgsql.Identifier(rel.from_schema), pgsql.Identifier(rel.from_table)),
-        ttab=pgsql.SQL("{}.{}").format(pgsql.Identifier(rel.to_schema), pgsql.Identifier(rel.to_table)),
-    )
-    try:
-        with open_source(cfg, statement_timeout_ms=timeout_ms) as conn:
-            with conn.cursor() as cur:
-                cur.execute(q)
-                total, orphans, distinct_from = cur.fetchone()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Intégrité non calculée pour %s.%s: %s", rel.from_table, rel.from_column, exc)
-        return None
-    total = int(total or 0)
-    orphans = int(orphans or 0)
-    distinct_from = int(distinct_from or 0)
-    ratio = 1.0 if total == 0 else 1 - orphans / total
-    cardinality = "1-1" if total > 0 and distinct_from == total else "n-1"
-    return {
-        "ratio": ratio, "orphans": orphans, "total": total,
-        "to_table": f"{rel.to_schema}.{rel.to_table}",
-        "cardinality": cardinality,
-    }
-
-
-# --------------------------------------------------------------------------
 # Orchestration : calcule et persiste tous les scores d'une connexion
 # --------------------------------------------------------------------------
-def run_quality(db: Session, conn: Connection, cfg: SourceConfig, timeout_seconds: int = 60) -> dict:
+def run_quality(db: Session, conn: Connection, adapter: SourceAdapter, timeout_seconds: int = 60) -> dict:
     weights = _tenant_weights(db, conn.tenant_id)
     snapshot = db.execute(
         select(SchemaSnapshot).where(
@@ -281,7 +239,7 @@ def run_quality(db: Session, conn: Connection, cfg: SourceConfig, timeout_second
     relation_entities: list[tuple[DbRelation, EntityQuality]] = []
     timeout_ms = timeout_seconds * 1000
     for rel in relations:
-        info = compute_integrity(cfg, rel, timeout_ms)
+        info = adapter.compute_integrity(rel, timeout_ms)
         if info is None:
             continue
         rel.integrity_ratio = info["ratio"]

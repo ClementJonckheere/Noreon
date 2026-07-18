@@ -22,8 +22,8 @@ from app.models.profile import ColumnProfile
 from app.models.query_log import QueryLog
 from app.models.tenant import TenantSettings
 from app.services import confidence as confidence_svc
-from app.services.connections import source_config
-from app.services.executor import CostThresholdExceeded, run_query
+from app.services.connections import get_source_adapter
+from app.services.executor import CostThresholdExceeded
 from app.services.schema_context import build_context, current_snapshot
 from app.services.sql_guard import SQLGuardError
 
@@ -108,8 +108,16 @@ def answer_question(
     if concepts_text:
         context = context + "\n" + concepts_text
 
-    # 1) Génération SQL via la couche LLM (dialecte postgres).
-    gen = provider.generate_sql(question, context, dialect="postgres")
+    # Définitions métier réutilisables (V0.4) : mesures et segments nommés.
+    from app.services.definitions import definitions_context
+
+    defs_text = definitions_context(db, conn.tenant_id)
+    if defs_text:
+        context = context + "\n" + defs_text
+
+    # 1) Génération SQL via la couche LLM, dans le dialecte du moteur source.
+    adapter = get_source_adapter(conn)
+    gen = provider.generate_sql(question, context, dialect=adapter.dialect)
 
     if gen.clarification_needed:
         # « Il ne devine jamais silencieusement » — on remonte la question.
@@ -130,12 +138,10 @@ def answer_question(
     max_cost = tenant_settings.sql_max_cost if tenant_settings else 1_000_000.0
     max_conc = tenant_settings.sql_max_concurrent_per_connection if tenant_settings else 1
 
-    cfg = source_config(conn)
-
     # 2) Garde-fous + exécution read-only.
     try:
-        result = run_query(
-            cfg, gen.sql, connection_id=conn.id,
+        result = adapter.run_query(
+            gen.sql, connection_id=conn.id,
             row_limit=row_limit, timeout_seconds=timeout,
             max_cost=max_cost, max_concurrent=max_conc,
         )
@@ -192,10 +198,19 @@ def answer_question(
         confidence=conf.as_dict(),
     )
 
-    # Suggestion de graphique selon la nature des données (Module 9).
+    # Suggestion de graphique selon la nature des données (Module 9),
+    # en respectant la préférence de type par défaut du tenant (V0.4).
     from app.services.charting import suggest_chart
 
-    chart = suggest_chart(result.columns, result.rows).as_dict()
+    suggestion = suggest_chart(result.columns, result.rows)
+    prefs = getattr(tenant_settings, "preferences", None) or {}
+    preferred = prefs.get("preferred_chart_type") if isinstance(prefs, dict) else None
+    if preferred and suggestion.type != "table" and preferred != suggestion.type:
+        if preferred not in suggestion.alternatives:
+            suggestion.alternatives = [suggestion.type, *suggestion.alternatives]
+        suggestion.type = preferred
+        suggestion.reason = f"Type imposé par la préférence de l'entreprise ({preferred})."
+    chart = suggestion.as_dict()
 
     # Score qualité des tables utilisées (base d'arbitrage entre sources).
     from app.services.quality import table_scores_map

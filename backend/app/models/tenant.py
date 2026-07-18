@@ -50,4 +50,15 @@ class TenantSettings(Base):
         },
     )
 
+    # Préférences de l'entreprise (V0.4) : type de graphique par défaut,
+    # apprentissage automatique inter-connexions, etc.
+    preferences: Mapped[dict] = mapped_column(
+        JSON,
+        default=lambda: {
+            "preferred_chart_type": None,  # None = choix automatique
+            "auto_learn": True,            # mémoire sémantique inter-connexions
+            "auto_save_definitions": True, # proposer d'enregistrer les définitions clarifiées
+        },
+    )
+
     tenant: Mapped[Tenant] = relationship(back_populates="settings")

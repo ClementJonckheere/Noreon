@@ -51,7 +51,7 @@ def test_connection_is_read_only(session_with_conn):
 
 def test_scan_detects_tables_and_implicit_fk(session_with_conn):
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, changed = scanner.scan_and_persist(db, conn, cfg)
     assert changed is True
     assert snapshot.table_count >= 6
@@ -72,7 +72,7 @@ def test_scan_detects_tables_and_implicit_fk(session_with_conn):
 
 def test_profiling_computes_stats_and_pii(session_with_conn):
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
     tables = {t.table_name: t for t in snapshot.tables}
     customers = tables["customers"]
@@ -93,7 +93,7 @@ def test_profiling_computes_stats_and_pii(session_with_conn):
 
 def test_chat_count_end_to_end(session_with_conn):
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     scanner.scan_and_persist(db, conn, cfg)
 
     resp = chat_svc.answer_question(db, conn, "Combien de clients ?")
@@ -108,21 +108,20 @@ def test_chat_count_end_to_end(session_with_conn):
 
 def test_chat_blocks_write_attempt(session_with_conn):
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     scanner.scan_and_persist(db, conn, cfg)
 
     # On force un SQL d'écriture via le garde-fou directement (le LLM ne doit
     # jamais en produire, mais la défense en profondeur doit bloquer).
-    from app.services.executor import run_query
     from app.services.sql_guard import SQLGuardError
 
     with pytest.raises(SQLGuardError):
-        run_query(cfg, "DELETE FROM customers", connection_id=conn.id)
+        cfg.run_query("DELETE FROM customers", connection_id=conn.id)
 
 
 def test_chat_clarification_on_unknown(session_with_conn):
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     scanner.scan_and_persist(db, conn, cfg)
 
     resp = chat_svc.answer_question(db, conn, "Quel est le taux de désabonnement SaaS mensuel ?")
@@ -149,7 +148,7 @@ def test_quality_scores_are_auditable(session_with_conn):
     from app.services import quality as quality_svc
 
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
     _profile_all(db, conn, cfg, snapshot)
 
@@ -193,7 +192,7 @@ def test_semantic_loop_and_memory(session_with_conn):
     from app.services import semantic as semantic_svc
 
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
     _profile_all(db, conn, cfg, snapshot)
 
@@ -234,7 +233,7 @@ def test_chat_uses_validated_concept_synonym(session_with_conn):
     from app.services import semantic as semantic_svc
 
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
     _profile_all(db, conn, cfg, snapshot)
     semantic_svc.propose_and_persist(db, conn)
@@ -267,7 +266,7 @@ def test_knowledge_graph(session_with_conn):
     from app.services.graph import build_graph
 
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
     _profile_all(db, conn, cfg, snapshot)
     quality_svc.run_quality(db, conn, cfg)
@@ -303,7 +302,7 @@ def test_rejected_relation_leaves_sql_context(session_with_conn):
     from app.services.schema_context import build_context
 
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
 
     rel = db.execute(
@@ -321,7 +320,7 @@ def test_rejected_relation_leaves_sql_context(session_with_conn):
 
 def test_chat_privacy_engine_end_to_end(session_with_conn):
     db, conn, _ = session_with_conn
-    cfg = conn_svc.source_config(conn)
+    cfg = conn_svc.get_source_adapter(conn)
     snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
     _profile_all(db, conn, cfg, snapshot)
 
@@ -336,3 +335,76 @@ def test_chat_privacy_engine_end_to_end(session_with_conn):
     email_idx = resp.columns.index("email")
     real_emails = [r[email_idx] for r in resp.rows if r[email_idx]]
     assert any("@" in str(e) for e in real_emails)
+
+
+def test_alert_threshold_evaluation(session_with_conn):
+    from app.models.alert import Alert
+    from app.services import alerts as alerts_svc
+
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+
+    # Il y a 500 clients ; un seuil > 100 doit se déclencher.
+    alert = Alert(
+        tenant_id=conn.tenant_id, connection_id=conn.id, name="Trop de clients",
+        table_name="customers", expression="count(*)", comparison="gt", threshold=100,
+    )
+    db.add(alert)
+    db.flush()
+    event = alerts_svc.evaluate(db, alert, conn)
+    assert event.status == "triggered"
+    assert alert.last_value == 500
+
+    # Un seuil > 100000 ne se déclenche pas.
+    alert.threshold = 100000
+    event2 = alerts_svc.evaluate(db, alert, conn)
+    assert event2.status == "ok"
+
+
+def test_alert_pct_drop(session_with_conn):
+    from app.models.alert import Alert
+    from app.services import alerts as alerts_svc
+
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+
+    alert = Alert(
+        tenant_id=conn.tenant_id, connection_id=conn.id, name="Chute",
+        table_name="customers", expression="count(*)", comparison="pct_drop", threshold=20,
+    )
+    db.add(alert)
+    db.flush()
+    # 1re évaluation : référence (500), pas de déclenchement.
+    e1 = alerts_svc.evaluate(db, alert, conn)
+    assert e1.status == "ok"
+    # On simule une chute en forçant last_value élevé.
+    alert.last_value = 1000
+    e2 = alerts_svc.evaluate(db, alert, conn)  # 500 vs 1000 → -50%
+    assert e2.status == "triggered"
+    assert "Chute" in e2.message
+
+
+def test_alert_via_definition(session_with_conn):
+    from app.models.alert import Alert
+    from app.models.definitions import BusinessDefinition
+    from app.services import alerts as alerts_svc
+
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+
+    d = BusinessDefinition(
+        tenant_id=conn.tenant_id, name="CA", kind="measure",
+        table_name="orders", expression="sum(amount_ttc)",
+    )
+    db.add(d)
+    db.flush()
+    alert = Alert(
+        tenant_id=conn.tenant_id, connection_id=conn.id, name="CA mini",
+        definition_id=d.id, comparison="lt", threshold=1_000_000_000,
+    )
+    db.add(alert)
+    db.flush()
+    event = alerts_svc.evaluate(db, alert, conn)
+    # Le CA total de la démo est < 1 milliard → déclenché.
+    assert event.status == "triggered"
+    assert alert.last_value and alert.last_value > 0

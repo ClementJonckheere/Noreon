@@ -43,9 +43,9 @@ class GuardedSQL:
     is_aggregate: bool
 
 
-def _statements(raw: str) -> list[exp.Expression]:
+def _statements(raw: str, dialect: str = "postgres") -> list[exp.Expression]:
     try:
-        parsed = sqlglot.parse(raw, read="postgres")
+        parsed = sqlglot.parse(raw, read=dialect)
     except Exception as exc:  # noqa: BLE001
         raise SQLGuardError(f"SQL non analysable : {exc}") from exc
     return [s for s in parsed if s is not None]
@@ -100,13 +100,13 @@ def _looks_aggregate(statement: exp.Expression) -> bool:
     return False
 
 
-def guard(raw_sql: str, row_limit: int) -> GuardedSQL:
+def guard(raw_sql: str, row_limit: int, dialect: str = "postgres") -> GuardedSQL:
     """Valide et sécurise une requête. Lève SQLGuardError si non conforme."""
     raw_sql = raw_sql.strip().rstrip(";").strip()
     if not raw_sql:
         raise SQLGuardError("Requête vide.")
 
-    statements = _statements(raw_sql)
+    statements = _statements(raw_sql, dialect=dialect)
     if len(statements) != 1:
         raise SQLGuardError(
             f"Une seule instruction autorisée par exécution ({len(statements)} détectées)."
@@ -133,7 +133,7 @@ def guard(raw_sql: str, row_limit: int) -> GuardedSQL:
     else:
         limit_applied = existing
 
-    safe_sql = statement.sql(dialect="postgres")
+    safe_sql = statement.sql(dialect=dialect)
     return GuardedSQL(
         sql=safe_sql,
         original_sql=raw_sql,

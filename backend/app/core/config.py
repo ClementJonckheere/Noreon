@@ -43,6 +43,15 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    # Auth (Module 11) : en dev, on autorise le repli sur l'en-tête X-Tenant
+    # (comme un admin implicite) pour les tests et l'exploration API. À mettre
+    # à False en production pour EXIGER un jeton d'authentification.
+    dev_auth_fallback: bool = True
+
+    # Répertoire de stockage des fichiers sources (CSV/Excel) et de leur
+    # matérialisation SQLite (V1.0).
+    data_dir: str = "./data"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

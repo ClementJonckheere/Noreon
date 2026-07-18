@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AlertsPanel from "@/components/AlertsPanel";
 import ChartBlock from "@/components/ChartBlock";
+import DefinitionsPanel from "@/components/DefinitionsPanel";
 import GraphPanel from "@/components/GraphPanel";
 import {
   api,
@@ -18,7 +20,16 @@ import {
   TENANT,
 } from "@/lib/api";
 
-type Tab = "schema" | "graph" | "profiles" | "quality" | "concepts" | "chat" | "log";
+type Tab =
+  | "schema"
+  | "graph"
+  | "profiles"
+  | "quality"
+  | "concepts"
+  | "definitions"
+  | "alerts"
+  | "chat"
+  | "log";
 
 export default function Workspace() {
   const params = useParams();
@@ -76,7 +87,10 @@ export default function Workspace() {
           </Link>
           <h1 className="text-2xl font-semibold">{conn.name}</h1>
           <div className="text-xs text-noreon-soft mono">
-            {conn.username}@{conn.host}:{conn.port}/{conn.database}
+            <span className="uppercase mr-2">{conn.engine}</span>
+            {conn.engine === "csv" || conn.engine === "excel"
+              ? "fichier importé (SQLite local)"
+              : `${conn.username}@${conn.host}:${conn.port}/${conn.database}`}
           </div>
         </div>
         <div className="flex gap-2">
@@ -113,6 +127,8 @@ export default function Workspace() {
             ["profiles", "Profils"],
             ["quality", "Qualité"],
             ["concepts", "Concepts"],
+            ["definitions", "Définitions"],
+            ["alerts", "Alertes"],
             ["log", "Historique"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
@@ -136,6 +152,8 @@ export default function Workspace() {
       {tab === "profiles" && <ProfilesPanel id={id} />}
       {tab === "quality" && <QualityPanel id={id} />}
       {tab === "concepts" && <ConceptsPanel id={id} />}
+      {tab === "definitions" && <DefinitionsPanel />}
+      {tab === "alerts" && <AlertsPanel id={id} />}
       {tab === "log" && (
         <LogPanel
           id={id}
