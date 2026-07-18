@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_tenant
+from app.api.deps import current_tenant, require_analyst
 from app.core.db import get_db
 from app.models.definitions import BusinessDefinition
 from app.models.tenant import Tenant
@@ -25,7 +25,8 @@ def list_definitions(
     return [DefinitionOut.model_validate(r) for r in rows]
 
 
-@router.post("", response_model=DefinitionOut, status_code=201)
+@router.post("", response_model=DefinitionOut, status_code=201,
+             dependencies=[Depends(require_analyst)])
 def create_definition(
     payload: DefinitionCreate,
     db: Session = Depends(get_db),
@@ -61,7 +62,8 @@ def create_definition(
     return DefinitionOut.model_validate(d)
 
 
-@router.delete("/{definition_id}", status_code=204)
+@router.delete("/{definition_id}", status_code=204,
+               dependencies=[Depends(require_analyst)])
 def delete_definition(
     definition_id: int,
     db: Session = Depends(get_db),

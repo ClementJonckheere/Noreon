@@ -284,6 +284,74 @@ class PreferencesIn(BaseModel):
     auto_save_definitions: bool | None = None
 
 
+# ---- Authentification & rôles (Module 11) ----
+class RegisterIn(BaseModel):
+    tenant_slug: str = Field(..., min_length=1, max_length=64)
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8)
+    full_name: str = ""
+
+
+class LoginIn(BaseModel):
+    tenant_slug: str
+    email: str
+    password: str
+    mfa_code: str | None = None
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    email: str
+    mfa_required: bool = False
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    mfa_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UserCreateIn(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8)
+    full_name: str = ""
+    role: str = Field("analyst", pattern="^(admin|analyst|reader)$")
+
+
+class UserUpdateIn(BaseModel):
+    role: str | None = Field(None, pattern="^(admin|analyst|reader)$")
+    is_active: bool | None = None
+    password: str | None = Field(None, min_length=8)
+
+
+class MfaEnrollOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class MfaVerifyIn(BaseModel):
+    code: str
+
+
+class ConnectionGrantIn(BaseModel):
+    connection_id: int
+
+
+class MeOut(BaseModel):
+    user_id: int | None
+    email: str | None
+    role: str
+    tenant_id: int
+
+
 # ---- Chat ----
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)

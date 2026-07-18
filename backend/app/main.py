@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.api.routes import (
     alerts,
+    auth,
     chat,
     connections,
     definitions,
@@ -17,6 +18,7 @@ from app.api.routes import (
     schema,
     semantic,
     settings as settings_routes,
+    users,
 )
 
 configure_logging()
@@ -40,6 +42,8 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(users.router)
 app.include_router(connections.router)
 app.include_router(schema.router)
 app.include_router(profiling.router)

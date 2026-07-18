@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_owned_connection
+from app.api.deps import Principal, get_owned_connection, require_analyst
 from app.core.db import get_db
 from app.models.connection import Connection
 from app.models.schema_catalog import DbColumn, DbRelation, DbTable
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/connections/{connection_id}", tags=["schema"])
 def scan(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),
+    _: Principal = Depends(require_analyst),
 ) -> ScanOut:
     if conn.is_read_only is False:
         raise HTTPException(
@@ -105,6 +106,7 @@ def review_relation(
     payload: RelationReviewIn,
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),
+    _: Principal = Depends(require_analyst),
 ) -> RelationOut:
     """Boucle de validation des relations inférées (Module 6) — même
     mécanique que le dictionnaire métier : l'humain valide ou rejette."""

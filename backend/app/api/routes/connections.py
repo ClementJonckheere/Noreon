@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 
-from app.api.deps import current_tenant, get_owned_connection
+from app.api.deps import Principal, current_tenant, get_owned_connection, require_analyst
 from app.core.db import get_db
 from app.models.connection import Connection
 from app.models.tenant import Tenant
@@ -39,6 +39,7 @@ def create_connection(
     payload: ConnectionCreate,
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(current_tenant),
+    _: Principal = Depends(require_analyst),
 ) -> ConnectionCreateResult:
     existing = db.execute(
         select(Connection).where(
@@ -72,6 +73,7 @@ async def upload_file_connection(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(current_tenant),
+    _: Principal = Depends(require_analyst),
 ) -> ConnectionCreateResult:
     """Crée une connexion à partir d'un fichier CSV/Excel téléversé (V1.0)."""
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -134,6 +136,7 @@ def test_connection(
 def delete_connection(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),
+    _: Principal = Depends(require_analyst),
 ) -> None:
     db.delete(conn)
     db.commit()

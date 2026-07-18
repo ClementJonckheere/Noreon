@@ -16,6 +16,7 @@ from app.models.schema_catalog import (
 )
 from app.models.semantic import BusinessConcept, ConceptMapping
 from app.models.tenant import Tenant, TenantSettings
+from app.models.user import ConnectionAccess, User
 
 __all__ = [
     "Tenant",
@@ -34,4 +35,6 @@ __all__ = [
     "BusinessDefinition",
     "Alert",
     "AlertEvent",
+    "User",
+    "ConnectionAccess",
 ]

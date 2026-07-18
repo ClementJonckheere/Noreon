@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_owned_connection
+from app.api.deps import get_owned_connection, require_analyst
 from app.core.db import get_db
 from app.models.alert import Alert, AlertEvent
 from app.models.connection import Connection
@@ -25,7 +25,8 @@ def list_alerts(
     return [AlertOut.model_validate(r) for r in rows]
 
 
-@router.post("", response_model=AlertOut, status_code=201)
+@router.post("", response_model=AlertOut, status_code=201,
+             dependencies=[Depends(require_analyst)])
 def create_alert(
     payload: AlertCreate,
     conn: Connection = Depends(get_owned_connection),
@@ -49,7 +50,8 @@ def create_alert(
     return AlertOut.model_validate(alert)
 
 
-@router.post("/{alert_id}/check", response_model=AlertOut)
+@router.post("/{alert_id}/check", response_model=AlertOut,
+             dependencies=[Depends(require_analyst)])
 def check_alert(
     alert_id: int,
     conn: Connection = Depends(get_owned_connection),
@@ -64,7 +66,8 @@ def check_alert(
     return AlertOut.model_validate(alert)
 
 
-@router.post("/check-all", response_model=list[AlertOut])
+@router.post("/check-all", response_model=list[AlertOut],
+             dependencies=[Depends(require_analyst)])
 def check_all(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),
@@ -93,7 +96,8 @@ def alert_events(
     return [AlertEventOut.model_validate(r) for r in rows]
 
 
-@router.delete("/{alert_id}", status_code=204)
+@router.delete("/{alert_id}", status_code=204,
+               dependencies=[Depends(require_analyst)])
 def delete_alert(
     alert_id: int,
     conn: Connection = Depends(get_owned_connection),

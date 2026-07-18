@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_owned_connection
+from app.api.deps import get_owned_connection, require_analyst
 from app.core.db import get_db
 from app.models.connection import Connection
 from app.models.quality import QualityScore
@@ -15,7 +15,8 @@ from app.services import quality as quality_svc
 router = APIRouter(prefix="/connections/{connection_id}", tags=["quality"])
 
 
-@router.post("/quality", response_model=QualityRunOut)
+@router.post("/quality", response_model=QualityRunOut,
+             dependencies=[Depends(require_analyst)])
 def run_quality(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),

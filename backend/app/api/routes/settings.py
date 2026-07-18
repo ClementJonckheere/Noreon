@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_tenant
+from app.api.deps import current_tenant, require_analyst
 from app.core.db import get_db
 from app.models.tenant import Tenant, TenantSettings
 from app.schemas import PreferencesIn
@@ -33,7 +33,7 @@ def get_preferences(
     return _prefs(ts)
 
 
-@router.put("/preferences")
+@router.put("/preferences", dependencies=[Depends(require_analyst)])
 def update_preferences(
     payload: PreferencesIn,
     db: Session = Depends(get_db),
