@@ -302,6 +302,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
         </div>
       )}
 
+      {r.deep && <DeepReport d={r.deep} />}
+
       {r.privacy && r.privacy.values_protected > 0 && (
         <div className="text-xs text-emerald-300/90 bg-emerald-500/10 rounded-lg px-3 py-2">
           🛡 Privacy Engine — {Object.entries(r.privacy.protected_columns)
@@ -382,6 +384,145 @@ function ChatResult({ r }: { r: ChatResponse }) {
         </details>
       )}
     </div>
+  );
+}
+
+function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
+  const fmt = (n: number) => n.toLocaleString("fr-FR");
+  return (
+    <details className="card p-4 space-y-3 border border-sky-500/30" open>
+      <summary className="cursor-pointer text-sm font-semibold text-sky-300">
+        📊 Présentation approfondie — au-delà des chiffres, ce qu'ils veulent dire
+      </summary>
+
+      <div className="mt-3 space-y-4">
+        {/* Contexte métier */}
+        {d.context.length > 0 && (
+          <div className="text-xs text-noreon-soft space-y-1">
+            {d.context.map((c, i) => (
+              <div key={i}>{c}</div>
+            ))}
+          </div>
+        )}
+
+        {/* Facteurs explicatifs (drivers) */}
+        {d.drivers.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-sky-200">Facteurs explicatifs</div>
+            <ul className="text-xs list-disc pl-4 space-y-1">
+              {d.drivers.map((x, i) => (
+                <li key={i}>{x}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Croisement de dimensions */}
+        {d.crosstab && d.crosstab.cells.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-sky-200">
+              Croisement : {d.crosstab.dim_a} × {d.crosstab.dim_b}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="text-xs w-full">
+                <thead className="text-noreon-soft">
+                  <tr>
+                    <th className="text-left py-1 pr-3">{d.crosstab.dim_a}</th>
+                    <th className="text-left py-1 pr-3">{d.crosstab.dim_b}</th>
+                    <th className="text-right py-1 pr-3">{d.crosstab.metric}</th>
+                    <th className="text-right py-1">effectif</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.crosstab.cells.map((c, i) => (
+                    <tr key={i} className="border-t border-white/5">
+                      <td className="py-1 pr-3">{c.a}</td>
+                      <td className="py-1 pr-3">{c.b}</td>
+                      <td className="py-1 pr-3 text-right mono">{fmt(c.value)}</td>
+                      <td className="py-1 text-right mono text-noreon-soft">{fmt(c.count)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Segments par dimension */}
+        {d.segments.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-sky-200">Segmentation par dimension</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {d.segments.map((s, i) => (
+                <div key={i} className="bg-white/5 rounded-lg p-3 space-y-1">
+                  <div className="text-xs font-medium">
+                    {s.dimension}{" "}
+                    <span className="text-noreon-soft">· {s.n_groups} segment(s)</span>
+                  </div>
+                  {s.groups.map((g, j) => (
+                    <div key={j} className="text-xs flex items-center gap-2">
+                      <span className="w-24 shrink-0 truncate">{g.segment}</span>
+                      <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full bg-sky-400" style={{ width: `${g.share}%` }} />
+                      </div>
+                      <span className="mono text-noreon-soft w-10 text-right">{g.share}%</span>
+                      {g.avg != null && (
+                        <span className="mono text-emerald-300/80 w-16 text-right">
+                          ⌀ {fmt(g.avg)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Points d'attention */}
+        {d.findings.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-amber-200">Points d'attention</div>
+            <ul className="text-xs list-disc pl-4 space-y-1 text-amber-200/90">
+              {d.findings.map((x, i) => (
+                <li key={i}>{x}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Recommandations métier */}
+        {d.recommendations.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-emerald-300">Recommandations métier</div>
+            <ul className="text-xs list-disc pl-4 space-y-1 text-noreon-soft">
+              {d.recommendations.map((x, i) => (
+                <li key={i}>{x}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Transparence : requêtes de suivi exécutées */}
+        {d.queries.length > 0 && (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-noreon-soft">
+              {d.queries.length} requête(s) de suivi (lecture seule, agrégées)
+            </summary>
+            <div className="mt-2 space-y-2">
+              {d.queries.map((q, i) => (
+                <pre
+                  key={i}
+                  className="mono bg-black/40 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap"
+                >
+                  {q}
+                </pre>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    </details>
   );
 }
 

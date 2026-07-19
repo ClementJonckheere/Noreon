@@ -21,7 +21,8 @@ def ask(
     db: Session = Depends(get_db),
 ) -> dict:
     response = chat_svc.answer_question(
-        db, conn, payload.question, run_analysis=payload.run_analysis
+        db, conn, payload.question,
+        run_analysis=payload.run_analysis, deep_analysis=payload.deep_analysis,
     )
     db.commit()
     return response.as_dict()

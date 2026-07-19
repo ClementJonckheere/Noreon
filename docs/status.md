@@ -12,7 +12,9 @@ Tout le périmètre fonctionnel du cahier des charges (v2.0) est implémenté :
 architecture, §7 agents). Le produit tourne de bout en bout sur **PostgreSQL,
 MySQL/MariaDB, CSV et Excel**, avec authentification, rôles et droits par source.
 
-- **124 tests** passent (unitaires + intégration sur bases réelles).
+- **134 tests** passent (unitaires + intégration sur bases réelles).
+- **Analyste approfondi** (au-delà de la sortie de données) : croisements de
+  dimensions, facteurs explicatifs et présentation métier (voir D-13).
 - **7 versions livrées** en 7 commits (V0.1 → V1.0).
 - Reste, comme extensions datées « à venir » dans le CDC : **SSO SAML/OIDC**,
   **API publique**, connecteurs additionnels (SQL Server, Snowflake, BigQuery,
@@ -34,6 +36,7 @@ MySQL/MariaDB, CSV et Excel**, avec authentification, rôles et droits par sourc
 | 8 — SQL & garde-fous d'exécution | ✅ | V0.1 |
 | 9 — Graphiques (choix auto, ECharts, exports) | ✅ | V0.2 |
 | 10 — Rapport IA (anomalies, recommandations, historique) | ✅ | V0.3 |
+| 10+ — Analyste approfondi (croisements, drivers, présentation métier) | ✅ | — |
 | 11 — Auth & rôles (MFA, droits par source) | ✅ | V1.0 |
 | §5.1 — Privacy Engine (pseudonymisation ↔ ré-identification) | ✅ | V0.3 |
 | §6 — Abstraction LLM | ✅ | V0.1 |

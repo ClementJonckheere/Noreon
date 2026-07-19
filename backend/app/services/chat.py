@@ -48,6 +48,7 @@ class ChatResponse:
     truncated: bool = False
     warnings: list[str] = field(default_factory=list)
     analysis: dict | None = None
+    deep: dict | None = None
     confidence: dict | None = None
     table_quality: dict = field(default_factory=dict)
     chart: dict | None = None
@@ -79,6 +80,7 @@ def answer_question(
     *,
     user_ref: str = "system",
     run_analysis: bool = True,
+    deep_analysis: bool = True,
 ) -> ChatResponse:
     tenant_settings = db.get(TenantSettings, conn.tenant_id)
     provider = get_provider_for_tenant(tenant_settings)
@@ -182,6 +184,27 @@ def answer_question(
         except Exception as exc:  # noqa: BLE001 - repli sur tableau brut (agent Reporting)
             log.warning("Analyse LLM indisponible, repli tableau brut : %s", exc)
 
+    # 3bis) Analyse approfondie (valeur métier) : au-delà de la sortie brute,
+    # on croise les dimensions autour du sujet via des requêtes de suivi en
+    # lecture seule (segmentation, drivers, croisements). Jamais bloquant :
+    # tout échec retombe silencieusement sur le rapport chiffré standard.
+    deep = None
+    if deep_analysis and run_analysis:
+        from app.services import deep_analysis as deep_svc
+
+        guard_args = {
+            "row_limit": row_limit, "timeout_seconds": timeout,
+            "max_cost": max_cost, "max_concurrent": max_conc,
+        }
+        try:
+            report = deep_svc.run_deep_analysis(
+                db, conn, adapter, question,
+                tables_used=gen.tables_used, guard_args=guard_args,
+            )
+            deep = report.as_dict() if report is not None else None
+        except Exception as exc:  # noqa: BLE001 - analyse approfondie best-effort
+            log.warning("Analyse approfondie indisponible : %s", exc)
+
     # 4) Indice de confiance calibré.
     sampled = _any_sampled(db, conn.id, gen.tables_used)
     conf = confidence_svc.compute(
@@ -229,7 +252,7 @@ def answer_question(
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
-        analysis=analysis, confidence=conf.as_dict(), table_quality=table_quality,
+        analysis=analysis, deep=deep, confidence=conf.as_dict(), table_quality=table_quality,
         chart=chart, privacy=protection.audit,
     )
 

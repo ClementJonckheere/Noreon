@@ -16,6 +16,8 @@ CREATE TABLE customers (
     email          varchar(200),
     phone          varchar(30),
     city           varchar(100),
+    age            integer,        -- démographie : permet l'analyse « qui achète »
+    gender         varchar(10),    -- démographie
     loyalty_points integer DEFAULT 0,
     signup_date    date,
     store_id       integer  -- FK implicite (non déclarée) vers stores.id
@@ -58,12 +60,14 @@ INSERT INTO stores (name, city, region) VALUES
  ('Marseille Vieux-Port', 'Marseille', 'PACA'),
  ('Lille Grand Place', 'Lille', 'Hauts-de-France');
 
-INSERT INTO customers (full_name, email, phone, city, loyalty_points, signup_date, store_id)
+INSERT INTO customers (full_name, email, phone, city, age, gender, loyalty_points, signup_date, store_id)
 SELECT
     'Client ' || g,
     CASE WHEN g % 13 = 0 THEN NULL ELSE 'client' || g || '@example.com' END,
     '+3360000' || lpad(g::text, 4, '0'),
     (ARRAY['Paris','Lyon','Marseille','Lille'])[1 + (g % 4)],
+    18 + ((g * 13) % 55),                      -- âge 18..72
+    (ARRAY['F','M'])[1 + (g % 2)],
     (g * 7) % 500,
     DATE '2023-01-01' + (g % 700),
     1 + (g % 4)
@@ -83,6 +87,13 @@ SELECT
     DATE '2024-01-01' + (g % 550),
     round((20 + (g % 400) + random() * 50)::numeric, 2)
 FROM generate_series(1, 3000) g;
+
+-- Panier corrélé à l'âge du client : les segments plus âgés dépensent davantage.
+-- L'analyste approfondi doit retrouver « l'âge » comme facteur explicatif réel.
+UPDATE orders o
+SET amount_ttc = round((o.amount_ttc + (c.age - 18) * 1.8)::numeric, 2)
+FROM customers c
+WHERE o.customer_id = c.id;
 
 INSERT INTO order_items (order_id, product_id, quantity)
 SELECT

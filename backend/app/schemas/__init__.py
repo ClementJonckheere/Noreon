@@ -356,3 +356,4 @@ class MeOut(BaseModel):
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     run_analysis: bool = True
+    deep_analysis: bool = True

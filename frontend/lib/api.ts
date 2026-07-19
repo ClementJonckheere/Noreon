@@ -264,6 +264,28 @@ export interface ChatResponse {
   truncated: boolean;
   warnings: string[];
   analysis: any | null;
+  deep: {
+    subject: string;
+    metric_label: string;
+    context: string[];
+    segments: {
+      dimension: string;
+      kind: string;
+      metric: string;
+      n_groups: number;
+      groups: { segment: string; value: number; share: number; count: number; avg?: number }[];
+    }[];
+    drivers: string[];
+    crosstab: {
+      dim_a: string;
+      dim_b: string;
+      metric: string;
+      cells: { a: string; b: string; value: number; count: number }[];
+    } | null;
+    findings: string[];
+    recommendations: string[];
+    queries: string[];
+  } | null;
   confidence: { percent: number; factors: string[] } | null;
   table_quality: Record<string, number>;
   chart: {
