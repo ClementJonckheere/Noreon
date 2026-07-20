@@ -264,6 +264,19 @@ export interface ChatResponse {
   truncated: boolean;
   warnings: string[];
   analysis: any | null;
+  investigation: {
+    question: string;
+    subject: string;
+    metric_label: string;
+    plan: { title: string; rationale: string }[];
+    steps: { title: string; question: string; rationale: string; sql: string; finding: string; figures: any[] }[];
+    key_drivers: string[];
+    conclusion: string;
+    recommendations: string[];
+    queries: string[];
+    trend_columns: string[];
+    trend_rows: any[][];
+  } | null;
   deep: {
     subject: string;
     metric_label: string;

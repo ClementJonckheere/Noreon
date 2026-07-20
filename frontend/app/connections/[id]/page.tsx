@@ -8,6 +8,7 @@ import ChartBlock from "@/components/ChartBlock";
 import DefinitionsPanel from "@/components/DefinitionsPanel";
 import GraphPanel from "@/components/GraphPanel";
 import AddToReport from "@/components/AddToReport";
+import InvestigationView from "@/components/InvestigationView";
 import {
   api,
   API_BASE,
@@ -917,6 +918,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           )}
         </div>
       )}
+
+      {r.investigation && <InvestigationView inv={r.investigation} />}
 
       {r.deep && <DeepReport d={r.deep} />}
 

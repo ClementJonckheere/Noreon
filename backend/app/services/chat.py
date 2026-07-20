@@ -49,6 +49,7 @@ class ChatResponse:
     warnings: list[str] = field(default_factory=list)
     analysis: dict | None = None
     deep: dict | None = None
+    investigation: dict | None = None
     confidence: dict | None = None
     table_quality: dict = field(default_factory=dict)
     chart: dict | None = None
@@ -121,8 +122,54 @@ def answer_question(
     if defs_text:
         context = context + "\n" + defs_text
 
-    # 1) Génération SQL via la couche LLM, dans le dialecte du moteur source.
     adapter = get_source_adapter(conn)
+
+    # Réglages garde-fous (tenant > défauts globaux) — utiles à l'agent aussi.
+    row_limit = tenant_settings.sql_row_limit if tenant_settings else 10_000
+    timeout = tenant_settings.sql_timeout_seconds if tenant_settings else 60
+    max_cost = tenant_settings.sql_max_cost if tenant_settings else 1_000_000.0
+    max_conc = tenant_settings.sql_max_concurrent_per_connection if tenant_settings else 1
+    guard_args = {"row_limit": row_limit, "timeout_seconds": timeout,
+                  "max_cost": max_cost, "max_concurrent": max_conc}
+
+    # 0) Agent d'investigation : pour une question ANALYTIQUE ouverte (« pourquoi
+    # les ventes baissent ? »), on planifie et on enchaîne des sous-questions au
+    # lieu d'un SQL unique. Repli silencieux sur le pipeline normal si le sujet
+    # ne s'y prête pas.
+    if deep_analysis and run_analysis:
+        from app.services import agent as agent_svc
+
+        if agent_svc.should_investigate(question):
+            try:
+                inv = agent_svc.run_investigation(
+                    db, conn, adapter, question, guard_args=guard_args,
+                    hidden_tables=hidden_tables, hidden_columns=hidden_columns,
+                )
+            except Exception as exc:  # noqa: BLE001 - best-effort
+                log.warning("Agent d'investigation indisponible : %s", exc)
+                inv = None
+            if inv is not None:
+                from app.services.charting import suggest_chart
+
+                chart = suggest_chart(inv.trend_columns, inv.trend_rows) if inv.trend_rows else None
+                conf = confidence_svc.compute(
+                    db, connection_id=conn.id, tables_used=[inv.subject],
+                    assumptions=[], sampled=_any_sampled(db, conn.id, [inv.subject]),
+                    truncated=False, row_count=len(inv.trend_rows),
+                )
+                _log_query(db, conn, question, "-- investigation multi-étapes --", None,
+                           status="ok", row_count=len(inv.steps), confidence=conf.as_dict())
+                return ChatResponse(
+                    status="answered", question=question,
+                    message=agent_svc.summary_message(inv),
+                    rationale="Investigation multi-étapes (planification → sous-questions → synthèse).",
+                    tables_used=[inv.subject],
+                    columns=inv.trend_columns, rows=inv.trend_rows, row_count=len(inv.trend_rows),
+                    investigation=inv.as_dict(), confidence=conf.as_dict(),
+                    chart=chart.as_dict() if chart else None,
+                )
+
+    # 1) Génération SQL via la couche LLM, dans le dialecte du moteur source.
     gen = provider.generate_sql(question, context, dialect=adapter.dialect)
 
     if gen.clarification_needed:
@@ -152,13 +199,7 @@ def answer_question(
                         f"{', '.join(sorted(blocked))} ne sont pas autorisées ici.",
             )
 
-    # Réglages garde-fous (tenant > défauts globaux).
-    row_limit = tenant_settings.sql_row_limit if tenant_settings else 10_000
-    timeout = tenant_settings.sql_timeout_seconds if tenant_settings else 60
-    max_cost = tenant_settings.sql_max_cost if tenant_settings else 1_000_000.0
-    max_conc = tenant_settings.sql_max_concurrent_per_connection if tenant_settings else 1
-
-    # 2) Garde-fous + exécution read-only.
+    # 2) Garde-fous + exécution read-only (réglages déjà lus plus haut).
     try:
         result = adapter.run_query(
             gen.sql, connection_id=conn.id,
