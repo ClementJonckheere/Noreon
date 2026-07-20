@@ -19,6 +19,16 @@ import {
   Table,
   TENANT,
 } from "@/lib/api";
+import {
+  ChatStore,
+  Conversation,
+  emptyStore,
+  loadStore,
+  newConversation,
+  saveStore,
+  titleFrom,
+  uid,
+} from "@/lib/conversations";
 
 type Tab =
   | "schema"
@@ -107,13 +117,13 @@ export default function Workspace() {
       </div>
 
       {conn.is_read_only === false && (
-        <div className="text-sm text-amber-200 bg-amber-500/10 rounded-lg p-3">
+        <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">
           Ce compte n’est pas en lecture seule — les analyses sont bloquées tant
           que les droits ne sont pas corrigés.
         </div>
       )}
       {notice && (
-        <div className="text-sm text-noreon-soft bg-white/5 rounded-lg p-3">
+        <div className="text-sm text-noreon-soft bg-slate-100 rounded-lg p-3">
           {notice}
         </div>
       )}
@@ -137,8 +147,8 @@ export default function Workspace() {
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm border-b-2 -mb-px ${
               tab === t
-                ? "border-noreon-accent text-white"
-                : "border-transparent text-noreon-soft hover:text-white"
+                ? "border-noreon-accent text-slate-900"
+                : "border-transparent text-noreon-soft hover:text-slate-900"
             }`}
           >
             {label}
@@ -186,6 +196,8 @@ const ICONS: Record<string, JSX.Element> = {
   bell: <><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6" /><path d="M10 20a2 2 0 0 0 4 0" /></>,
   send: <><path d="M12 19V5M5 12l7-7 7 7" /></>,
   attach: <><path d="M21 12l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" /></>,
+  plus: <><path d="M12 5v14M5 12h14" /></>,
+  folder: <><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>,
 };
 
 function Icon({ name, className = "w-4 h-4" }: { name: string; className?: string }) {
@@ -243,6 +255,17 @@ const ACTION_GROUPS: { title: string; actions: Action[] }[] = [
   },
 ];
 
+function relTime(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "à l'instant";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `il y a ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  return `il y a ${d} j`;
+}
+
 function ChatPanel({
   id,
   replay,
@@ -252,15 +275,47 @@ function ChatPanel({
   replay?: { q: string; n: number } | null;
   onNavigate?: (tab: Tab) => void;
 }) {
+  const [store, setStore] = useState<ChatStore>(emptyStore);
   const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
   const [deep, setDeep] = useState(true); // approfondie (détaille) vs rapide (essentiel)
-  const [resp, setResp] = useState<ChatResponse | null>(null);
-  const [asked, setAsked] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [newFolder, setNewFolder] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
 
-  // Historique rejouable : une question relancée depuis l'onglet Historique.
+  // Chargement de l'historique local (par connexion), une conversation active
+  // par défaut.
+  useEffect(() => {
+    const s = loadStore(id);
+    if (s.conversations.length === 0) {
+      const c = newConversation();
+      s.conversations = [c];
+      s.activeId = c.id;
+    } else if (!s.activeId) {
+      s.activeId = s.conversations[0].id;
+    }
+    setStore(s);
+  }, [id]);
+
+  const active = store.conversations.find((c) => c.id === store.activeId) || null;
+
+  function persist(next: ChatStore) {
+    setStore(next);
+    saveStore(id, next);
+  }
+  function update(mut: (s: ChatStore) => void) {
+    const next: ChatStore = JSON.parse(JSON.stringify(store));
+    mut(next);
+    persist(next);
+    return next;
+  }
+
+  // Auto-scroll en bas du fil après chaque tour.
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+  }, [active?.turns.length, busy]);
+
+  // Historique rejouable : question relancée depuis l'onglet Historique.
   useEffect(() => {
     if (replay?.q) {
       setQ(replay.q);
@@ -269,19 +324,55 @@ function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replay?.n]);
 
+  function ensureActiveId(next: ChatStore): string {
+    if (next.activeId && next.conversations.some((c) => c.id === next.activeId)) {
+      return next.activeId;
+    }
+    const c = newConversation();
+    next.conversations.unshift(c);
+    next.activeId = c.id;
+    return c.id;
+  }
+
   async function ask(question: string, deepMode: boolean = deep) {
     const text = question.trim();
-    if (!text) return;
+    if (!text || busy) return;
+    const turnId = uid();
+    let convId = "";
+    // 1) Ajout optimiste du tour (question + réponse en attente).
+    const afterAdd = update((s) => {
+      convId = ensureActiveId(s);
+      const c = s.conversations.find((x) => x.id === convId)!;
+      if (c.turns.length === 0) c.title = titleFrom(text);
+      c.turns.push({ id: turnId, question: text, deep: deepMode, response: null, ts: Date.now() });
+      c.updatedAt = Date.now();
+    });
+    setQ("");
     setBusy(true);
-    setError(null);
-    setAsked(text);
     try {
-      setResp(await api.chat(id, text, deepMode));
+      const resp = await api.chat(id, text, deepMode);
+      finishTurn(afterAdd, convId, turnId, { response: resp });
     } catch (e: any) {
-      setError(e.message);
+      finishTurn(afterAdd, convId, turnId, { response: null, error: e.message });
     } finally {
       setBusy(false);
     }
+  }
+
+  function finishTurn(
+    base: ChatStore,
+    convId: string,
+    turnId: string,
+    patch: { response: ChatResponse | null; error?: string },
+  ) {
+    const next: ChatStore = JSON.parse(JSON.stringify(base));
+    const c = next.conversations.find((x) => x.id === convId);
+    const t = c?.turns.find((x) => x.id === turnId);
+    if (t) {
+      t.response = patch.response;
+      t.error = patch.error;
+    }
+    persist(next);
   }
 
   function runAction(a: Action) {
@@ -291,89 +382,297 @@ function ChatPanel({
     }
     if (a.deep !== undefined) setDeep(a.deep);
     if (a.prompt) setQ(a.prompt);
-    if (a.prompt && a.send) {
-      ask(a.prompt, a.deep ?? deep);
-    } else {
-      inputRef.current?.focus();
-    }
+    if (a.prompt && a.send) ask(a.prompt, a.deep ?? deep);
+    else inputRef.current?.focus();
   }
 
-  const started = busy || resp || asked;
+  // --- gestion des conversations & dossiers ---
+  function createConversation(folderId: string | null = null) {
+    update((s) => {
+      const c = newConversation(folderId);
+      s.conversations.unshift(c);
+      s.activeId = c.id;
+    });
+    setQ("");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+  function selectConversation(cid: string) {
+    update((s) => {
+      s.activeId = cid;
+    });
+  }
+  function deleteConversation(cid: string) {
+    update((s) => {
+      s.conversations = s.conversations.filter((c) => c.id !== cid);
+      if (s.activeId === cid) s.activeId = s.conversations[0]?.id ?? null;
+      if (!s.activeId) {
+        const c = newConversation();
+        s.conversations.unshift(c);
+        s.activeId = c.id;
+      }
+    });
+  }
+  function moveConversation(cid: string, folderId: string | null) {
+    update((s) => {
+      const c = s.conversations.find((x) => x.id === cid);
+      if (c) c.folderId = folderId;
+    });
+  }
+  function createFolder(name: string) {
+    const n = name.trim();
+    if (!n) return;
+    update((s) => {
+      s.folders.push({ id: uid(), name: n });
+    });
+    setNewFolder(null);
+  }
+  function deleteFolder(fid: string) {
+    update((s) => {
+      s.folders = s.folders.filter((f) => f.id !== fid);
+      s.conversations.forEach((c) => {
+        if (c.folderId === fid) c.folderId = null;
+      });
+    });
+  }
+
+  const ungrouped = store.conversations.filter((c) => !c.folderId);
 
   return (
-    <div className="space-y-5">
-      {/* État initial : lanceur d'actions catégorisées (façon palette). */}
-      {!started && (
-        <div className="card p-6 space-y-5">
-          <div>
-            <h2 className="text-lg font-semibold">Chat</h2>
-            <p className="text-sm text-noreon-soft">
-              Posez une question sur vos données et obtenez une réponse argumentée.
-            </p>
-          </div>
-          {ACTION_GROUPS.map((g) => (
-            <div key={g.title} className="space-y-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-noreon-soft">
-                {g.title}
+    <div className="flex gap-4 h-[calc(100vh-16rem)] min-h-[480px]">
+      {/* Colonne principale : fil de conversation + composer collé en bas. */}
+      <div className="flex-1 min-w-0 flex flex-col card overflow-hidden">
+        {/* En-tête de la conversation active. */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-noreon-border">
+          <div className="font-medium truncate flex-1">{active?.title ?? "Conversation"}</div>
+          <select
+            value={active?.folderId ?? ""}
+            onChange={(e) => active && moveConversation(active.id, e.target.value || null)}
+            className="text-xs rounded-md border border-noreon-border bg-white px-2 py-1 text-slate-600"
+            title="Ranger dans un dossier"
+          >
+            <option value="">Sans dossier</option>
+            {store.folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Fil défilant. */}
+        <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+          {active && active.turns.length === 0 && !busy ? (
+            <Launcher onAction={runAction} />
+          ) : (
+            active?.turns.map((t) => (
+              <div key={t.id} className="space-y-3">
+                <div className="flex justify-end">
+                  <div className="max-w-[80%] rounded-2xl bg-noreon-accent/12 border border-noreon-accent/25 px-4 py-2 text-sm text-slate-800">
+                    {t.question}
+                  </div>
+                </div>
+                {t.error && (
+                  <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{t.error}</div>
+                )}
+                {t.response ? (
+                  <ChatResult r={t.response} />
+                ) : (
+                  !t.error && (
+                    <div className="text-sm text-noreon-soft flex items-center gap-2">
+                      <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                      {t.deep
+                        ? "Analyse approfondie en cours (requêtes de suivi)…"
+                        : "Analyse en cours…"}
+                    </div>
+                  )
+                )}
               </div>
-              <div className="flex flex-wrap gap-2">
-                {g.actions.map((a) => (
-                  <button
-                    key={a.label}
-                    type="button"
-                    onClick={() => runAction(a)}
-                    className="btn-ghost text-slate-200"
-                  >
-                    <Icon name={a.icon} />
-                    {a.label}
-                  </button>
-                ))}
-              </div>
+            ))
+          )}
+        </div>
+
+        {/* Composer collé en bas. */}
+        <Composer
+          q={q}
+          setQ={setQ}
+          deep={deep}
+          setDeep={setDeep}
+          busy={busy}
+          inputRef={inputRef}
+          onSubmit={() => ask(q)}
+        />
+      </div>
+
+      {/* Historique des conversations (façon Claude) + dossiers. */}
+      <aside className="w-64 shrink-0 hidden lg:flex flex-col card overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-noreon-border space-y-2">
+          <button
+            onClick={() => createConversation()}
+            className="btn-primary w-full justify-center"
+          >
+            <Icon name="plus" /> Nouvelle conversation
+          </button>
+          {newFolder === null ? (
+            <button
+              onClick={() => setNewFolder("")}
+              className="btn-ghost w-full justify-center text-slate-600"
+            >
+              <Icon name="folder" /> Nouveau dossier
+            </button>
+          ) : (
+            <div className="flex gap-1">
+              <input
+                autoFocus
+                className="input py-1 text-xs"
+                placeholder="Nom du dossier"
+                value={newFolder}
+                onChange={(e) => setNewFolder(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createFolder(newFolder);
+                  if (e.key === "Escape") setNewFolder(null);
+                }}
+              />
+              <button onClick={() => createFolder(newFolder)} className="btn-ghost px-2 text-xs">
+                OK
+              </button>
             </div>
-          ))}
+          )}
         </div>
-      )}
 
-      {/* Composer : zone de saisie multi-lignes + mode + envoi. */}
-      <Composer
-        q={q}
-        setQ={setQ}
-        deep={deep}
-        setDeep={setDeep}
-        busy={busy}
-        inputRef={inputRef}
-        onSubmit={() => ask(q)}
-        onReset={
-          started
-            ? () => {
-                setResp(null);
-                setAsked(null);
-                setError(null);
-                setQ("");
-              }
-            : undefined
-        }
-      />
+        <div className="flex-1 overflow-y-auto p-2 space-y-3 text-sm">
+          {store.folders.map((f) => {
+            const convs = store.conversations.filter((c) => c.folderId === f.id);
+            return (
+              <div key={f.id}>
+                <div className="flex items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+                  <Icon name="folder" className="w-3.5 h-3.5" />
+                  <span className="flex-1 truncate normal-case">{f.name}</span>
+                  <button
+                    onClick={() => createConversation(f.id)}
+                    title="Nouvelle conversation dans ce dossier"
+                    className="hover:text-slate-900"
+                  >
+                    +
+                  </button>
+                  <button
+                    onClick={() => deleteFolder(f.id)}
+                    title="Supprimer le dossier"
+                    className="hover:text-red-600"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="mt-1 space-y-0.5">
+                  {convs.length === 0 && (
+                    <div className="px-2 py-1 text-xs text-noreon-soft italic">Vide</div>
+                  )}
+                  {convs.map((c) => (
+                    <ConvRow
+                      key={c.id}
+                      c={c}
+                      active={c.id === store.activeId}
+                      onSelect={() => selectConversation(c.id)}
+                      onDelete={() => deleteConversation(c.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
 
-      {error && (
-        <div className="text-sm text-red-300 bg-red-500/10 rounded-lg p-3">
-          {error}
-        </div>
-      )}
-      {asked && (
-        <div className="flex justify-end">
-          <div className="max-w-[80%] rounded-2xl bg-noreon-accent/20 border border-noreon-accent/30 px-4 py-2 text-sm">
-            {asked}
+          <div>
+            {store.folders.length > 0 && (
+              <div className="px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+                Sans dossier
+              </div>
+            )}
+            <div className="mt-1 space-y-0.5">
+              {ungrouped.map((c) => (
+                <ConvRow
+                  key={c.id}
+                  c={c}
+                  active={c.id === store.activeId}
+                  onSelect={() => selectConversation(c.id)}
+                  onDelete={() => deleteConversation(c.id)}
+                />
+              ))}
+            </div>
           </div>
         </div>
-      )}
-      {busy && (
-        <div className="text-sm text-noreon-soft flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-          {deep ? "Analyse approfondie en cours (requêtes de suivi)…" : "Analyse en cours…"}
+      </aside>
+    </div>
+  );
+}
+
+function ConvRow({
+  c,
+  active,
+  onSelect,
+  onDelete,
+}: {
+  c: Conversation;
+  active: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer ${
+        active ? "bg-noreon-accent/12" : "hover:bg-slate-100"
+      }`}
+      onClick={onSelect}
+    >
+      <div className="flex-1 min-w-0">
+        <div className={`truncate ${active ? "text-slate-900 font-medium" : "text-slate-700"}`}>
+          {c.title}
         </div>
-      )}
-      {resp && <ChatResult r={resp} />}
+        <div className="text-[11px] text-noreon-soft">
+          {c.turns.length} échange(s) · {relTime(c.updatedAt)}
+        </div>
+      </div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        title="Supprimer"
+        className="opacity-0 group-hover:opacity-100 text-noreon-soft hover:text-red-600 px-1"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+function Launcher({ onAction }: { onAction: (a: Action) => void }) {
+  return (
+    <div className="space-y-5 max-w-2xl mx-auto pt-6">
+      <div>
+        <h2 className="text-lg font-semibold">Comment puis-je vous aider ?</h2>
+        <p className="text-sm text-noreon-soft">
+          Posez une question sur vos données, ou partez d'une action.
+        </p>
+      </div>
+      {ACTION_GROUPS.map((g) => (
+        <div key={g.title} className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+            {g.title}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {g.actions.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => onAction(a)}
+                className="btn-ghost text-slate-700"
+              >
+                <Icon name={a.icon} />
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -386,7 +685,6 @@ function Composer({
   busy,
   inputRef,
   onSubmit,
-  onReset,
 }: {
   q: string;
   setQ: (v: string) => void;
@@ -395,18 +693,16 @@ function Composer({
   busy: boolean;
   inputRef: React.RefObject<HTMLTextAreaElement>;
   onSubmit: () => void;
-  onReset?: () => void;
 }) {
   return (
-    <div className="card p-3 space-y-3">
-      {/* Mode de réponse : rapide (essentiel) vs approfondie (analyse métier). */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className="border-t border-noreon-border p-3 space-y-2 bg-noreon-panel">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="inline-flex rounded-lg border border-noreon-border overflow-hidden text-sm">
           <button
             type="button"
             onClick={() => setDeep(false)}
-            className={`px-3 py-1.5 flex items-center gap-1.5 ${
-              !deep ? "bg-white/10 text-white" : "text-noreon-soft hover:text-white"
+            className={`px-3 py-1.5 ${
+              !deep ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft hover:text-slate-900"
             }`}
           >
             ⚡ Rapide
@@ -414,8 +710,8 @@ function Composer({
           <button
             type="button"
             onClick={() => setDeep(true)}
-            className={`px-3 py-1.5 flex items-center gap-1.5 ${
-              deep ? "bg-sky-500/20 text-sky-200" : "text-noreon-soft hover:text-white"
+            className={`px-3 py-1.5 ${
+              deep ? "bg-sky-500/15 text-sky-700 font-medium" : "text-noreon-soft hover:text-slate-900"
             }`}
           >
             📊 Approfondie
@@ -426,11 +722,6 @@ function Composer({
             ? "Détaille : croisements de dimensions, facteurs explicatifs, recommandations."
             : "Essentiel : réponse, graphique et indice de confiance."}
         </span>
-        {onReset && (
-          <button type="button" onClick={onReset} className="text-xs text-noreon-soft hover:text-white">
-            Nouvelle analyse
-          </button>
-        )}
       </div>
 
       <div className="relative">
@@ -464,11 +755,11 @@ function Composer({
 
 function ChatResult({ r }: { r: ChatResponse }) {
   const statusColor: Record<string, string> = {
-    answered: "text-emerald-300",
-    clarification: "text-amber-200",
-    blocked: "text-red-300",
-    error: "text-red-300",
-    no_schema: "text-amber-200",
+    answered: "text-emerald-700",
+    clarification: "text-amber-700",
+    blocked: "text-red-600",
+    error: "text-red-600",
+    no_schema: "text-amber-700",
   };
   return (
     <div className="space-y-4">
@@ -491,8 +782,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           )}
           {r.analysis.anomalies?.length > 0 && (
             <div className="text-xs bg-amber-500/10 rounded-lg p-2 space-y-1">
-              <div className="font-medium text-amber-200">Anomalies détectées</div>
-              <ul className="list-disc pl-4 text-amber-200/90">
+              <div className="font-medium text-amber-700">Anomalies détectées</div>
+              <ul className="list-disc pl-4 text-amber-700">
                 {r.analysis.anomalies.map((a: string, i: number) => (
                   <li key={i}>{a}</li>
                 ))}
@@ -501,7 +792,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
           )}
           {r.analysis.recommendations?.length > 0 && (
             <div className="text-xs space-y-1">
-              <div className="font-medium text-sky-300">Recommandations</div>
+              <div className="font-medium text-sky-700">Recommandations</div>
               <ul className="list-disc pl-4 text-noreon-soft">
                 {r.analysis.recommendations.map((rec: string, i: number) => (
                   <li key={i}>{rec}</li>
@@ -515,7 +806,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
       {r.deep && <DeepReport d={r.deep} />}
 
       {r.privacy && r.privacy.values_protected > 0 && (
-        <div className="text-xs text-emerald-300/90 bg-emerald-500/10 rounded-lg px-3 py-2">
+        <div className="text-xs text-emerald-700 bg-emerald-500/10 rounded-lg px-3 py-2">
           🛡 Privacy Engine — {Object.entries(r.privacy.protected_columns)
             .map(([c, t]) => `${c} (${t})`)
             .join(", ")}{" "}
@@ -541,23 +832,23 @@ function ChatResult({ r }: { r: ChatResponse }) {
             Transparence de l’analyse
           </summary>
           <div className="mt-3 space-y-3 text-xs">
-            <pre className="mono bg-black/40 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
+            <pre className="mono bg-slate-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
               {r.sql}
             </pre>
             <div>
               <div className="text-noreon-soft mb-1">Tables utilisées</div>
               <div className="flex flex-wrap gap-1">
                 {r.tables_used.map((t) => (
-                  <span key={t} className="badge bg-white/5 mono">
+                  <span key={t} className="badge bg-slate-100 mono">
                     {t}
                     {r.table_quality?.[t] != null && (
                       <span
                         className={`ml-1 ${
                           r.table_quality[t] >= 90
-                            ? "text-emerald-300"
+                            ? "text-emerald-700"
                             : r.table_quality[t] >= 70
-                            ? "text-amber-300"
-                            : "text-red-300"
+                            ? "text-amber-700"
+                            : "text-red-600"
                         }`}
                       >
                         · qualité {r.table_quality[t]}%
@@ -573,7 +864,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
             {r.assumptions.length > 0 && (
               <div>
                 <div className="text-noreon-soft mb-1">Hypothèses retenues</div>
-                <ul className="list-disc pl-4 text-amber-200">
+                <ul className="list-disc pl-4 text-amber-700">
                   {r.assumptions.map((a, i) => (
                     <li key={i}>{a}</li>
                   ))}
@@ -588,7 +879,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
               <span>{r.row_count} ligne(s)</span>
             </div>
             {r.warnings.length > 0 && (
-              <div className="text-amber-200">{r.warnings.join(" · ")}</div>
+              <div className="text-amber-700">{r.warnings.join(" · ")}</div>
             )}
           </div>
         </details>
@@ -601,7 +892,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
   const fmt = (n: number) => n.toLocaleString("fr-FR");
   return (
     <details className="card p-4 space-y-3 border border-sky-500/30" open>
-      <summary className="cursor-pointer text-sm font-semibold text-sky-300">
+      <summary className="cursor-pointer text-sm font-semibold text-sky-700">
         📊 Présentation approfondie — au-delà des chiffres, ce qu'ils veulent dire
       </summary>
 
@@ -618,7 +909,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Facteurs explicatifs (drivers) */}
         {d.drivers.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-sky-200">Facteurs explicatifs</div>
+            <div className="text-sm font-medium text-sky-700">Facteurs explicatifs</div>
             <ul className="text-xs list-disc pl-4 space-y-1">
               {d.drivers.map((x, i) => (
                 <li key={i}>{x}</li>
@@ -630,7 +921,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Croisement de dimensions */}
         {d.crosstab && d.crosstab.cells.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-sky-200">
+            <div className="text-sm font-medium text-sky-700">
               Croisement : {d.crosstab.dim_a} × {d.crosstab.dim_b}
             </div>
             <div className="overflow-x-auto">
@@ -661,10 +952,10 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Segments par dimension */}
         {d.segments.length > 0 && (
           <div className="space-y-2">
-            <div className="text-sm font-medium text-sky-200">Segmentation par dimension</div>
+            <div className="text-sm font-medium text-sky-700">Segmentation par dimension</div>
             <div className="grid gap-3 sm:grid-cols-2">
               {d.segments.map((s, i) => (
-                <div key={i} className="bg-white/5 rounded-lg p-3 space-y-1">
+                <div key={i} className="bg-slate-100 rounded-lg p-3 space-y-1">
                   <div className="text-xs font-medium">
                     {s.dimension}{" "}
                     <span className="text-noreon-soft">· {s.n_groups} segment(s)</span>
@@ -672,12 +963,12 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
                   {s.groups.map((g, j) => (
                     <div key={j} className="text-xs flex items-center gap-2">
                       <span className="w-24 shrink-0 truncate">{g.segment}</span>
-                      <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                         <div className="h-full bg-sky-400" style={{ width: `${g.share}%` }} />
                       </div>
                       <span className="mono text-noreon-soft w-10 text-right">{g.share}%</span>
                       {g.avg != null && (
-                        <span className="mono text-emerald-300/80 w-16 text-right">
+                        <span className="mono text-emerald-700 w-16 text-right">
                           ⌀ {fmt(g.avg)}
                         </span>
                       )}
@@ -692,8 +983,8 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Points d'attention */}
         {d.findings.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-amber-200">Points d'attention</div>
-            <ul className="text-xs list-disc pl-4 space-y-1 text-amber-200/90">
+            <div className="text-sm font-medium text-amber-700">Points d'attention</div>
+            <ul className="text-xs list-disc pl-4 space-y-1 text-amber-700">
               {d.findings.map((x, i) => (
                 <li key={i}>{x}</li>
               ))}
@@ -704,7 +995,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Recommandations métier */}
         {d.recommendations.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-emerald-300">Recommandations métier</div>
+            <div className="text-sm font-medium text-emerald-700">Recommandations métier</div>
             <ul className="text-xs list-disc pl-4 space-y-1 text-noreon-soft">
               {d.recommendations.map((x, i) => (
                 <li key={i}>{x}</li>
@@ -723,7 +1014,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
               {d.queries.map((q, i) => (
                 <pre
                   key={i}
-                  className="mono bg-black/40 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap"
+                  className="mono bg-slate-100 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap"
                 >
                   {q}
                 </pre>
@@ -745,7 +1036,7 @@ function ConfidenceBar({ c }: { c: { percent: number; factors: string[] } }) {
         <span className="font-medium">Indice de confiance</span>
         <span>{c.percent}%</span>
       </div>
-      <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+      <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
         <div className={`h-full ${color}`} style={{ width: `${c.percent}%` }} />
       </div>
       {c.factors.length > 0 && (
@@ -766,7 +1057,7 @@ function Meta({ label, items }: { label: string; items: string[] }) {
       <div className="text-noreon-soft mb-1">{label}</div>
       <div className="flex flex-wrap gap-1">
         {items.map((i) => (
-          <span key={i} className="badge bg-white/5 mono">
+          <span key={i} className="badge bg-slate-100 mono">
             {i}
           </span>
         ))}
@@ -809,7 +1100,7 @@ function ResultTable({
         </tbody>
       </table>
       {truncated && (
-        <div className="px-3 py-2 text-xs text-amber-200">
+        <div className="px-3 py-2 text-xs text-amber-700">
           Résultats tronqués par le LIMIT automatique.
         </div>
       )}
@@ -833,7 +1124,7 @@ function SchemaPanel({ id }: { id: number }) {
 
   if (err)
     return (
-      <div className="text-sm text-amber-200 bg-amber-500/10 rounded-lg p-3">
+      <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">
         {err} — lancez un scan.
       </div>
     );
@@ -848,7 +1139,7 @@ function SchemaPanel({ id }: { id: number }) {
               <div className="font-medium mono">
                 {t.schema_name}.{t.table_name}
               </div>
-              <span className="badge bg-white/5 text-noreon-soft">
+              <span className="badge bg-slate-100 text-noreon-soft">
                 {t.table_type} · ~{t.estimated_rows ?? "?"} lignes
               </span>
             </div>
@@ -859,7 +1150,7 @@ function SchemaPanel({ id }: { id: number }) {
                   className={`badge mono ${
                     c.is_primary_key
                       ? "bg-noreon-accent/20 text-noreon-accent"
-                      : "bg-white/5 text-noreon-soft"
+                      : "bg-slate-100 text-noreon-soft"
                   }`}
                   title={c.data_type}
                 >
@@ -883,8 +1174,8 @@ function SchemaPanel({ id }: { id: number }) {
                 <span
                   className={`badge ${
                     r.kind === "declared"
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-amber-500/15 text-amber-200"
+                      ? "bg-emerald-500/15 text-emerald-700"
+                      : "bg-amber-500/15 text-amber-700"
                   }`}
                 >
                   {r.kind === "declared" ? "FK déclarée" : "FK inférée"}
@@ -950,7 +1241,7 @@ function ProfilesPanel({ id }: { id: number }) {
                   <td className="px-3 py-1.5">{p.detected_type}</td>
                   <td className="px-3 py-1.5">
                     {p.pii_type ? (
-                      <span className="badge bg-red-500/15 text-red-300">{p.pii_type}</span>
+                      <span className="badge bg-red-500/15 text-red-600">{p.pii_type}</span>
                     ) : (
                       ""
                     )}
@@ -973,7 +1264,7 @@ function ProfilesPanel({ id }: { id: number }) {
 
 /* ------------------------------ QUALITY -------------------------------- */
 function scoreColor(pct: number) {
-  return pct >= 90 ? "text-emerald-300" : pct >= 70 ? "text-amber-300" : "text-red-300";
+  return pct >= 90 ? "text-emerald-700" : pct >= 70 ? "text-amber-700" : "text-red-600";
 }
 function barColor(pct: number) {
   return pct >= 90 ? "bg-emerald-400" : pct >= 70 ? "bg-amber-400" : "bg-red-400";
@@ -1016,7 +1307,7 @@ function QualityPanel({ id }: { id: number }) {
               {Math.round(base.score * 100)}%
             </span>
           </div>
-          <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
             <div
               className={`h-full ${barColor(base.score * 100)}`}
               style={{ width: `${base.score * 100}%` }}
@@ -1115,10 +1406,10 @@ function ColumnQualityRow({ c }: { c: QualityScore }) {
 
 /* ------------------------------ CONCEPTS ------------------------------- */
 const STATUS_LABELS: Record<string, [string, string]> = {
-  proposed: ["proposé", "bg-amber-500/15 text-amber-200"],
-  validated: ["validé", "bg-emerald-500/15 text-emerald-300"],
-  corrected: ["corrigé", "bg-sky-500/15 text-sky-300"],
-  rejected: ["rejeté", "bg-red-500/15 text-red-300"],
+  proposed: ["proposé", "bg-amber-500/15 text-amber-700"],
+  validated: ["validé", "bg-emerald-500/15 text-emerald-700"],
+  corrected: ["corrigé", "bg-sky-500/15 text-sky-700"],
+  rejected: ["rejeté", "bg-red-500/15 text-red-600"],
 };
 
 function ConceptsPanel({ id }: { id: number }) {
@@ -1205,7 +1496,7 @@ function ConceptsPanel({ id }: { id: number }) {
       </div>
 
       {notice && (
-        <div className="text-sm text-noreon-soft bg-white/5 rounded-lg p-3">{notice}</div>
+        <div className="text-sm text-noreon-soft bg-slate-100 rounded-lg p-3">{notice}</div>
       )}
 
       {mappings.length === 0 && (
@@ -1224,7 +1515,7 @@ function ConceptsPanel({ id }: { id: number }) {
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   <button
-                    className="btn bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                    className="btn bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500/30"
                     onClick={() => review(m, "validate")}
                   >
                     Valider
@@ -1244,11 +1535,11 @@ function ConceptsPanel({ id }: { id: number }) {
                         value={correctName}
                         onChange={(e) => setCorrectName(e.target.value)}
                       />
-                      <button className="btn bg-sky-500/20 text-sky-300">OK</button>
+                      <button className="btn bg-sky-500/20 text-sky-700">OK</button>
                     </form>
                   ) : (
                     <button
-                      className="btn bg-sky-500/20 text-sky-300 hover:bg-sky-500/30"
+                      className="btn bg-sky-500/20 text-sky-700 hover:bg-sky-500/30"
                       onClick={() => {
                         setCorrecting(m.id);
                         setCorrectName("");
@@ -1258,7 +1549,7 @@ function ConceptsPanel({ id }: { id: number }) {
                     </button>
                   )}
                   <button
-                    className="btn bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                    className="btn bg-red-500/20 text-red-600 hover:bg-red-500/30"
                     onClick={() => review(m, "reject")}
                   >
                     Rejeter
@@ -1312,7 +1603,7 @@ function MappingCard({
       </div>
       <div className="text-xs text-noreon-soft">{m.rationale}</div>
       {m.needs_arbitration && m.arbitration_note && (
-        <div className="text-xs text-amber-200 bg-amber-500/10 rounded-lg p-2">
+        <div className="text-xs text-amber-700 bg-amber-500/10 rounded-lg p-2">
           ⚠ Arbitrage requis — {m.arbitration_note}
         </div>
       )}
@@ -1354,15 +1645,15 @@ function LogPanel({
               <span
                 className={`badge ${
                   r.status === "ok"
-                    ? "bg-emerald-500/15 text-emerald-300"
-                    : "bg-red-500/15 text-red-300"
+                    ? "bg-emerald-500/15 text-emerald-700"
+                    : "bg-red-500/15 text-red-600"
                 }`}
               >
                 {r.status}
               </span>
             </div>
           </div>
-          <pre className="mono bg-black/40 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+          <pre className="mono bg-slate-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">
             {r.sql}
           </pre>
           <div className="text-noreon-soft flex gap-3">
@@ -1371,7 +1662,7 @@ function LogPanel({
             {r.confidence?.percent != null && (
               <span>confiance {r.confidence.percent}%</span>
             )}
-            {r.block_reason && <span className="text-red-300">{r.block_reason}</span>}
+            {r.block_reason && <span className="text-red-600">{r.block_reason}</span>}
           </div>
         </div>
       ))}

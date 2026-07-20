@@ -155,7 +155,7 @@ export default function DefinitionsPanel() {
           )}
           <Field label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} />
           <button className="btn-primary w-full justify-center">Enregistrer</button>
-          {error && <div className="text-xs text-red-300">{error}</div>}
+          {error && <div className="text-xs text-red-600">{error}</div>}
           <p className="text-xs text-noreon-soft">
             Une fois enregistrée, utilisez-la dans le chat : « CA par mois »,
             « combien de clients fidèles ».

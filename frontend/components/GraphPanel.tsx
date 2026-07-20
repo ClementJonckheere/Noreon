@@ -135,7 +135,7 @@ export default function GraphPanel({ id }: { id: number }) {
 
   if (error)
     return (
-      <div className="text-sm text-amber-200 bg-amber-500/10 rounded-lg p-3">
+      <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">
         {error}
       </div>
     );
@@ -156,7 +156,7 @@ export default function GraphPanel({ id }: { id: number }) {
       </div>
 
       {notice && (
-        <div className="text-sm text-noreon-soft bg-white/5 rounded-lg p-3">{notice}</div>
+        <div className="text-sm text-noreon-soft bg-slate-100 rounded-lg p-3">{notice}</div>
       )}
 
       {pending.length > 0 && (
@@ -182,13 +182,13 @@ export default function GraphPanel({ id }: { id: number }) {
               </div>
               <div className="flex gap-2">
                 <button
-                  className="btn bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                  className="btn bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500/30"
                   onClick={() => review(e, "validate")}
                 >
                   Valider
                 </button>
                 <button
-                  className="btn bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                  className="btn bg-red-500/20 text-red-600 hover:bg-red-500/30"
                   onClick={() => review(e, "reject")}
                 >
                   Rejeter

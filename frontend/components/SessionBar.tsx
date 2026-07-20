@@ -39,7 +39,7 @@ export default function SessionBar() {
   return (
     <div className="flex items-center gap-3 text-xs">
       {me.role === "admin" && (
-        <Link href="/users" className="text-noreon-soft hover:text-white">
+        <Link href="/users" className="text-noreon-soft hover:text-slate-900">
           Utilisateurs
         </Link>
       )}
@@ -49,11 +49,11 @@ export default function SessionBar() {
             {me.email} · <span className="text-noreon-accent">{ROLE_LABEL[me.role] || me.role}</span>
           </>
         ) : (
-          <span className="text-amber-200">mode dev (admin implicite)</span>
+          <span className="text-amber-700">mode dev (admin implicite)</span>
         )}
       </span>
       {authed && (
-        <button onClick={logout} className="badge bg-white/5 text-noreon-soft hover:text-white">
+        <button onClick={logout} className="badge bg-slate-100 text-noreon-soft hover:text-slate-900">
           Déconnexion
         </button>
       )}

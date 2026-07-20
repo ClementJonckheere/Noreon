@@ -91,7 +91,7 @@ export default function UsersPage() {
       </div>
 
       {error && (
-        <div className="text-sm text-amber-200 bg-amber-500/10 rounded-lg p-3">{error}</div>
+        <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">{error}</div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-5">
@@ -102,8 +102,8 @@ export default function UsersPage() {
                 <div>
                   <div className="font-medium">
                     {u.email}{" "}
-                    {!u.is_active && <span className="badge bg-red-500/15 text-red-300">inactif</span>}
-                    {u.mfa_enabled && <span className="badge bg-emerald-500/15 text-emerald-300 ml-1">MFA</span>}
+                    {!u.is_active && <span className="badge bg-red-500/15 text-red-600">inactif</span>}
+                    {u.mfa_enabled && <span className="badge bg-emerald-500/15 text-emerald-700 ml-1">MFA</span>}
                   </div>
                   <div className="text-xs text-noreon-soft">{u.full_name || "—"}</div>
                 </div>
@@ -151,7 +151,7 @@ export default function UsersPage() {
                             onChange={() => toggleGrant(u, c.id, granted)}
                           />
                           <span>{c.name}</span>
-                          <span className="badge bg-white/5 text-noreon-soft">{c.engine}</span>
+                          <span className="badge bg-slate-100 text-noreon-soft">{c.engine}</span>
                         </label>
                       );
                     })

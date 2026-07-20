@@ -8,13 +8,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Palette claire « argentée », à l'image du logo Noreon.
         noreon: {
-          bg: "#0b1020",
-          panel: "#141b2e",
-          border: "#25304a",
-          accent: "#4f8cff",
-          soft: "#9fb3d1",
+          bg: "#eef1f6", // fond général (gris argenté très clair)
+          panel: "#ffffff", // cartes / surfaces
+          border: "#dce1ea", // bordures discrètes
+          accent: "#3b6fd4", // bleu acier (lisible sur blanc)
+          soft: "#5b6a82", // texte secondaire
         },
+      },
+      boxShadow: {
+        card: "0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06)",
       },
     },
   },
