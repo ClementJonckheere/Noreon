@@ -101,6 +101,29 @@ base SQLite locale avec inférence de type ; requêtes en `mode=ro`.
 spécifique. Le nom de table dérive du **nom d'origine** du fichier (et non du
 nom technique d'upload) — correctif appliqué après un bug de nommage.
 
+### D-13 — Analyste approfondi : croisements pilotés par le schéma, hors-ligne
+**Contexte.** Restituer le résultat d'une requête, c'est de la « sortie de
+données ». La valeur d'un data analyst, c'est de comprendre *qui/quoi* se cache
+derrière les chiffres : croiser les variables, isoler les facteurs explicatifs,
+présenter des enseignements actionnables.
+**Décision.** Après la requête primaire, un service dédié (`deep_analysis.py`)
+localise la **table de faits**, choisit une **mesure additive** (jamais un
+« âge » sommé : les questions de dénombrement retombent sur l'effectif), énumère
+les **dimensions** (colonnes catégorielles, **tranches numériques** — âge,
+points —, périodes, et attributs des **tables liées** via les relations du
+modèle) puis lance des **requêtes de suivi agrégées** (mêmes garde-fous
+lecture seule). Il classe les dimensions par **pouvoir explicatif** (gradient de
+la mesure moyenne / concentration), **croise** les deux plus structurantes en
+privilégiant un axe « qui » plutôt que le temps, repère les segments atypiques
+et rédige contexte / drivers / croisement / points d'attention / recommandations.
+**Conséquence.** Réponse à valeur métier (« le panier moyen passe de 246 à 327
+selon la tranche d'âge — vrai facteur, pas un total ») sans dépendance LLM ;
+tout enseignement est **calculé** et **auditable** (les requêtes de suivi sont
+exposées). Les agrégations ne renvoient que des libellés de segments et des
+compteurs : **aucune donnée identifiante** ne sort (PII et colonnes quasi-uniques
+exclues des dimensions). Best-effort : un échec retombe silencieusement sur le
+rapport chiffré standard. Bornage : ≤ 8 requêtes de suivi + 1 croisement.
+
 ---
 
 ## Dettes / limites connues (à traiter)

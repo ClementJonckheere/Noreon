@@ -79,6 +79,7 @@ backend/app/
 │   ├── definitions.py   mesures/segments réutilisables
 │   ├── graph.py         Knowledge Graph
 │   ├── analyst.py       rapport d'anomalies hors-ligne
+│   ├── deep_analysis.py analyste approfondi : croisements de dimensions (valeur métier)
 │   ├── charting.py      suggestion de graphique
 │   ├── privacy.py       Privacy Engine (pseudonymisation/ré-identification)
 │   ├── confidence.py    indice de confiance calibré
@@ -117,6 +118,8 @@ question NL
   → exécution LECTURE SEULE (adaptateur)
   → Privacy Engine : pseudonymisation des PII avant analyse
   → agent Analyste : résumé, observations, anomalies, recommandations
+  → agent Analyste APPROFONDI : requêtes de suivi agrégées (segmentation,
+    croisements de dimensions, facteurs explicatifs) → présentation métier
   → ré-identification LOCALE dans le rapport
   → indice de confiance calibré + score qualité des tables + graphique
   → audit (query_logs)

@@ -41,7 +41,9 @@ def update_preferences(
 ) -> dict:
     ts = db.get(TenantSettings, tenant.id)
     prefs = _prefs(ts)
-    for key, value in payload.model_dump(exclude_none=True).items():
+    # exclude_unset : on n'applique que les clés réellement envoyées, MAIS on
+    # accepte les valeurs nulles explicites (ex. remettre le graphique en auto).
+    for key, value in payload.model_dump(exclude_unset=True).items():
         prefs[key] = value
     ts.preferences = prefs
     db.commit()

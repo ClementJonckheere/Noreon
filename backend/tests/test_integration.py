@@ -337,6 +337,73 @@ def test_chat_privacy_engine_end_to_end(session_with_conn):
     assert any("@" in str(e) for e in real_emails)
 
 
+def test_deep_analysis_on_measure_cross_references_age(session_with_conn):
+    """Sur « montant des commandes », l'analyste approfondi doit dépasser la
+    sortie brute : joindre les clients, découper l'âge en tranches, retrouver
+    l'âge comme FACTEUR EXPLICATIF réel (panier moyen croissant) et croiser
+    deux dimensions. C'est le cœur de la demande « un vrai data analyst »."""
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    resp = chat_svc.answer_question(db, conn, "montant total des commandes par mois")
+    assert resp.status == "answered"
+    deep = resp.deep
+    assert deep is not None
+    assert deep["subject"] == "orders"
+    assert "amount_ttc" in deep["metric_label"]
+
+    # Une dimension issue d'une table LIÉE (clients) doit apparaître : l'analyste
+    # est allé chercher « qui achète » au-delà de la table de faits.
+    dim_labels = " ".join(s["dimension"] for s in deep["segments"])
+    assert "age" in dim_labels and "customers" in dim_labels
+
+    # L'âge est identifié comme un vrai facteur explicatif (gradient de panier),
+    # pas un simple total.
+    assert any("age" in d and ("facteur explicatif" in d or "influence" in d)
+               for d in deep["drivers"])
+
+    # Le panier moyen croît avec la tranche d'âge (driver réel semé dans la démo).
+    age_seg = next(s for s in deep["segments"] if "age" in s["dimension"])
+    avgs = [g["avg"] for g in age_seg["groups"] if g.get("avg") is not None]
+    assert avgs and max(avgs) > min(avgs)
+
+    # Un croisement de deux dimensions est produit + des recommandations métier.
+    assert deep["crosstab"] is not None and deep["crosstab"]["cells"]
+    assert deep["recommendations"]
+
+    # Les requêtes de suivi sont agrégées (aucune donnée brute identifiante).
+    assert deep["queries"] and all("group by" in q.lower() for q in deep["queries"])
+
+
+def test_deep_analysis_profiles_population_for_count_question(session_with_conn):
+    """« Combien de clients » → profil de la population (effectif par âge, ville,
+    genre), pas une somme de mesure au hasard."""
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    resp = chat_svc.answer_question(db, conn, "Combien de clients ?")
+    assert resp.deep is not None
+    assert resp.deep["subject"] == "customers"
+    assert "effectif" in resp.deep["metric_label"]
+    dims = " ".join(s["dimension"] for s in resp.deep["segments"])
+    assert "age" in dims and "city" in dims
+
+
+def test_deep_analysis_can_be_disabled(session_with_conn):
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    scanner.scan_and_persist(db, conn, cfg)
+    resp = chat_svc.answer_question(
+        db, conn, "montant total des commandes par mois", deep_analysis=False
+    )
+    assert resp.status == "answered"
+    assert resp.deep is None
+
+
 def test_alert_threshold_evaluation(session_with_conn):
     from app.models.alert import Alert
     from app.services import alerts as alerts_svc
