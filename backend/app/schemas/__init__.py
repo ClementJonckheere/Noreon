@@ -357,3 +357,25 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     run_analysis: bool = True
     deep_analysis: bool = True
+
+
+# ---- Historique de conversations (côté serveur) ----
+class FolderCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class ConversationCreate(BaseModel):
+    title: str | None = None
+    folder_id: int | None = None
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=255)
+    folder_id: int | None = None
+    archived: bool | None = None
+
+
+class TurnCreate(BaseModel):
+    question: str = Field(..., min_length=1)
+    run_analysis: bool = True
+    deep_analysis: bool = True

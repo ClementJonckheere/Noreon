@@ -303,6 +303,34 @@ export interface ChatResponse {
   } | null;
 }
 
+// ---- Conversations (historique serveur, dossiers, archivage) ----
+export interface ConvFolder {
+  id: number;
+  name: string;
+  created_at: string | null;
+}
+export interface ConvTurn {
+  id: number;
+  ordinal: number;
+  question: string;
+  deep: boolean;
+  response: ChatResponse | null;
+  error: string | null;
+  created_at: string | null;
+}
+export interface ConvSummary {
+  id: number;
+  title: string;
+  folder_id: number | null;
+  archived: boolean;
+  turn_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+export interface ConvFull extends ConvSummary {
+  turns: ConvTurn[];
+}
+
 // ---- Endpoints ----
 export const api = {
   listConnections: () => request<Connection[]>("/connections"),
@@ -378,6 +406,44 @@ export const api = {
       body: JSON.stringify({ question, deep_analysis: deep }),
     }),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
+
+  // --- Conversations serveur ---
+  convList: (id: number, archived = false) =>
+    request<ConvSummary[]>(`/connections/${id}/conversations?archived=${archived}`),
+  convGet: (id: number, cid: number) =>
+    request<ConvFull>(`/connections/${id}/conversations/${cid}`),
+  convCreate: (id: number, body: { title?: string; folder_id?: number | null }) =>
+    request<ConvFull>(`/connections/${id}/conversations`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  convUpdate: (
+    id: number,
+    cid: number,
+    patch: { title?: string; folder_id?: number | null; archived?: boolean },
+  ) =>
+    request<ConvSummary>(`/connections/${id}/conversations/${cid}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  convDelete: (id: number, cid: number) =>
+    request<any>(`/connections/${id}/conversations/${cid}`, { method: "DELETE" }),
+  convAddTurn: (id: number, cid: number, question: string, deep: boolean) =>
+    request<{ turn: ConvTurn; conversation: ConvSummary }>(
+      `/connections/${id}/conversations/${cid}/turns`,
+      { method: "POST", body: JSON.stringify({ question, deep_analysis: deep }) },
+    ),
+  folderList: (id: number) =>
+    request<ConvFolder[]>(`/connections/${id}/conversations/folders`),
+  folderCreate: (id: number, name: string) =>
+    request<ConvFolder>(`/connections/${id}/conversations/folders`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  folderDelete: (id: number, fid: number) =>
+    request<any>(`/connections/${id}/conversations/folders/${fid}`, {
+      method: "DELETE",
+    }),
 
   // --- Authentification & rôles (Module 11) ---
   register: (tenant_slug: string, email: string, password: string, full_name = "") =>

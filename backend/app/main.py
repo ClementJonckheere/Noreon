@@ -11,6 +11,7 @@ from app.api.routes import (
     auth,
     chat,
     connections,
+    conversations,
     definitions,
     health,
     profiling,
@@ -54,6 +55,7 @@ app.include_router(definitions.router)
 app.include_router(settings_routes.router)
 app.include_router(alerts.router)
 app.include_router(chat.router)
+app.include_router(conversations.router)
 
 
 @app.get("/")

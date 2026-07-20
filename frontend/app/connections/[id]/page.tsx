@@ -13,22 +13,15 @@ import {
   ChatResponse,
   ConceptMapping,
   Connection,
+  ConvFolder,
+  ConvFull,
+  ConvSummary,
   Profile,
   QualityScore,
   Relation,
   Table,
   TENANT,
 } from "@/lib/api";
-import {
-  ChatStore,
-  Conversation,
-  emptyStore,
-  loadStore,
-  newConversation,
-  saveStore,
-  titleFrom,
-  uid,
-} from "@/lib/conversations";
 
 type Tab =
   | "schema"
@@ -198,6 +191,10 @@ const ICONS: Record<string, JSX.Element> = {
   attach: <><path d="M21 12l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" /></>,
   plus: <><path d="M12 5v14M5 12h14" /></>,
   folder: <><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>,
+  archive: <><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" /></>,
+  inbox: <><path d="M4 13h4l2 3h4l2-3h4" /><path d="M4 13V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /></>,
+  pencil: <><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></>,
+  search: <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></>,
 };
 
 function Icon({ name, className = "w-4 h-4" }: { name: string; className?: string }) {
@@ -266,6 +263,9 @@ function relTime(ts: number): string {
   return `il y a ${d} j`;
 }
 
+// Tour affiché : soit rejoué depuis le serveur, soit en attente (optimiste).
+type UiTurn = { id: string; question: string; deep: boolean; response: ChatResponse | null; error: string | null };
+
 function ChatPanel({
   id,
   replay,
@@ -275,47 +275,56 @@ function ChatPanel({
   replay?: { q: string; n: number } | null;
   onNavigate?: (tab: Tab) => void;
 }) {
-  const [store, setStore] = useState<ChatStore>(emptyStore);
+  const [folders, setFolders] = useState<ConvFolder[]>([]);
+  const [convs, setConvs] = useState<ConvSummary[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [turns, setTurns] = useState<UiTurn[]>([]);
+  const [activeFolder, setActiveFolder] = useState<number | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
   const [q, setQ] = useState("");
-  const [deep, setDeep] = useState(true); // approfondie (détaille) vs rapide (essentiel)
+  const [deep, setDeep] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [newFolder, setNewFolder] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
-  // Chargement de l'historique local (par connexion), une conversation active
-  // par défaut.
+  // Chargement initial : dossiers + conversations (serveur), création d'une
+  // conversation vide si l'historique est vierge.
   useEffect(() => {
-    const s = loadStore(id);
-    if (s.conversations.length === 0) {
-      const c = newConversation();
-      s.conversations = [c];
-      s.activeId = c.id;
-    } else if (!s.activeId) {
-      s.activeId = s.conversations[0].id;
-    }
-    setStore(s);
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const [fs, list] = await Promise.all([api.folderList(id), api.convList(id, false)]);
+        if (!alive) return;
+        setFolders(fs);
+        if (list.length === 0) {
+          const c = await api.convCreate(id, {});
+          if (!alive) return;
+          setConvs([c]);
+          selectConv(c.id, c);
+        } else {
+          setConvs(list);
+          selectConv(list[0].id);
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const active = store.conversations.find((c) => c.id === store.activeId) || null;
-
-  function persist(next: ChatStore) {
-    setStore(next);
-    saveStore(id, next);
-  }
-  function update(mut: (s: ChatStore) => void) {
-    const next: ChatStore = JSON.parse(JSON.stringify(store));
-    mut(next);
-    persist(next);
-    return next;
-  }
-
-  // Auto-scroll en bas du fil après chaque tour.
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
-  }, [active?.turns.length, busy]);
+  }, [turns.length, busy]);
 
-  // Historique rejouable : question relancée depuis l'onglet Historique.
   useEffect(() => {
     if (replay?.q) {
       setQ(replay.q);
@@ -324,55 +333,57 @@ function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replay?.n]);
 
-  function ensureActiveId(next: ChatStore): string {
-    if (next.activeId && next.conversations.some((c) => c.id === next.activeId)) {
-      return next.activeId;
-    }
-    const c = newConversation();
-    next.conversations.unshift(c);
-    next.activeId = c.id;
-    return c.id;
+  async function reloadConvs(archived = showArchived) {
+    const list = await api.convList(id, archived);
+    setConvs(list);
+    return list;
+  }
+
+  async function selectConv(cid: number, full?: ConvFull) {
+    setActiveId(cid);
+    const conv = full ?? (await api.convGet(id, cid));
+    setActiveFolder(conv.folder_id);
+    setTurns(
+      conv.turns.map((t) => ({
+        id: String(t.id), question: t.question, deep: t.deep, response: t.response, error: t.error,
+      })),
+    );
   }
 
   async function ask(question: string, deepMode: boolean = deep) {
     const text = question.trim();
     if (!text || busy) return;
-    const turnId = uid();
-    let convId = "";
-    // 1) Ajout optimiste du tour (question + réponse en attente).
-    const afterAdd = update((s) => {
-      convId = ensureActiveId(s);
-      const c = s.conversations.find((x) => x.id === convId)!;
-      if (c.turns.length === 0) c.title = titleFrom(text);
-      c.turns.push({ id: turnId, question: text, deep: deepMode, response: null, ts: Date.now() });
-      c.updatedAt = Date.now();
-    });
+    // La conversation active peut ne pas encore exister (garde-fou).
+    let cid = activeId;
+    if (cid == null) {
+      const c = await api.convCreate(id, {});
+      setConvs((cs) => [c, ...cs]);
+      cid = c.id;
+      setActiveId(cid);
+    }
+    const tmpId = "pending-" + Date.now();
+    setTurns((ts) => [...ts, { id: tmpId, question: text, deep: deepMode, response: null, error: null }]);
     setQ("");
     setBusy(true);
     try {
-      const resp = await api.chat(id, text, deepMode);
-      finishTurn(afterAdd, convId, turnId, { response: resp });
+      const { turn, conversation } = await api.convAddTurn(id, cid, text, deepMode);
+      setTurns((ts) =>
+        ts.map((t) =>
+          t.id === tmpId
+            ? { id: String(turn.id), question: turn.question, deep: turn.deep, response: turn.response, error: turn.error }
+            : t,
+        ),
+      );
+      // Met à jour le résumé (titre auto, updated_at) et remonte la conversation.
+      setConvs((cs) => {
+        const others = cs.filter((c) => c.id !== conversation.id);
+        return [conversation, ...others];
+      });
     } catch (e: any) {
-      finishTurn(afterAdd, convId, turnId, { response: null, error: e.message });
+      setTurns((ts) => ts.map((t) => (t.id === tmpId ? { ...t, error: e.message } : t)));
     } finally {
       setBusy(false);
     }
-  }
-
-  function finishTurn(
-    base: ChatStore,
-    convId: string,
-    turnId: string,
-    patch: { response: ChatResponse | null; error?: string },
-  ) {
-    const next: ChatStore = JSON.parse(JSON.stringify(base));
-    const c = next.conversations.find((x) => x.id === convId);
-    const t = c?.turns.find((x) => x.id === turnId);
-    if (t) {
-      t.response = patch.response;
-      t.error = patch.error;
-    }
-    persist(next);
   }
 
   function runAction(a: Action) {
@@ -386,85 +397,143 @@ function ChatPanel({
     else inputRef.current?.focus();
   }
 
-  // --- gestion des conversations & dossiers ---
-  function createConversation(folderId: string | null = null) {
-    update((s) => {
-      const c = newConversation(folderId);
-      s.conversations.unshift(c);
-      s.activeId = c.id;
-    });
+  // --- conversations ---
+  async function createConversation(folderId: number | null = null) {
+    if (showArchived) setShowArchived(false);
+    const c = await api.convCreate(id, { folder_id: folderId });
+    if (!showArchived) setConvs((cs) => [c, ...cs]);
+    setActiveId(c.id);
+    setActiveFolder(c.folder_id);
+    setTurns([]);
     setQ("");
     setTimeout(() => inputRef.current?.focus(), 0);
   }
-  function selectConversation(cid: string) {
-    update((s) => {
-      s.activeId = cid;
-    });
+  async function deleteConversation(cid: number) {
+    await api.convDelete(id, cid);
+    const list = await reloadConvs();
+    if (activeId === cid) {
+      if (list[0]) selectConv(list[0].id);
+      else createConversation();
+    }
   }
-  function deleteConversation(cid: string) {
-    update((s) => {
-      s.conversations = s.conversations.filter((c) => c.id !== cid);
-      if (s.activeId === cid) s.activeId = s.conversations[0]?.id ?? null;
-      if (!s.activeId) {
-        const c = newConversation();
-        s.conversations.unshift(c);
-        s.activeId = c.id;
-      }
-    });
+  async function renameConversation(cid: number, title: string) {
+    const t = title.trim();
+    setRenaming(false);
+    if (!t) return;
+    const updated = await api.convUpdate(id, cid, { title: t });
+    setConvs((cs) => cs.map((c) => (c.id === cid ? { ...c, title: updated.title } : c)));
   }
-  function moveConversation(cid: string, folderId: string | null) {
-    update((s) => {
-      const c = s.conversations.find((x) => x.id === cid);
-      if (c) c.folderId = folderId;
-    });
+  async function moveConversation(cid: number, folderId: number | null) {
+    await api.convUpdate(id, cid, { folder_id: folderId });
+    if (cid === activeId) setActiveFolder(folderId);
+    reloadConvs();
   }
-  function createFolder(name: string) {
-    const n = name.trim();
-    if (!n) return;
-    update((s) => {
-      s.folders.push({ id: uid(), name: n });
-    });
-    setNewFolder(null);
+  async function archiveConversation(cid: number, archived: boolean) {
+    await api.convUpdate(id, cid, { archived });
+    const list = await reloadConvs();
+    if (activeId === cid) {
+      if (list[0]) selectConv(list[0].id);
+      else if (!showArchived) createConversation();
+      else setTurns([]);
+    }
   }
-  function deleteFolder(fid: string) {
-    update((s) => {
-      s.folders = s.folders.filter((f) => f.id !== fid);
-      s.conversations.forEach((c) => {
-        if (c.folderId === fid) c.folderId = null;
-      });
-    });
+  async function toggleArchivedView() {
+    const next = !showArchived;
+    setShowArchived(next);
+    await reloadConvs(next);
   }
 
-  const ungrouped = store.conversations.filter((c) => !c.folderId);
+  // --- dossiers ---
+  async function createFolder(name: string) {
+    const n = name.trim();
+    if (!n) return;
+    const f = await api.folderCreate(id, n);
+    setFolders((fs) => [...fs, f].sort((a, b) => a.name.localeCompare(b.name)));
+    setNewFolder(null);
+  }
+  async function deleteFolder(fid: number) {
+    await api.folderDelete(id, fid);
+    setFolders((fs) => fs.filter((f) => f.id !== fid));
+    reloadConvs();
+    if (activeFolder === fid) setActiveFolder(null);
+  }
+
+  const matches = (c: ConvSummary) =>
+    !search.trim() || c.title.toLowerCase().includes(search.trim().toLowerCase());
+  const visibleConvs = convs.filter(matches);
+  const ungrouped = visibleConvs.filter((c) => !c.folder_id);
+  const activeSummary = convs.find((c) => c.id === activeId);
 
   return (
     <div className="flex gap-4 h-[calc(100vh-16rem)] min-h-[480px]">
       {/* Colonne principale : fil de conversation + composer collé en bas. */}
       <div className="flex-1 min-w-0 flex flex-col card overflow-hidden">
-        {/* En-tête de la conversation active. */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-noreon-border">
-          <div className="font-medium truncate flex-1">{active?.title ?? "Conversation"}</div>
-          <select
-            value={active?.folderId ?? ""}
-            onChange={(e) => active && moveConversation(active.id, e.target.value || null)}
-            className="text-xs rounded-md border border-noreon-border bg-white px-2 py-1 text-slate-600"
-            title="Ranger dans un dossier"
-          >
-            <option value="">Sans dossier</option>
-            {store.folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
+          {renaming && activeId != null ? (
+            <input
+              autoFocus
+              className="input py-1 flex-1"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => renameConversation(activeId, renameValue)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") renameConversation(activeId, renameValue);
+                if (e.key === "Escape") setRenaming(false);
+              }}
+            />
+          ) : (
+            <div className="font-medium truncate flex-1 flex items-center gap-1">
+              <span className="truncate">{activeSummary?.title ?? "Conversation"}</span>
+              {activeId != null && (
+                <button
+                  onClick={() => {
+                    setRenameValue(activeSummary?.title ?? "");
+                    setRenaming(true);
+                  }}
+                  title="Renommer"
+                  className="text-noreon-soft hover:text-slate-900 shrink-0"
+                >
+                  <Icon name="pencil" className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {activeSummary?.archived && (
+                <span className="ml-1 badge bg-slate-100 text-noreon-soft">archivée</span>
+              )}
+            </div>
+          )}
+          {activeId != null && (
+            <>
+              <select
+                value={activeFolder ?? ""}
+                onChange={(e) => moveConversation(activeId, e.target.value ? Number(e.target.value) : null)}
+                className="text-xs rounded-md border border-noreon-border bg-white px-2 py-1 text-slate-600"
+                title="Ranger dans un dossier"
+              >
+                <option value="">Sans dossier</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => archiveConversation(activeId, !activeSummary?.archived)}
+                className="text-xs text-noreon-soft hover:text-slate-900 px-1"
+                title={activeSummary?.archived ? "Désarchiver" : "Archiver"}
+              >
+                <Icon name={activeSummary?.archived ? "inbox" : "archive"} />
+              </button>
+            </>
+          )}
         </div>
 
-        {/* Fil défilant. */}
         <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-          {active && active.turns.length === 0 && !busy ? (
+          {loading ? (
+            <div className="text-sm text-noreon-soft">Chargement de l'historique…</div>
+          ) : turns.length === 0 && !busy ? (
             <Launcher onAction={runAction} />
           ) : (
-            active?.turns.map((t) => (
+            turns.map((t) => (
               <div key={t.id} className="space-y-3">
                 <div className="flex justify-end">
                   <div className="max-w-[80%] rounded-2xl bg-noreon-accent/12 border border-noreon-accent/25 px-4 py-2 text-sm text-slate-800">
@@ -491,7 +560,6 @@ function ChatPanel({
           )}
         </div>
 
-        {/* Composer collé en bas. */}
         <Composer
           q={q}
           setQ={setQ}
@@ -503,13 +571,10 @@ function ChatPanel({
         />
       </div>
 
-      {/* Historique des conversations (façon Claude) + dossiers. */}
+      {/* Historique serveur (façon Claude) + dossiers + archivage. */}
       <aside className="w-64 shrink-0 hidden lg:flex flex-col card overflow-hidden">
         <div className="px-3 py-2.5 border-b border-noreon-border space-y-2">
-          <button
-            onClick={() => createConversation()}
-            className="btn-primary w-full justify-center"
-          >
+          <button onClick={() => createConversation()} className="btn-primary w-full justify-center">
             <Icon name="plus" /> Nouvelle conversation
           </button>
           {newFolder === null ? (
@@ -537,65 +602,99 @@ function ChatPanel({
               </button>
             </div>
           )}
+          <div className="inline-flex w-full rounded-lg border border-noreon-border overflow-hidden text-xs">
+            <button
+              onClick={() => showArchived && toggleArchivedView()}
+              className={`flex-1 py-1 ${!showArchived ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft"}`}
+            >
+              Actives
+            </button>
+            <button
+              onClick={() => !showArchived && toggleArchivedView()}
+              className={`flex-1 py-1 ${showArchived ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft"}`}
+            >
+              Archivées
+            </button>
+          </div>
+          <div className="relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-noreon-soft">
+              <Icon name="search" className="w-3.5 h-3.5" />
+            </span>
+            <input
+              className="input py-1 pl-7 text-xs"
+              placeholder="Rechercher…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-3 text-sm">
-          {store.folders.map((f) => {
-            const convs = store.conversations.filter((c) => c.folderId === f.id);
-            return (
-              <div key={f.id}>
-                <div className="flex items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
-                  <Icon name="folder" className="w-3.5 h-3.5" />
-                  <span className="flex-1 truncate normal-case">{f.name}</span>
-                  <button
-                    onClick={() => createConversation(f.id)}
-                    title="Nouvelle conversation dans ce dossier"
-                    className="hover:text-slate-900"
-                  >
-                    +
-                  </button>
-                  <button
-                    onClick={() => deleteFolder(f.id)}
-                    title="Supprimer le dossier"
-                    className="hover:text-red-600"
-                  >
-                    ×
-                  </button>
+          {!showArchived &&
+            folders.map((f) => {
+              const list = visibleConvs.filter((c) => c.folder_id === f.id);
+              return (
+                <div key={f.id}>
+                  <div className="flex items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+                    <Icon name="folder" className="w-3.5 h-3.5" />
+                    <span className="flex-1 truncate normal-case">{f.name}</span>
+                    <button
+                      onClick={() => createConversation(f.id)}
+                      title="Nouvelle conversation dans ce dossier"
+                      className="hover:text-slate-900"
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={() => deleteFolder(f.id)}
+                      title="Supprimer le dossier"
+                      className="hover:text-red-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="mt-1 space-y-0.5">
+                    {list.length === 0 && (
+                      <div className="px-2 py-1 text-xs text-noreon-soft italic">Vide</div>
+                    )}
+                    {list.map((c) => (
+                      <ConvRow
+                        key={c.id}
+                        c={c}
+                        active={c.id === activeId}
+                        onSelect={() => selectConv(c.id)}
+                        onDelete={() => deleteConversation(c.id)}
+                        onArchive={() => archiveConversation(c.id, true)}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-1 space-y-0.5">
-                  {convs.length === 0 && (
-                    <div className="px-2 py-1 text-xs text-noreon-soft italic">Vide</div>
-                  )}
-                  {convs.map((c) => (
-                    <ConvRow
-                      key={c.id}
-                      c={c}
-                      active={c.id === store.activeId}
-                      onSelect={() => selectConversation(c.id)}
-                      onDelete={() => deleteConversation(c.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
 
           <div>
-            {store.folders.length > 0 && (
+            {!showArchived && folders.length > 0 && (
               <div className="px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
                 Sans dossier
               </div>
             )}
             <div className="mt-1 space-y-0.5">
-              {ungrouped.map((c) => (
+              {(showArchived ? visibleConvs : ungrouped).map((c) => (
                 <ConvRow
                   key={c.id}
                   c={c}
-                  active={c.id === store.activeId}
-                  onSelect={() => selectConversation(c.id)}
+                  active={c.id === activeId}
+                  archived={showArchived}
+                  onSelect={() => selectConv(c.id)}
                   onDelete={() => deleteConversation(c.id)}
+                  onArchive={() => archiveConversation(c.id, !showArchived)}
                 />
               ))}
+              {showArchived && convs.length === 0 && (
+                <div className="px-2 py-2 text-xs text-noreon-soft italic">
+                  Aucune conversation archivée.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -607,14 +706,19 @@ function ChatPanel({
 function ConvRow({
   c,
   active,
+  archived,
   onSelect,
   onDelete,
+  onArchive,
 }: {
-  c: Conversation;
+  c: ConvSummary;
   active: boolean;
+  archived?: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  onArchive: () => void;
 }) {
+  const ts = c.updated_at ? Date.parse(c.updated_at) : Date.now();
   return (
     <div
       className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer ${
@@ -627,9 +731,19 @@ function ConvRow({
           {c.title}
         </div>
         <div className="text-[11px] text-noreon-soft">
-          {c.turns.length} échange(s) · {relTime(c.updatedAt)}
+          {c.turn_count} échange(s) · {relTime(ts)}
         </div>
       </div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onArchive();
+        }}
+        title={archived ? "Désarchiver" : "Archiver"}
+        className="opacity-0 group-hover:opacity-100 text-noreon-soft hover:text-slate-900 px-1"
+      >
+        <Icon name={archived ? "inbox" : "archive"} className="w-3.5 h-3.5" />
+      </button>
       <button
         onClick={(e) => {
           e.stopPropagation();

@@ -404,6 +404,96 @@ def test_deep_analysis_can_be_disabled(session_with_conn):
     assert resp.deep is None
 
 
+def _client_for(db, monkeypatch):
+    """Client FastAPI partageant la session de test.
+
+    Les routes appellent `db.commit()` ; en test on l'aliase sur `flush` pour
+    rester dans la transaction (rollback au teardown) et ne rien polluer.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.core.db import get_db
+    from app.main import app
+
+    monkeypatch.setattr(db, "commit", db.flush)
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app)
+
+
+def test_conversations_server_side_history(session_with_conn, monkeypatch):
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    base = f"/connections/{conn.id}/conversations"
+    H = {"X-Tenant": "itest"}
+    try:
+        # Liste vide au départ.
+        assert client.get(base, headers=H).json() == []
+
+        # Création d'une conversation + d'un tour (exécute et mémorise la réponse).
+        conv = client.post(base, json={}, headers=H).json()
+        cid = conv["id"]
+        r = client.post(f"{base}/{cid}/turns",
+                        json={"question": "Combien de clients ?", "deep_analysis": False},
+                        headers=H)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["turn"]["response"]["status"] == "answered"
+        assert body["turn"]["response"]["rows"][0][0] == 500
+        # Titre auto dérivé de la 1re question.
+        assert body["conversation"]["title"].startswith("Combien de clients")
+
+        # Tour approfondi avec des DATES (ventilation par mois) : la réponse
+        # doit se sérialiser proprement en JSON (dates → ISO) pour être stockée.
+        r2 = client.post(f"{base}/{cid}/turns",
+                         json={"question": "Montant total des commandes par mois",
+                               "deep_analysis": True},
+                         headers=H)
+        assert r2.status_code == 200
+        assert r2.json()["turn"]["response"]["deep"] is not None
+
+        # Rechargement : le fil est rejouable à l'identique (multi-appareils).
+        full = client.get(f"{base}/{cid}", headers=H).json()
+        assert len(full["turns"]) == 2
+        assert full["turns"][0]["question"] == "Combien de clients ?"
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
+def test_conversations_folders_and_archive(session_with_conn, monkeypatch):
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    base = f"/connections/{conn.id}/conversations"
+    H = {"X-Tenant": "itest"}
+    try:
+        # Dossier + conversation rangée dedans.
+        folder = client.post(f"{base}/folders", json={"name": "Ventes"}, headers=H).json()
+        conv = client.post(base, json={"title": "Analyse CA", "folder_id": folder["id"]},
+                           headers=H).json()
+        assert conv["folder_id"] == folder["id"]
+
+        # Archivage : disparaît de la liste courante, apparaît dans les archivées.
+        client.patch(f"{base}/{conv['id']}", json={"archived": True}, headers=H)
+        active = client.get(base, headers=H).json()
+        assert all(c["id"] != conv["id"] for c in active)
+        archived = client.get(f"{base}?archived=true", headers=H).json()
+        assert any(c["id"] == conv["id"] for c in archived)
+
+        # Désarchivage + déplacement hors dossier.
+        client.patch(f"{base}/{conv['id']}", json={"archived": False, "folder_id": None}, headers=H)
+        back = client.get(f"{base}/{conv['id']}", headers=H).json()
+        assert back["archived"] is False and back["folder_id"] is None
+
+        # Suppression du dossier : les conversations restantes deviennent sans dossier.
+        client.delete(f"{base}/folders/{folder['id']}", headers=H)
+        assert client.get(f"{base}/folders", headers=H).json() == []
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
 def test_alert_threshold_evaluation(session_with_conn):
     from app.models.alert import Alert
     from app.services import alerts as alerts_svc
