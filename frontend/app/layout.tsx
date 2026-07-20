@@ -28,6 +28,9 @@ export default function RootLayout({
               <Link href="/spaces" className="text-sm text-noreon-soft hover:text-slate-900">
                 Espaces
               </Link>
+              <Link href="/reports" className="text-sm text-noreon-soft hover:text-slate-900">
+                Rapports
+              </Link>
               <SessionBar />
               <span className="badge bg-noreon-accent/15 text-noreon-accent">V1.0</span>
             </div>

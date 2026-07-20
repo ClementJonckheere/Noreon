@@ -405,3 +405,38 @@ class SpaceChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     run_analysis: bool = True
     deep_analysis: bool = True
+
+
+# ---- Rapports ----
+class ReportCreate(BaseModel):
+    title: str | None = None
+    space_id: int | None = None
+
+
+class ReportUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
+
+class BlockCreate(BaseModel):
+    kind: str = "markdown"  # markdown|table|chart
+    content: dict = Field(default_factory=dict)
+
+
+class BlockUpdate(BaseModel):
+    content: dict
+
+
+class BlockMove(BaseModel):
+    direction: str  # up|down
+
+
+class ReportGenerate(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    connection_id: int | None = None
+    space_id: int | None = None
+    deep_analysis: bool = True
+
+
+class ReportAddAnswer(BaseModel):
+    title: str = "Analyse"
+    response: dict

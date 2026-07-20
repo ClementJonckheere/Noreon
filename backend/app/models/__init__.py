@@ -19,6 +19,7 @@ from app.models.schema_catalog import (
     DbTable,
     SchemaSnapshot,
 )
+from app.models.report import Report, ReportBlock
 from app.models.semantic import BusinessConcept, ConceptMapping
 from app.models.space import (
     Space,
@@ -50,6 +51,8 @@ __all__ = [
     "Conversation",
     "ConversationFolder",
     "ConversationTurn",
+    "Report",
+    "ReportBlock",
     "Space",
     "SpaceConnection",
     "SpaceMember",

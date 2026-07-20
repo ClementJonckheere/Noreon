@@ -16,6 +16,7 @@ from app.api.routes import (
     health,
     profiling,
     quality,
+    reports,
     schema,
     semantic,
     settings as settings_routes,
@@ -58,6 +59,7 @@ app.include_router(alerts.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(spaces.router)
+app.include_router(reports.router)
 
 
 @app.get("/")

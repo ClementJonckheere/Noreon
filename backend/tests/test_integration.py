@@ -543,6 +543,50 @@ def test_space_governance_end_to_end(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_reports_generate_edit_export(session_with_conn, monkeypatch):
+    """Studio de rapports : générer depuis une source (analyse chiffrée), ajouter
+    et éditer un bloc, exporter en Markdown / Word / PDF."""
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    try:
+        rep = client.post("/reports", json={}, headers=H).json()
+        rid = rep["id"]
+
+        # Génération IA à partir d'une source réelle → blocs argumentés.
+        gen = client.post(f"/reports/{rid}/generate", json={
+            "prompt": "Montant total des commandes par mois",
+            "connection_id": conn.id, "deep_analysis": True,
+        }, headers=H)
+        assert gen.status_code == 200
+        body = gen.json()
+        assert body["title"].startswith("Montant total")
+        kinds = [b["kind"] for b in body["blocks"]]
+        assert "markdown" in kinds and "table" in kinds  # narratif + données
+
+        # Ajout + édition d'un bloc de texte (modifiable directement).
+        client.post(f"/reports/{rid}/blocks",
+                    json={"kind": "markdown", "content": {"text": "Note manuelle."}}, headers=H)
+        full = client.get(f"/reports/{rid}", headers=H).json()
+        last = full["blocks"][-1]
+        client.put(f"/reports/{rid}/blocks/{last['id']}",
+                   json={"content": {"text": "Note corrigée."}}, headers=H)
+        again = client.get(f"/reports/{rid}", headers=H).json()
+        assert again["blocks"][-1]["content"]["text"] == "Note corrigée."
+
+        # Exports.
+        md = client.get(f"/reports/{rid}/export?format=md", headers=H)
+        assert md.status_code == 200 and b"#" in md.content
+        docx = client.get(f"/reports/{rid}/export?format=docx", headers=H)
+        assert docx.status_code == 200 and docx.content[:2] == b"PK"
+        pdf = client.get(f"/reports/{rid}/export?format=pdf", headers=H)
+        assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
 def test_alert_threshold_evaluation(session_with_conn):
     from app.models.alert import Alert
     from app.services import alerts as alerts_svc

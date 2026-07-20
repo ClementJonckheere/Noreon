@@ -360,6 +360,25 @@ export interface Governance {
   tables: GovTable[];
 }
 
+// ---- Rapports ----
+export interface ReportBlock {
+  id: number;
+  ordinal: number;
+  kind: "markdown" | "table" | "chart";
+  content: any;
+}
+export interface ReportSummary {
+  id: number;
+  title: string;
+  space_id: number | null;
+  block_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+export interface ReportFull extends ReportSummary {
+  blocks: ReportBlock[];
+}
+
 // ---- Endpoints ----
 export const api = {
   listConnections: () => request<Connection[]>("/connections"),
@@ -526,6 +545,45 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ connection_id, question, deep_analysis: deep }),
     }),
+
+  // --- Rapports ---
+  reports: (spaceId?: number) =>
+    request<ReportSummary[]>(`/reports${spaceId != null ? `?space_id=${spaceId}` : ""}`),
+  reportCreate: (title?: string, space_id?: number | null) =>
+    request<ReportFull>("/reports", { method: "POST", body: JSON.stringify({ title, space_id }) }),
+  report: (rid: number) => request<ReportFull>(`/reports/${rid}`),
+  reportRename: (rid: number, title: string) =>
+    request<ReportSummary>(`/reports/${rid}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  reportDelete: (rid: number) => request<any>(`/reports/${rid}`, { method: "DELETE" }),
+  reportGenerate: (rid: number, prompt: string, connection_id?: number | null, deep = true) =>
+    request<ReportFull>(`/reports/${rid}/generate`, {
+      method: "POST",
+      body: JSON.stringify({ prompt, connection_id, deep_analysis: deep }),
+    }),
+  reportAddBlock: (rid: number, kind: string, content: any) =>
+    request<ReportFull>(`/reports/${rid}/blocks`, {
+      method: "POST",
+      body: JSON.stringify({ kind, content }),
+    }),
+  reportUpdateBlock: (rid: number, bid: number, content: any) =>
+    request<ReportBlock>(`/reports/${rid}/blocks/${bid}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+  reportDeleteBlock: (rid: number, bid: number) =>
+    request<ReportFull>(`/reports/${rid}/blocks/${bid}`, { method: "DELETE" }),
+  reportMoveBlock: (rid: number, bid: number, direction: "up" | "down") =>
+    request<ReportFull>(`/reports/${rid}/blocks/${bid}/move`, {
+      method: "POST",
+      body: JSON.stringify({ direction }),
+    }),
+  reportAddAnswer: (rid: number, title: string, response: ChatResponse) =>
+    request<ReportFull>(`/reports/${rid}/add-answer`, {
+      method: "POST",
+      body: JSON.stringify({ title, response }),
+    }),
+  reportExportUrl: (rid: number, format: "docx" | "pdf" | "md") =>
+    `${API_BASE}/reports/${rid}/export?format=${format}`,
   mfaEnroll: () => request<{ secret: string; otpauth_uri: string }>("/auth/mfa/enroll", { method: "POST" }),
   mfaVerify: (code: string) =>
     request<void>("/auth/mfa/verify", { method: "POST", body: JSON.stringify({ code }) }),

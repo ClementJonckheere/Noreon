@@ -2,6 +2,7 @@
 
 import { ChatResponse } from "@/lib/api";
 import ChartBlock from "@/components/ChartBlock";
+import AddToReport from "@/components/AddToReport";
 
 // Rendu d'une réponse d'analyse (partagé chat par connexion / chat d'espace).
 export default function AnswerView({ r }: { r: ChatResponse }) {
@@ -103,6 +104,12 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
             {r.sql}
           </pre>
         </details>
+      )}
+
+      {r.status === "answered" && (
+        <div className="pt-1">
+          <AddToReport response={r} title={r.question} />
+        </div>
       )}
     </div>
   );

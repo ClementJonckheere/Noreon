@@ -161,6 +161,23 @@ possible vers un entrepôt commun plus tard.
 alourdir le stockage. Réutilise tout l'existant (scan, profilage, chat, analyste
 approfondi) par simple filtrage du contexte.
 
+### D-16 — Studio de rapports (docs IA) + export Word/PDF
+**Contexte.** Au-delà du chat, produire des **livrables** : demander un rapport
+sur un sujet, l'éditer, itérer avec l'IA, l'exporter.
+**Décision.** Modèle `reports` + `report_blocks` (blocs ordonnés :
+markdown | table | chart). Génération **hors-ligne data-backed** : quand une
+source est fournie, on lance l'agent approfondi et on transforme la réponse en
+blocs (narratif, croisement en tableau, graphique, données) — jamais inventé ;
+sans source, un plan à compléter. On peut éditer chaque bloc, réordonner,
+supprimer, ajouter du texte, et **pousser une réponse de chat** (narratif +
+graphique + tableau) via un bouton « Ajouter à un rapport ». Export **DOCX**
+(python-docx), **PDF** (fpdf2) et **Markdown** ; la gouvernance d'espace
+s'applique à la génération quand le rapport est rattaché à un espace.
+**Conséquence.** Boucle complète « analyser → rédiger → exporter » sans quitter
+l'outil, offline. Limite assumée : les graphiques sont exportés en Word/PDF via
+leur tableau sous-jacent (pas d'image rendue côté serveur, faute de moteur de
+rendu) ; un rendu image ECharts headless est une évolution possible.
+
 ---
 
 ## Dettes / limites connues (à traiter)
