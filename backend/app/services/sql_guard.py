@@ -100,6 +100,23 @@ def _looks_aggregate(statement: exp.Expression) -> bool:
     return False
 
 
+def referenced_tables(raw_sql: str, dialect: str = "postgres") -> set[str]:
+    """Noms de tables réellement référencés (pour la gouvernance par espace).
+
+    Renvoie des noms courts en minuscules (le schéma n'est pas garanti présent
+    dans le SQL généré) ; l'appelant compare sur le nom de table.
+    """
+    names: set[str] = set()
+    try:
+        for statement in _statements(raw_sql, dialect=dialect):
+            for tbl in statement.find_all(exp.Table):
+                if tbl.name:
+                    names.add(tbl.name.lower())
+    except SQLGuardError:
+        return names
+    return names
+
+
 def guard(raw_sql: str, row_limit: int, dialect: str = "postgres") -> GuardedSQL:
     """Valide et sécurise une requête. Lève SQLGuardError si non conforme."""
     raw_sql = raw_sql.strip().rstrip(";").strip()

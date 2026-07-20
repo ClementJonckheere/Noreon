@@ -19,6 +19,7 @@ from app.api.routes import (
     schema,
     semantic,
     settings as settings_routes,
+    spaces,
     users,
 )
 
@@ -56,6 +57,7 @@ app.include_router(settings_routes.router)
 app.include_router(alerts.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
+app.include_router(spaces.router)
 
 
 @app.get("/")

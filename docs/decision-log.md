@@ -139,6 +139,28 @@ la question via le pipeline chat ET la mémorise. Sérialisation JSON via
 front bascule de localStorage vers l'API sans changer l'expérience « façon
 Claude » (composer en bas, liste à droite, dossiers).
 
+### D-15 — Univers → Espaces → BDD + gouvernance des données par espace
+**Contexte.** Noreon n'est plus « une entreprise = une BDD » mais un **univers**
+(tenant) contenant plusieurs **espaces** d'équipe (CRM, Achat…), chacun
+rattachant une ou plusieurs BDD. Une équipe peut voir des données qu'une autre
+ne voit pas, et inversement.
+**Décision.** Modèle `spaces`, `space_connections` (n-n BDD), `space_members`,
+et gouvernance `space_table_access` / `space_column_access`. Politique
+**par exception** : tout est visible par défaut, on ne stocke que ce qui est
+**décoché** (`enabled=false`). L'admin (DSI) crée les espaces, rattache les BDD,
+gère les membres et coche/décoche tables & colonnes — tout le paramétrage est
+**réservé aux administrateurs** (`require_admin`) ; un membre n'accède qu'aux
+espaces dont il fait partie. Le chat d'espace applique la gouvernance :
+tables/colonnes masquées **retirées du contexte** du moteur SQL (il ne peut ni
+les proposer ni les interroger) + **blocage en défense en profondeur** si une
+requête référence malgré tout une table masquée (`referenced_tables` via AST).
+**Croisement multi-BDD** : au niveau de l'analyse (chaque BDD interrogée
+séparément, lecture seule + garde-fous), sans fédération SQL — évolution
+possible vers un entrepôt commun plus tard.
+**Conséquence.** Isolation par équipe + gouvernance fine et auditable, sans
+alourdir le stockage. Réutilise tout l'existant (scan, profilage, chat, analyste
+approfondi) par simple filtrage du contexte.
+
 ---
 
 ## Dettes / limites connues (à traiter)

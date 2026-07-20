@@ -494,6 +494,55 @@ def test_conversations_folders_and_archive(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_space_governance_end_to_end(session_with_conn, monkeypatch):
+    """Espace CRM : rattacher une BDD, gouverner les tables/colonnes, et vérifier
+    que le chat de l'espace respecte la gouvernance (table masquée → inaccessible)."""
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    try:
+        # Création d'un espace + rattachement de la BDD (réservé admin).
+        sp = client.post("/spaces", json={"name": "CRM"}, headers=H)
+        assert sp.status_code == 200
+        sid = sp.json()["id"]
+        client.post(f"/spaces/{sid}/connections", json={"connection_id": conn.id}, headers=H)
+
+        base = f"/spaces/{sid}/connections/{conn.id}"
+        gov = client.get(f"{base}/governance", headers=H).json()
+        assert gov["scanned"] is True
+        cust = next(t for t in gov["tables"] if t["table"] == "customers")
+        assert cust["enabled"] is True
+
+        # Chat d'espace : fonctionne tant que la table est autorisée.
+        ask = {"connection_id": conn.id, "question": "Combien de clients ?", "deep_analysis": False}
+        r1 = client.post(f"/spaces/{sid}/chat", json=ask, headers=H).json()
+        assert r1["status"] == "answered" and r1["rows"][0][0] == 500
+
+        # Décocher la table customers → masquée pour l'espace.
+        client.put(f"{base}/tables/public/customers", json={"enabled": False}, headers=H)
+        gov2 = client.get(f"{base}/governance", headers=H).json()
+        assert next(t for t in gov2["tables"] if t["table"] == "customers")["enabled"] is False
+
+        # Le chat ne peut plus atteindre customers (retirée du contexte).
+        r2 = client.post(f"/spaces/{sid}/chat", json=ask, headers=H).json()
+        assert r2["status"] in ("clarification", "blocked")
+
+        # Re-cocher → de nouveau accessible.
+        client.put(f"{base}/tables/public/customers", json={"enabled": True}, headers=H)
+        r3 = client.post(f"/spaces/{sid}/chat", json=ask, headers=H).json()
+        assert r3["status"] == "answered" and r3["rows"][0][0] == 500
+
+        # Gouvernance au niveau colonne : masquer email.
+        client.put(f"{base}/columns/public/customers/email", json={"enabled": False}, headers=H)
+        gov3 = client.get(f"{base}/governance", headers=H).json()
+        cust3 = next(t for t in gov3["tables"] if t["table"] == "customers")
+        assert next(c for c in cust3["columns"] if c["name"] == "email")["enabled"] is False
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
 def test_alert_threshold_evaluation(session_with_conn):
     from app.models.alert import Alert
     from app.services import alerts as alerts_svc

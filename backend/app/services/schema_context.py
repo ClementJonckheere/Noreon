@@ -24,19 +24,39 @@ def current_snapshot(db: Session, connection_id: int) -> SchemaSnapshot | None:
     ).scalar_one_or_none()
 
 
-def build_context(db: Session, snapshot: SchemaSnapshot, max_tables: int = 60) -> str:
+def build_context(
+    db: Session,
+    snapshot: SchemaSnapshot,
+    max_tables: int = 60,
+    *,
+    hidden_tables: set[str] | None = None,
+    hidden_columns: set[tuple[str, str]] | None = None,
+) -> str:
+    """Contexte de schéma pour le moteur SQL.
+
+    Gouvernance par espace : `hidden_tables` (noms de tables masquées) et
+    `hidden_columns` ({(table, colonne)}) sont exclus — le moteur ne les voit
+    jamais, donc ne peut ni les proposer ni les interroger.
+    """
+    hidden_tables = {t.lower() for t in (hidden_tables or set())}
+    hidden_columns = {(t.lower(), c.lower()) for t, c in (hidden_columns or set())}
+
     tables = db.execute(
         select(DbTable).where(DbTable.snapshot_id == snapshot.id).order_by(DbTable.table_name)
     ).scalars().all()
 
     lines: list[str] = []
     for t in tables[:max_tables]:
+        if t.table_name.lower() in hidden_tables:
+            continue
         cols = db.execute(
             select(DbColumn).where(DbColumn.table_id == t.id).order_by(DbColumn.ordinal)
         ).scalars().all()
         rows_hint = f" (rows~{t.estimated_rows})" if t.estimated_rows else ""
         lines.append(f"Table {t.schema_name}.{t.table_name}{rows_hint}")
         for c in cols:
+            if (t.table_name.lower(), c.name.lower()) in hidden_columns:
+                continue
             pk = " PK" if c.is_primary_key else ""
             lines.append(f"  - {c.name} {c.data_type}{pk}")
 
@@ -48,6 +68,11 @@ def build_context(db: Session, snapshot: SchemaSnapshot, max_tables: int = 60) -
             DbRelation.status != "rejected",
         )
     ).scalars().all()
+    # Une relation touchant une table masquée par la gouvernance est retirée.
+    relations = [
+        r for r in relations
+        if r.from_table.lower() not in hidden_tables and r.to_table.lower() not in hidden_tables
+    ]
     if relations:
         lines.append("")
         lines.append("Relations connues (jointures possibles) :")

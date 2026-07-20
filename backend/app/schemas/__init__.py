@@ -379,3 +379,29 @@ class TurnCreate(BaseModel):
     question: str = Field(..., min_length=1)
     run_analysis: bool = True
     deep_analysis: bool = True
+
+
+# ---- Espaces & gouvernance ----
+class SpaceCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str = ""
+
+
+class SpaceConnectionIn(BaseModel):
+    connection_id: int
+
+
+class SpaceMemberIn(BaseModel):
+    user_id: int
+    role: str = "member"
+
+
+class GovernanceToggle(BaseModel):
+    enabled: bool
+
+
+class SpaceChatRequest(BaseModel):
+    connection_id: int
+    question: str = Field(..., min_length=1)
+    run_analysis: bool = True
+    deep_analysis: bool = True

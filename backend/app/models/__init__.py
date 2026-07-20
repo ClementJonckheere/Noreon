@@ -20,6 +20,13 @@ from app.models.schema_catalog import (
     SchemaSnapshot,
 )
 from app.models.semantic import BusinessConcept, ConceptMapping
+from app.models.space import (
+    Space,
+    SpaceColumnAccess,
+    SpaceConnection,
+    SpaceMember,
+    SpaceTableAccess,
+)
 from app.models.tenant import Tenant, TenantSettings
 from app.models.user import ConnectionAccess, User
 
@@ -43,6 +50,11 @@ __all__ = [
     "Conversation",
     "ConversationFolder",
     "ConversationTurn",
+    "Space",
+    "SpaceConnection",
+    "SpaceMember",
+    "SpaceTableAccess",
+    "SpaceColumnAccess",
     "User",
     "ConnectionAccess",
 ]
