@@ -177,6 +177,7 @@ function ChatPanel({
 }) {
   const [q, setQ] = useState("Combien de clients ?");
   const [busy, setBusy] = useState(false);
+  const [deep, setDeep] = useState(true); // approfondie (détaille) vs rapide (essentiel)
   const [resp, setResp] = useState<ChatResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -196,11 +197,11 @@ function ChatPanel({
     "top 5 clients par loyalty_points",
   ];
 
-  async function ask(question: string) {
+  async function ask(question: string, deepMode: boolean = deep) {
     setBusy(true);
     setError(null);
     try {
-      setResp(await api.chat(id, question));
+      setResp(await api.chat(id, question, deepMode));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -224,6 +225,37 @@ function ChatPanel({
           </button>
         ))}
       </div>
+
+      {/* Mode de réponse : rapide (données essentielles) vs approfondie (analyse
+          métier croisée). L'utilisateur choisit le niveau de détail. */}
+      <div className="flex items-center gap-3">
+        <div className="inline-flex rounded-lg border border-white/10 overflow-hidden text-sm">
+          <button
+            type="button"
+            onClick={() => setDeep(false)}
+            className={`px-3 py-1.5 ${
+              !deep ? "bg-white/10 text-white" : "text-noreon-soft hover:text-white"
+            }`}
+          >
+            ⚡ Réponse rapide
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeep(true)}
+            className={`px-3 py-1.5 ${
+              deep ? "bg-sky-500/20 text-sky-200" : "text-noreon-soft hover:text-white"
+            }`}
+          >
+            📊 Réponse approfondie
+          </button>
+        </div>
+        <span className="text-xs text-noreon-soft">
+          {deep
+            ? "Analyse métier détaillée : croisements de dimensions, facteurs explicatifs, recommandations."
+            : "Données essentielles : réponse, graphique et indice de confiance, sans requêtes de suivi."}
+        </span>
+      </div>
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -238,7 +270,7 @@ function ChatPanel({
           placeholder="Posez une question en langage naturel…"
         />
         <button className="btn-primary" disabled={busy}>
-          {busy ? "…" : "Analyser"}
+          {busy ? "…" : deep ? "Analyser en détail" : "Analyser"}
         </button>
       </form>
 
