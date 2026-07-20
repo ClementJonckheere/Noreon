@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import AlertsPanel from "@/components/AlertsPanel";
@@ -146,7 +146,9 @@ export default function Workspace() {
         ))}
       </nav>
 
-      {tab === "chat" && <ChatPanel id={id} replay={replay} />}
+      {tab === "chat" && (
+        <ChatPanel id={id} replay={replay} onNavigate={(t) => setTab(t)} />
+      )}
       {tab === "schema" && <SchemaPanel id={id} />}
       {tab === "graph" && <GraphPanel id={id} />}
       {tab === "profiles" && <ProfilesPanel id={id} />}
@@ -168,18 +170,95 @@ export default function Workspace() {
 }
 
 /* ------------------------------- CHAT ---------------------------------- */
+// --- Icônes de ligne (SVG inline, sans dépendance externe) ---
+const ICONS: Record<string, JSX.Element> = {
+  question: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .8-1 1.7" /><path d="M12 17h.01" /></>,
+  report: <><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4" /><path d="M9 12h6M9 16h6" /></>,
+  anomaly: <><path d="M4 15l4-5 3 3 4-6 5 7" /><path d="M4 20h16" /></>,
+  compare: <><path d="M4 7h7M4 12h7M4 17h7" /><path d="M20 7h-6M20 12h-6M20 17h-6" /></>,
+  table: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 10h18M9 4v16" /></>,
+  hash: <><path d="M5 9h14M5 15h14M10 4l-2 16M16 4l-2 16" /></>,
+  bars: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>,
+  pie: <><path d="M12 3a9 9 0 1 0 9 9h-9z" /><path d="M12 3v9h9" /></>,
+  shield: <><path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6z" /><path d="M9 12l2 2 4-4" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  warning: <><path d="M12 3l9 16H3z" /><path d="M12 10v4M12 17h.01" /></>,
+  bell: <><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6" /><path d="M10 20a2 2 0 0 0 4 0" /></>,
+  send: <><path d="M12 19V5M5 12l7-7 7 7" /></>,
+  attach: <><path d="M21 12l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" /></>,
+};
+
+function Icon({ name, className = "w-4 h-4" }: { name: string; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {ICONS[name]}
+    </svg>
+  );
+}
+
+type Action = {
+  label: string;
+  icon: string;
+  prompt?: string; // pré-remplit la question
+  deep?: boolean; // force le mode approfondi
+  send?: boolean; // lance directement l'analyse
+  tab?: Tab; // ou navigue vers un onglet existant
+};
+
+const ACTION_GROUPS: { title: string; actions: Action[] }[] = [
+  {
+    title: "Analyse",
+    actions: [
+      { label: "Poser une question", icon: "question" },
+      { label: "Rapport détaillé", icon: "report", prompt: "Montant total des commandes par mois", deep: true, send: true },
+      { label: "Analyser une anomalie", icon: "anomaly", prompt: "Montant total des commandes par magasin", deep: true, send: true },
+      { label: "Comparer par période", icon: "compare", prompt: "Nombre de commandes par mois", send: true },
+    ],
+  },
+  {
+    title: "Exploration",
+    actions: [
+      { label: "Explorer les données", icon: "table", prompt: "Montre les magasins", send: true },
+      { label: "Compter", icon: "hash", prompt: "Combien de clients ?", send: true },
+      { label: "Classement (Top N)", icon: "bars", prompt: "Top 5 clients par loyalty_points", send: true },
+      { label: "Répartition", icon: "pie", prompt: "Nombre de commandes par magasin", deep: true, send: true },
+    ],
+  },
+  {
+    title: "Qualité & suivi",
+    actions: [
+      { label: "Audit qualité", icon: "shield", tab: "quality" },
+      { label: "Profils & données manquantes", icon: "clock", tab: "profiles" },
+      { label: "Détecter des anomalies", icon: "warning", prompt: "Montant moyen des commandes par magasin", deep: true, send: true },
+      { label: "Alertes", icon: "bell", tab: "alerts" },
+    ],
+  },
+];
+
 function ChatPanel({
   id,
   replay,
+  onNavigate,
 }: {
   id: number;
   replay?: { q: string; n: number } | null;
+  onNavigate?: (tab: Tab) => void;
 }) {
-  const [q, setQ] = useState("Combien de clients ?");
+  const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [deep, setDeep] = useState(true); // approfondie (détaille) vs rapide (essentiel)
   const [resp, setResp] = useState<ChatResponse | null>(null);
+  const [asked, setAsked] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Historique rejouable : une question relancée depuis l'onglet Historique.
   useEffect(() => {
@@ -190,18 +269,14 @@ function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replay?.n]);
 
-  const suggestions = [
-    "Combien de clients ?",
-    "Quel est le montant moyen des commandes ?",
-    "Montre les magasins",
-    "top 5 clients par loyalty_points",
-  ];
-
   async function ask(question: string, deepMode: boolean = deep) {
+    const text = question.trim();
+    if (!text) return;
     setBusy(true);
     setError(null);
+    setAsked(text);
     try {
-      setResp(await api.chat(id, question, deepMode));
+      setResp(await api.chat(id, text, deepMode));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -209,77 +284,180 @@ function ChatPanel({
     }
   }
 
+  function runAction(a: Action) {
+    if (a.tab) {
+      onNavigate?.(a.tab);
+      return;
+    }
+    if (a.deep !== undefined) setDeep(a.deep);
+    if (a.prompt) setQ(a.prompt);
+    if (a.prompt && a.send) {
+      ask(a.prompt, a.deep ?? deep);
+    } else {
+      inputRef.current?.focus();
+    }
+  }
+
+  const started = busy || resp || asked;
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        {suggestions.map((s) => (
-          <button
-            key={s}
-            className="badge bg-white/5 text-noreon-soft hover:text-white"
-            onClick={() => {
-              setQ(s);
-              ask(s);
-            }}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-
-      {/* Mode de réponse : rapide (données essentielles) vs approfondie (analyse
-          métier croisée). L'utilisateur choisit le niveau de détail. */}
-      <div className="flex items-center gap-3">
-        <div className="inline-flex rounded-lg border border-white/10 overflow-hidden text-sm">
-          <button
-            type="button"
-            onClick={() => setDeep(false)}
-            className={`px-3 py-1.5 ${
-              !deep ? "bg-white/10 text-white" : "text-noreon-soft hover:text-white"
-            }`}
-          >
-            ⚡ Réponse rapide
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeep(true)}
-            className={`px-3 py-1.5 ${
-              deep ? "bg-sky-500/20 text-sky-200" : "text-noreon-soft hover:text-white"
-            }`}
-          >
-            📊 Réponse approfondie
-          </button>
+    <div className="space-y-5">
+      {/* État initial : lanceur d'actions catégorisées (façon palette). */}
+      {!started && (
+        <div className="card p-6 space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold">Chat</h2>
+            <p className="text-sm text-noreon-soft">
+              Posez une question sur vos données et obtenez une réponse argumentée.
+            </p>
+          </div>
+          {ACTION_GROUPS.map((g) => (
+            <div key={g.title} className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+                {g.title}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {g.actions.map((a) => (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={() => runAction(a)}
+                    className="btn-ghost text-slate-200"
+                  >
+                    <Icon name={a.icon} />
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
-        <span className="text-xs text-noreon-soft">
-          {deep
-            ? "Analyse métier détaillée : croisements de dimensions, facteurs explicatifs, recommandations."
-            : "Données essentielles : réponse, graphique et indice de confiance, sans requêtes de suivi."}
-        </span>
-      </div>
+      )}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          ask(q);
-        }}
-        className="flex gap-2"
-      >
-        <input
-          className="input"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Posez une question en langage naturel…"
-        />
-        <button className="btn-primary" disabled={busy}>
-          {busy ? "…" : deep ? "Analyser en détail" : "Analyser"}
-        </button>
-      </form>
+      {/* Composer : zone de saisie multi-lignes + mode + envoi. */}
+      <Composer
+        q={q}
+        setQ={setQ}
+        deep={deep}
+        setDeep={setDeep}
+        busy={busy}
+        inputRef={inputRef}
+        onSubmit={() => ask(q)}
+        onReset={
+          started
+            ? () => {
+                setResp(null);
+                setAsked(null);
+                setError(null);
+                setQ("");
+              }
+            : undefined
+        }
+      />
 
       {error && (
         <div className="text-sm text-red-300 bg-red-500/10 rounded-lg p-3">
           {error}
         </div>
       )}
+      {asked && (
+        <div className="flex justify-end">
+          <div className="max-w-[80%] rounded-2xl bg-noreon-accent/20 border border-noreon-accent/30 px-4 py-2 text-sm">
+            {asked}
+          </div>
+        </div>
+      )}
+      {busy && (
+        <div className="text-sm text-noreon-soft flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+          {deep ? "Analyse approfondie en cours (requêtes de suivi)…" : "Analyse en cours…"}
+        </div>
+      )}
       {resp && <ChatResult r={resp} />}
+    </div>
+  );
+}
+
+function Composer({
+  q,
+  setQ,
+  deep,
+  setDeep,
+  busy,
+  inputRef,
+  onSubmit,
+  onReset,
+}: {
+  q: string;
+  setQ: (v: string) => void;
+  deep: boolean;
+  setDeep: (v: boolean) => void;
+  busy: boolean;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
+  onSubmit: () => void;
+  onReset?: () => void;
+}) {
+  return (
+    <div className="card p-3 space-y-3">
+      {/* Mode de réponse : rapide (essentiel) vs approfondie (analyse métier). */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="inline-flex rounded-lg border border-noreon-border overflow-hidden text-sm">
+          <button
+            type="button"
+            onClick={() => setDeep(false)}
+            className={`px-3 py-1.5 flex items-center gap-1.5 ${
+              !deep ? "bg-white/10 text-white" : "text-noreon-soft hover:text-white"
+            }`}
+          >
+            ⚡ Rapide
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeep(true)}
+            className={`px-3 py-1.5 flex items-center gap-1.5 ${
+              deep ? "bg-sky-500/20 text-sky-200" : "text-noreon-soft hover:text-white"
+            }`}
+          >
+            📊 Approfondie
+          </button>
+        </div>
+        <span className="text-xs text-noreon-soft flex-1 min-w-[12rem]">
+          {deep
+            ? "Détaille : croisements de dimensions, facteurs explicatifs, recommandations."
+            : "Essentiel : réponse, graphique et indice de confiance."}
+        </span>
+        {onReset && (
+          <button type="button" onClick={onReset} className="text-xs text-noreon-soft hover:text-white">
+            Nouvelle analyse
+          </button>
+        )}
+      </div>
+
+      <div className="relative">
+        <textarea
+          ref={inputRef}
+          rows={2}
+          className="input resize-none pr-12"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+          placeholder="Posez une question en langage naturel…  (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)"
+        />
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={busy || !q.trim()}
+          aria-label="Envoyer"
+          className="absolute right-2 bottom-2 w-8 h-8 rounded-full bg-noreon-accent text-white flex items-center justify-center hover:brightness-110 disabled:opacity-40"
+        >
+          {busy ? "…" : <Icon name="send" />}
+        </button>
+      </div>
     </div>
   );
 }
