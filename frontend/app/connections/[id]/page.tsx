@@ -193,6 +193,8 @@ const ICONS: Record<string, JSX.Element> = {
   folder: <><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>,
   archive: <><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" /></>,
   inbox: <><path d="M4 13h4l2 3h4l2-3h4" /><path d="M4 13V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /></>,
+  pencil: <><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></>,
+  search: <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></>,
 };
 
 function Icon({ name, className = "w-4 h-4" }: { name: string; className?: string }) {
@@ -279,6 +281,9 @@ function ChatPanel({
   const [turns, setTurns] = useState<UiTurn[]>([]);
   const [activeFolder, setActiveFolder] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
   const [q, setQ] = useState("");
   const [deep, setDeep] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -411,6 +416,13 @@ function ChatPanel({
       else createConversation();
     }
   }
+  async function renameConversation(cid: number, title: string) {
+    const t = title.trim();
+    setRenaming(false);
+    if (!t) return;
+    const updated = await api.convUpdate(id, cid, { title: t });
+    setConvs((cs) => cs.map((c) => (c.id === cid ? { ...c, title: updated.title } : c)));
+  }
   async function moveConversation(cid: number, folderId: number | null) {
     await api.convUpdate(id, cid, { folder_id: folderId });
     if (cid === activeId) setActiveFolder(folderId);
@@ -446,7 +458,10 @@ function ChatPanel({
     if (activeFolder === fid) setActiveFolder(null);
   }
 
-  const ungrouped = convs.filter((c) => !c.folder_id);
+  const matches = (c: ConvSummary) =>
+    !search.trim() || c.title.toLowerCase().includes(search.trim().toLowerCase());
+  const visibleConvs = convs.filter(matches);
+  const ungrouped = visibleConvs.filter((c) => !c.folder_id);
   const activeSummary = convs.find((c) => c.id === activeId);
 
   return (
@@ -454,12 +469,38 @@ function ChatPanel({
       {/* Colonne principale : fil de conversation + composer collé en bas. */}
       <div className="flex-1 min-w-0 flex flex-col card overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-noreon-border">
-          <div className="font-medium truncate flex-1">
-            {activeSummary?.title ?? "Conversation"}
-            {activeSummary?.archived && (
-              <span className="ml-2 badge bg-slate-100 text-noreon-soft">archivée</span>
-            )}
-          </div>
+          {renaming && activeId != null ? (
+            <input
+              autoFocus
+              className="input py-1 flex-1"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => renameConversation(activeId, renameValue)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") renameConversation(activeId, renameValue);
+                if (e.key === "Escape") setRenaming(false);
+              }}
+            />
+          ) : (
+            <div className="font-medium truncate flex-1 flex items-center gap-1">
+              <span className="truncate">{activeSummary?.title ?? "Conversation"}</span>
+              {activeId != null && (
+                <button
+                  onClick={() => {
+                    setRenameValue(activeSummary?.title ?? "");
+                    setRenaming(true);
+                  }}
+                  title="Renommer"
+                  className="text-noreon-soft hover:text-slate-900 shrink-0"
+                >
+                  <Icon name="pencil" className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {activeSummary?.archived && (
+                <span className="ml-1 badge bg-slate-100 text-noreon-soft">archivée</span>
+              )}
+            </div>
+          )}
           {activeId != null && (
             <>
               <select
@@ -575,12 +616,23 @@ function ChatPanel({
               Archivées
             </button>
           </div>
+          <div className="relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-noreon-soft">
+              <Icon name="search" className="w-3.5 h-3.5" />
+            </span>
+            <input
+              className="input py-1 pl-7 text-xs"
+              placeholder="Rechercher…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-3 text-sm">
           {!showArchived &&
             folders.map((f) => {
-              const list = convs.filter((c) => c.folder_id === f.id);
+              const list = visibleConvs.filter((c) => c.folder_id === f.id);
               return (
                 <div key={f.id}>
                   <div className="flex items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
@@ -627,7 +679,7 @@ function ChatPanel({
               </div>
             )}
             <div className="mt-1 space-y-0.5">
-              {(showArchived ? convs : ungrouped).map((c) => (
+              {(showArchived ? visibleConvs : ungrouped).map((c) => (
                 <ConvRow
                   key={c.id}
                   c={c}
