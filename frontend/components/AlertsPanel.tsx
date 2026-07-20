@@ -14,10 +14,10 @@ const COMPARISONS: Record<string, string> = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  triggered: "bg-red-500/15 text-red-300",
-  ok: "bg-emerald-500/15 text-emerald-300",
-  error: "bg-amber-500/15 text-amber-200",
-  new: "bg-white/10 text-noreon-soft",
+  triggered: "bg-red-500/15 text-red-600",
+  ok: "bg-emerald-500/15 text-emerald-700",
+  error: "bg-amber-500/15 text-amber-700",
+  new: "bg-slate-200 text-noreon-soft",
 };
 
 const EMPTY = {
@@ -202,7 +202,7 @@ export default function AlertsPanel({ id }: { id: number }) {
             />
           </div>
           <button className="btn-primary w-full justify-center">Créer l'alerte</button>
-          {error && <div className="text-xs text-red-300">{error}</div>}
+          {error && <div className="text-xs text-red-600">{error}</div>}
         </form>
       </div>
     </div>

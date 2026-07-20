@@ -73,7 +73,7 @@ export default function LoginPage() {
         </form>
 
         {error && (
-          <div className="text-sm text-amber-200 bg-amber-500/10 rounded-lg p-3">{error}</div>
+          <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">{error}</div>
         )}
         {mode === "register" && (
           <p className="text-xs text-noreon-soft">

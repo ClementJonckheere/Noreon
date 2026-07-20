@@ -12,10 +12,10 @@ const ENGINES = [
 ] as const;
 
 const ENGINE_BADGE: Record<string, string> = {
-  postgresql: "bg-sky-500/15 text-sky-300",
-  mysql: "bg-amber-500/15 text-amber-200",
-  csv: "bg-emerald-500/15 text-emerald-300",
-  excel: "bg-emerald-500/15 text-emerald-300",
+  postgresql: "bg-sky-500/15 text-sky-700",
+  mysql: "bg-amber-500/15 text-amber-700",
+  csv: "bg-emerald-500/15 text-emerald-700",
+  excel: "bg-emerald-500/15 text-emerald-700",
 };
 
 const EMPTY = {
@@ -104,7 +104,7 @@ export default function Home() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{c.name}</span>
-                  <span className={`badge ${ENGINE_BADGE[c.engine] || "bg-white/10"}`}>
+                  <span className={`badge ${ENGINE_BADGE[c.engine] || "bg-slate-200"}`}>
                     {ENGINES.find((e) => e.id === c.engine)?.label || c.engine}
                   </span>
                 </div>
@@ -186,11 +186,11 @@ export default function Home() {
           </form>
 
           {error && (
-            <div className="text-sm text-red-300 bg-red-500/10 rounded-lg p-3">{error}</div>
+            <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{error}</div>
           )}
           {result && (
             <div className="text-sm space-y-2">
-              <div className="text-emerald-300">
+              <div className="text-emerald-700">
                 Connexion « {result.connection.name} » enregistrée.
               </div>
               {result.probe.server_version && (
@@ -199,7 +199,7 @@ export default function Home() {
                 </div>
               )}
               {result.read_only_alert && (
-                <pre className="text-xs text-amber-200 bg-amber-500/10 rounded-lg p-3 whitespace-pre-wrap">
+                <pre className="text-xs text-amber-700 bg-amber-500/10 rounded-lg p-3 whitespace-pre-wrap">
                   {result.read_only_alert}
                 </pre>
               )}
@@ -242,17 +242,17 @@ function Field({
 
 function ReadOnlyBadge({ value }: { value: boolean | null }) {
   if (value === true)
-    return <span className="badge bg-emerald-500/15 text-emerald-300">read-only ✓</span>;
+    return <span className="badge bg-emerald-500/15 text-emerald-700">read-only ✓</span>;
   if (value === false)
-    return <span className="badge bg-red-500/15 text-red-300">écriture ✗</span>;
-  return <span className="badge bg-white/10 text-noreon-soft">non testé</span>;
+    return <span className="badge bg-red-500/15 text-red-600">écriture ✗</span>;
+  return <span className="badge bg-slate-200 text-noreon-soft">non testé</span>;
 }
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    ok: "bg-emerald-500/15 text-emerald-300",
-    error: "bg-red-500/15 text-red-300",
-    untested: "bg-white/10 text-noreon-soft",
+    ok: "bg-emerald-500/15 text-emerald-700",
+    error: "bg-red-500/15 text-red-600",
+    untested: "bg-slate-200 text-noreon-soft",
   };
   return <span className={`badge ${map[status] || map.untested}`}>{status}</span>;
 }

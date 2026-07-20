@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import AlertsPanel from "@/components/AlertsPanel";
@@ -19,6 +19,16 @@ import {
   Table,
   TENANT,
 } from "@/lib/api";
+import {
+  ChatStore,
+  Conversation,
+  emptyStore,
+  loadStore,
+  newConversation,
+  saveStore,
+  titleFrom,
+  uid,
+} from "@/lib/conversations";
 
 type Tab =
   | "schema"
@@ -107,13 +117,13 @@ export default function Workspace() {
       </div>
 
       {conn.is_read_only === false && (
-        <div className="text-sm text-amber-200 bg-amber-500/10 rounded-lg p-3">
+        <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">
           Ce compte n’est pas en lecture seule — les analyses sont bloquées tant
           que les droits ne sont pas corrigés.
         </div>
       )}
       {notice && (
-        <div className="text-sm text-noreon-soft bg-white/5 rounded-lg p-3">
+        <div className="text-sm text-noreon-soft bg-slate-100 rounded-lg p-3">
           {notice}
         </div>
       )}
@@ -137,8 +147,8 @@ export default function Workspace() {
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm border-b-2 -mb-px ${
               tab === t
-                ? "border-noreon-accent text-white"
-                : "border-transparent text-noreon-soft hover:text-white"
+                ? "border-noreon-accent text-slate-900"
+                : "border-transparent text-noreon-soft hover:text-slate-900"
             }`}
           >
             {label}
@@ -146,7 +156,9 @@ export default function Workspace() {
         ))}
       </nav>
 
-      {tab === "chat" && <ChatPanel id={id} replay={replay} />}
+      {tab === "chat" && (
+        <ChatPanel id={id} replay={replay} onNavigate={(t) => setTab(t)} />
+      )}
       {tab === "schema" && <SchemaPanel id={id} />}
       {tab === "graph" && <GraphPanel id={id} />}
       {tab === "profiles" && <ProfilesPanel id={id} />}
@@ -168,19 +180,142 @@ export default function Workspace() {
 }
 
 /* ------------------------------- CHAT ---------------------------------- */
+// --- Icônes de ligne (SVG inline, sans dépendance externe) ---
+const ICONS: Record<string, JSX.Element> = {
+  question: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .8-1 1.7" /><path d="M12 17h.01" /></>,
+  report: <><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4" /><path d="M9 12h6M9 16h6" /></>,
+  anomaly: <><path d="M4 15l4-5 3 3 4-6 5 7" /><path d="M4 20h16" /></>,
+  compare: <><path d="M4 7h7M4 12h7M4 17h7" /><path d="M20 7h-6M20 12h-6M20 17h-6" /></>,
+  table: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 10h18M9 4v16" /></>,
+  hash: <><path d="M5 9h14M5 15h14M10 4l-2 16M16 4l-2 16" /></>,
+  bars: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>,
+  pie: <><path d="M12 3a9 9 0 1 0 9 9h-9z" /><path d="M12 3v9h9" /></>,
+  shield: <><path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6z" /><path d="M9 12l2 2 4-4" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  warning: <><path d="M12 3l9 16H3z" /><path d="M12 10v4M12 17h.01" /></>,
+  bell: <><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6" /><path d="M10 20a2 2 0 0 0 4 0" /></>,
+  send: <><path d="M12 19V5M5 12l7-7 7 7" /></>,
+  attach: <><path d="M21 12l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" /></>,
+  plus: <><path d="M12 5v14M5 12h14" /></>,
+  folder: <><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>,
+};
+
+function Icon({ name, className = "w-4 h-4" }: { name: string; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {ICONS[name]}
+    </svg>
+  );
+}
+
+type Action = {
+  label: string;
+  icon: string;
+  prompt?: string; // pré-remplit la question
+  deep?: boolean; // force le mode approfondi
+  send?: boolean; // lance directement l'analyse
+  tab?: Tab; // ou navigue vers un onglet existant
+};
+
+const ACTION_GROUPS: { title: string; actions: Action[] }[] = [
+  {
+    title: "Analyse",
+    actions: [
+      { label: "Poser une question", icon: "question" },
+      { label: "Rapport détaillé", icon: "report", prompt: "Montant total des commandes par mois", deep: true, send: true },
+      { label: "Analyser une anomalie", icon: "anomaly", prompt: "Montant total des commandes par magasin", deep: true, send: true },
+      { label: "Comparer par période", icon: "compare", prompt: "Nombre de commandes par mois", send: true },
+    ],
+  },
+  {
+    title: "Exploration",
+    actions: [
+      { label: "Explorer les données", icon: "table", prompt: "Montre les magasins", send: true },
+      { label: "Compter", icon: "hash", prompt: "Combien de clients ?", send: true },
+      { label: "Classement (Top N)", icon: "bars", prompt: "Top 5 clients par loyalty_points", send: true },
+      { label: "Répartition", icon: "pie", prompt: "Nombre de commandes par magasin", deep: true, send: true },
+    ],
+  },
+  {
+    title: "Qualité & suivi",
+    actions: [
+      { label: "Audit qualité", icon: "shield", tab: "quality" },
+      { label: "Profils & données manquantes", icon: "clock", tab: "profiles" },
+      { label: "Détecter des anomalies", icon: "warning", prompt: "Montant moyen des commandes par magasin", deep: true, send: true },
+      { label: "Alertes", icon: "bell", tab: "alerts" },
+    ],
+  },
+];
+
+function relTime(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "à l'instant";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `il y a ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  return `il y a ${d} j`;
+}
+
 function ChatPanel({
   id,
   replay,
+  onNavigate,
 }: {
   id: number;
   replay?: { q: string; n: number } | null;
+  onNavigate?: (tab: Tab) => void;
 }) {
-  const [q, setQ] = useState("Combien de clients ?");
+  const [store, setStore] = useState<ChatStore>(emptyStore);
+  const [q, setQ] = useState("");
+  const [deep, setDeep] = useState(true); // approfondie (détaille) vs rapide (essentiel)
   const [busy, setBusy] = useState(false);
-  const [resp, setResp] = useState<ChatResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [newFolder, setNewFolder] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
 
-  // Historique rejouable : une question relancée depuis l'onglet Historique.
+  // Chargement de l'historique local (par connexion), une conversation active
+  // par défaut.
+  useEffect(() => {
+    const s = loadStore(id);
+    if (s.conversations.length === 0) {
+      const c = newConversation();
+      s.conversations = [c];
+      s.activeId = c.id;
+    } else if (!s.activeId) {
+      s.activeId = s.conversations[0].id;
+    }
+    setStore(s);
+  }, [id]);
+
+  const active = store.conversations.find((c) => c.id === store.activeId) || null;
+
+  function persist(next: ChatStore) {
+    setStore(next);
+    saveStore(id, next);
+  }
+  function update(mut: (s: ChatStore) => void) {
+    const next: ChatStore = JSON.parse(JSON.stringify(store));
+    mut(next);
+    persist(next);
+    return next;
+  }
+
+  // Auto-scroll en bas du fil après chaque tour.
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+  }, [active?.turns.length, busy]);
+
+  // Historique rejouable : question relancée depuis l'onglet Historique.
   useEffect(() => {
     if (replay?.q) {
       setQ(replay.q);
@@ -189,76 +324,442 @@ function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replay?.n]);
 
-  const suggestions = [
-    "Combien de clients ?",
-    "Quel est le montant moyen des commandes ?",
-    "Montre les magasins",
-    "top 5 clients par loyalty_points",
-  ];
+  function ensureActiveId(next: ChatStore): string {
+    if (next.activeId && next.conversations.some((c) => c.id === next.activeId)) {
+      return next.activeId;
+    }
+    const c = newConversation();
+    next.conversations.unshift(c);
+    next.activeId = c.id;
+    return c.id;
+  }
 
-  async function ask(question: string) {
+  async function ask(question: string, deepMode: boolean = deep) {
+    const text = question.trim();
+    if (!text || busy) return;
+    const turnId = uid();
+    let convId = "";
+    // 1) Ajout optimiste du tour (question + réponse en attente).
+    const afterAdd = update((s) => {
+      convId = ensureActiveId(s);
+      const c = s.conversations.find((x) => x.id === convId)!;
+      if (c.turns.length === 0) c.title = titleFrom(text);
+      c.turns.push({ id: turnId, question: text, deep: deepMode, response: null, ts: Date.now() });
+      c.updatedAt = Date.now();
+    });
+    setQ("");
     setBusy(true);
-    setError(null);
     try {
-      setResp(await api.chat(id, question));
+      const resp = await api.chat(id, text, deepMode);
+      finishTurn(afterAdd, convId, turnId, { response: resp });
     } catch (e: any) {
-      setError(e.message);
+      finishTurn(afterAdd, convId, turnId, { response: null, error: e.message });
     } finally {
       setBusy(false);
     }
   }
 
+  function finishTurn(
+    base: ChatStore,
+    convId: string,
+    turnId: string,
+    patch: { response: ChatResponse | null; error?: string },
+  ) {
+    const next: ChatStore = JSON.parse(JSON.stringify(base));
+    const c = next.conversations.find((x) => x.id === convId);
+    const t = c?.turns.find((x) => x.id === turnId);
+    if (t) {
+      t.response = patch.response;
+      t.error = patch.error;
+    }
+    persist(next);
+  }
+
+  function runAction(a: Action) {
+    if (a.tab) {
+      onNavigate?.(a.tab);
+      return;
+    }
+    if (a.deep !== undefined) setDeep(a.deep);
+    if (a.prompt) setQ(a.prompt);
+    if (a.prompt && a.send) ask(a.prompt, a.deep ?? deep);
+    else inputRef.current?.focus();
+  }
+
+  // --- gestion des conversations & dossiers ---
+  function createConversation(folderId: string | null = null) {
+    update((s) => {
+      const c = newConversation(folderId);
+      s.conversations.unshift(c);
+      s.activeId = c.id;
+    });
+    setQ("");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+  function selectConversation(cid: string) {
+    update((s) => {
+      s.activeId = cid;
+    });
+  }
+  function deleteConversation(cid: string) {
+    update((s) => {
+      s.conversations = s.conversations.filter((c) => c.id !== cid);
+      if (s.activeId === cid) s.activeId = s.conversations[0]?.id ?? null;
+      if (!s.activeId) {
+        const c = newConversation();
+        s.conversations.unshift(c);
+        s.activeId = c.id;
+      }
+    });
+  }
+  function moveConversation(cid: string, folderId: string | null) {
+    update((s) => {
+      const c = s.conversations.find((x) => x.id === cid);
+      if (c) c.folderId = folderId;
+    });
+  }
+  function createFolder(name: string) {
+    const n = name.trim();
+    if (!n) return;
+    update((s) => {
+      s.folders.push({ id: uid(), name: n });
+    });
+    setNewFolder(null);
+  }
+  function deleteFolder(fid: string) {
+    update((s) => {
+      s.folders = s.folders.filter((f) => f.id !== fid);
+      s.conversations.forEach((c) => {
+        if (c.folderId === fid) c.folderId = null;
+      });
+    });
+  }
+
+  const ungrouped = store.conversations.filter((c) => !c.folderId);
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        {suggestions.map((s) => (
-          <button
-            key={s}
-            className="badge bg-white/5 text-noreon-soft hover:text-white"
-            onClick={() => {
-              setQ(s);
-              ask(s);
-            }}
+    <div className="flex gap-4 h-[calc(100vh-16rem)] min-h-[480px]">
+      {/* Colonne principale : fil de conversation + composer collé en bas. */}
+      <div className="flex-1 min-w-0 flex flex-col card overflow-hidden">
+        {/* En-tête de la conversation active. */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-noreon-border">
+          <div className="font-medium truncate flex-1">{active?.title ?? "Conversation"}</div>
+          <select
+            value={active?.folderId ?? ""}
+            onChange={(e) => active && moveConversation(active.id, e.target.value || null)}
+            className="text-xs rounded-md border border-noreon-border bg-white px-2 py-1 text-slate-600"
+            title="Ranger dans un dossier"
           >
-            {s}
-          </button>
-        ))}
+            <option value="">Sans dossier</option>
+            {store.folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Fil défilant. */}
+        <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+          {active && active.turns.length === 0 && !busy ? (
+            <Launcher onAction={runAction} />
+          ) : (
+            active?.turns.map((t) => (
+              <div key={t.id} className="space-y-3">
+                <div className="flex justify-end">
+                  <div className="max-w-[80%] rounded-2xl bg-noreon-accent/12 border border-noreon-accent/25 px-4 py-2 text-sm text-slate-800">
+                    {t.question}
+                  </div>
+                </div>
+                {t.error && (
+                  <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{t.error}</div>
+                )}
+                {t.response ? (
+                  <ChatResult r={t.response} />
+                ) : (
+                  !t.error && (
+                    <div className="text-sm text-noreon-soft flex items-center gap-2">
+                      <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                      {t.deep
+                        ? "Analyse approfondie en cours (requêtes de suivi)…"
+                        : "Analyse en cours…"}
+                    </div>
+                  )
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Composer collé en bas. */}
+        <Composer
+          q={q}
+          setQ={setQ}
+          deep={deep}
+          setDeep={setDeep}
+          busy={busy}
+          inputRef={inputRef}
+          onSubmit={() => ask(q)}
+        />
       </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          ask(q);
+
+      {/* Historique des conversations (façon Claude) + dossiers. */}
+      <aside className="w-64 shrink-0 hidden lg:flex flex-col card overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-noreon-border space-y-2">
+          <button
+            onClick={() => createConversation()}
+            className="btn-primary w-full justify-center"
+          >
+            <Icon name="plus" /> Nouvelle conversation
+          </button>
+          {newFolder === null ? (
+            <button
+              onClick={() => setNewFolder("")}
+              className="btn-ghost w-full justify-center text-slate-600"
+            >
+              <Icon name="folder" /> Nouveau dossier
+            </button>
+          ) : (
+            <div className="flex gap-1">
+              <input
+                autoFocus
+                className="input py-1 text-xs"
+                placeholder="Nom du dossier"
+                value={newFolder}
+                onChange={(e) => setNewFolder(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createFolder(newFolder);
+                  if (e.key === "Escape") setNewFolder(null);
+                }}
+              />
+              <button onClick={() => createFolder(newFolder)} className="btn-ghost px-2 text-xs">
+                OK
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 space-y-3 text-sm">
+          {store.folders.map((f) => {
+            const convs = store.conversations.filter((c) => c.folderId === f.id);
+            return (
+              <div key={f.id}>
+                <div className="flex items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+                  <Icon name="folder" className="w-3.5 h-3.5" />
+                  <span className="flex-1 truncate normal-case">{f.name}</span>
+                  <button
+                    onClick={() => createConversation(f.id)}
+                    title="Nouvelle conversation dans ce dossier"
+                    className="hover:text-slate-900"
+                  >
+                    +
+                  </button>
+                  <button
+                    onClick={() => deleteFolder(f.id)}
+                    title="Supprimer le dossier"
+                    className="hover:text-red-600"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="mt-1 space-y-0.5">
+                  {convs.length === 0 && (
+                    <div className="px-2 py-1 text-xs text-noreon-soft italic">Vide</div>
+                  )}
+                  {convs.map((c) => (
+                    <ConvRow
+                      key={c.id}
+                      c={c}
+                      active={c.id === store.activeId}
+                      onSelect={() => selectConversation(c.id)}
+                      onDelete={() => deleteConversation(c.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          <div>
+            {store.folders.length > 0 && (
+              <div className="px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+                Sans dossier
+              </div>
+            )}
+            <div className="mt-1 space-y-0.5">
+              {ungrouped.map((c) => (
+                <ConvRow
+                  key={c.id}
+                  c={c}
+                  active={c.id === store.activeId}
+                  onSelect={() => selectConversation(c.id)}
+                  onDelete={() => deleteConversation(c.id)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function ConvRow({
+  c,
+  active,
+  onSelect,
+  onDelete,
+}: {
+  c: Conversation;
+  active: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer ${
+        active ? "bg-noreon-accent/12" : "hover:bg-slate-100"
+      }`}
+      onClick={onSelect}
+    >
+      <div className="flex-1 min-w-0">
+        <div className={`truncate ${active ? "text-slate-900 font-medium" : "text-slate-700"}`}>
+          {c.title}
+        </div>
+        <div className="text-[11px] text-noreon-soft">
+          {c.turns.length} échange(s) · {relTime(c.updatedAt)}
+        </div>
+      </div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
         }}
-        className="flex gap-2"
+        title="Supprimer"
+        className="opacity-0 group-hover:opacity-100 text-noreon-soft hover:text-red-600 px-1"
       >
-        <input
-          className="input"
+        ×
+      </button>
+    </div>
+  );
+}
+
+function Launcher({ onAction }: { onAction: (a: Action) => void }) {
+  return (
+    <div className="space-y-5 max-w-2xl mx-auto pt-6">
+      <div>
+        <h2 className="text-lg font-semibold">Comment puis-je vous aider ?</h2>
+        <p className="text-sm text-noreon-soft">
+          Posez une question sur vos données, ou partez d'une action.
+        </p>
+      </div>
+      {ACTION_GROUPS.map((g) => (
+        <div key={g.title} className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+            {g.title}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {g.actions.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => onAction(a)}
+                className="btn-ghost text-slate-700"
+              >
+                <Icon name={a.icon} />
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Composer({
+  q,
+  setQ,
+  deep,
+  setDeep,
+  busy,
+  inputRef,
+  onSubmit,
+}: {
+  q: string;
+  setQ: (v: string) => void;
+  deep: boolean;
+  setDeep: (v: boolean) => void;
+  busy: boolean;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="border-t border-noreon-border p-3 space-y-2 bg-noreon-panel">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="inline-flex rounded-lg border border-noreon-border overflow-hidden text-sm">
+          <button
+            type="button"
+            onClick={() => setDeep(false)}
+            className={`px-3 py-1.5 ${
+              !deep ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft hover:text-slate-900"
+            }`}
+          >
+            ⚡ Rapide
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeep(true)}
+            className={`px-3 py-1.5 ${
+              deep ? "bg-sky-500/15 text-sky-700 font-medium" : "text-noreon-soft hover:text-slate-900"
+            }`}
+          >
+            📊 Approfondie
+          </button>
+        </div>
+        <span className="text-xs text-noreon-soft flex-1 min-w-[12rem]">
+          {deep
+            ? "Détaille : croisements de dimensions, facteurs explicatifs, recommandations."
+            : "Essentiel : réponse, graphique et indice de confiance."}
+        </span>
+      </div>
+
+      <div className="relative">
+        <textarea
+          ref={inputRef}
+          rows={2}
+          className="input resize-none pr-12"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Posez une question en langage naturel…"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+          placeholder="Posez une question en langage naturel…  (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)"
         />
-        <button className="btn-primary" disabled={busy}>
-          {busy ? "…" : "Analyser"}
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={busy || !q.trim()}
+          aria-label="Envoyer"
+          className="absolute right-2 bottom-2 w-8 h-8 rounded-full bg-noreon-accent text-white flex items-center justify-center hover:brightness-110 disabled:opacity-40"
+        >
+          {busy ? "…" : <Icon name="send" />}
         </button>
-      </form>
-
-      {error && (
-        <div className="text-sm text-red-300 bg-red-500/10 rounded-lg p-3">
-          {error}
-        </div>
-      )}
-      {resp && <ChatResult r={resp} />}
+      </div>
     </div>
   );
 }
 
 function ChatResult({ r }: { r: ChatResponse }) {
   const statusColor: Record<string, string> = {
-    answered: "text-emerald-300",
-    clarification: "text-amber-200",
-    blocked: "text-red-300",
-    error: "text-red-300",
-    no_schema: "text-amber-200",
+    answered: "text-emerald-700",
+    clarification: "text-amber-700",
+    blocked: "text-red-600",
+    error: "text-red-600",
+    no_schema: "text-amber-700",
   };
   return (
     <div className="space-y-4">
@@ -281,8 +782,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           )}
           {r.analysis.anomalies?.length > 0 && (
             <div className="text-xs bg-amber-500/10 rounded-lg p-2 space-y-1">
-              <div className="font-medium text-amber-200">Anomalies détectées</div>
-              <ul className="list-disc pl-4 text-amber-200/90">
+              <div className="font-medium text-amber-700">Anomalies détectées</div>
+              <ul className="list-disc pl-4 text-amber-700">
                 {r.analysis.anomalies.map((a: string, i: number) => (
                   <li key={i}>{a}</li>
                 ))}
@@ -291,7 +792,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
           )}
           {r.analysis.recommendations?.length > 0 && (
             <div className="text-xs space-y-1">
-              <div className="font-medium text-sky-300">Recommandations</div>
+              <div className="font-medium text-sky-700">Recommandations</div>
               <ul className="list-disc pl-4 text-noreon-soft">
                 {r.analysis.recommendations.map((rec: string, i: number) => (
                   <li key={i}>{rec}</li>
@@ -305,7 +806,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
       {r.deep && <DeepReport d={r.deep} />}
 
       {r.privacy && r.privacy.values_protected > 0 && (
-        <div className="text-xs text-emerald-300/90 bg-emerald-500/10 rounded-lg px-3 py-2">
+        <div className="text-xs text-emerald-700 bg-emerald-500/10 rounded-lg px-3 py-2">
           🛡 Privacy Engine — {Object.entries(r.privacy.protected_columns)
             .map(([c, t]) => `${c} (${t})`)
             .join(", ")}{" "}
@@ -331,23 +832,23 @@ function ChatResult({ r }: { r: ChatResponse }) {
             Transparence de l’analyse
           </summary>
           <div className="mt-3 space-y-3 text-xs">
-            <pre className="mono bg-black/40 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
+            <pre className="mono bg-slate-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
               {r.sql}
             </pre>
             <div>
               <div className="text-noreon-soft mb-1">Tables utilisées</div>
               <div className="flex flex-wrap gap-1">
                 {r.tables_used.map((t) => (
-                  <span key={t} className="badge bg-white/5 mono">
+                  <span key={t} className="badge bg-slate-100 mono">
                     {t}
                     {r.table_quality?.[t] != null && (
                       <span
                         className={`ml-1 ${
                           r.table_quality[t] >= 90
-                            ? "text-emerald-300"
+                            ? "text-emerald-700"
                             : r.table_quality[t] >= 70
-                            ? "text-amber-300"
-                            : "text-red-300"
+                            ? "text-amber-700"
+                            : "text-red-600"
                         }`}
                       >
                         · qualité {r.table_quality[t]}%
@@ -363,7 +864,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
             {r.assumptions.length > 0 && (
               <div>
                 <div className="text-noreon-soft mb-1">Hypothèses retenues</div>
-                <ul className="list-disc pl-4 text-amber-200">
+                <ul className="list-disc pl-4 text-amber-700">
                   {r.assumptions.map((a, i) => (
                     <li key={i}>{a}</li>
                   ))}
@@ -378,7 +879,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
               <span>{r.row_count} ligne(s)</span>
             </div>
             {r.warnings.length > 0 && (
-              <div className="text-amber-200">{r.warnings.join(" · ")}</div>
+              <div className="text-amber-700">{r.warnings.join(" · ")}</div>
             )}
           </div>
         </details>
@@ -391,7 +892,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
   const fmt = (n: number) => n.toLocaleString("fr-FR");
   return (
     <details className="card p-4 space-y-3 border border-sky-500/30" open>
-      <summary className="cursor-pointer text-sm font-semibold text-sky-300">
+      <summary className="cursor-pointer text-sm font-semibold text-sky-700">
         📊 Présentation approfondie — au-delà des chiffres, ce qu'ils veulent dire
       </summary>
 
@@ -408,7 +909,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Facteurs explicatifs (drivers) */}
         {d.drivers.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-sky-200">Facteurs explicatifs</div>
+            <div className="text-sm font-medium text-sky-700">Facteurs explicatifs</div>
             <ul className="text-xs list-disc pl-4 space-y-1">
               {d.drivers.map((x, i) => (
                 <li key={i}>{x}</li>
@@ -420,7 +921,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Croisement de dimensions */}
         {d.crosstab && d.crosstab.cells.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-sky-200">
+            <div className="text-sm font-medium text-sky-700">
               Croisement : {d.crosstab.dim_a} × {d.crosstab.dim_b}
             </div>
             <div className="overflow-x-auto">
@@ -451,10 +952,10 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Segments par dimension */}
         {d.segments.length > 0 && (
           <div className="space-y-2">
-            <div className="text-sm font-medium text-sky-200">Segmentation par dimension</div>
+            <div className="text-sm font-medium text-sky-700">Segmentation par dimension</div>
             <div className="grid gap-3 sm:grid-cols-2">
               {d.segments.map((s, i) => (
-                <div key={i} className="bg-white/5 rounded-lg p-3 space-y-1">
+                <div key={i} className="bg-slate-100 rounded-lg p-3 space-y-1">
                   <div className="text-xs font-medium">
                     {s.dimension}{" "}
                     <span className="text-noreon-soft">· {s.n_groups} segment(s)</span>
@@ -462,12 +963,12 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
                   {s.groups.map((g, j) => (
                     <div key={j} className="text-xs flex items-center gap-2">
                       <span className="w-24 shrink-0 truncate">{g.segment}</span>
-                      <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                         <div className="h-full bg-sky-400" style={{ width: `${g.share}%` }} />
                       </div>
                       <span className="mono text-noreon-soft w-10 text-right">{g.share}%</span>
                       {g.avg != null && (
-                        <span className="mono text-emerald-300/80 w-16 text-right">
+                        <span className="mono text-emerald-700 w-16 text-right">
                           ⌀ {fmt(g.avg)}
                         </span>
                       )}
@@ -482,8 +983,8 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Points d'attention */}
         {d.findings.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-amber-200">Points d'attention</div>
-            <ul className="text-xs list-disc pl-4 space-y-1 text-amber-200/90">
+            <div className="text-sm font-medium text-amber-700">Points d'attention</div>
+            <ul className="text-xs list-disc pl-4 space-y-1 text-amber-700">
               {d.findings.map((x, i) => (
                 <li key={i}>{x}</li>
               ))}
@@ -494,7 +995,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
         {/* Recommandations métier */}
         {d.recommendations.length > 0 && (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-emerald-300">Recommandations métier</div>
+            <div className="text-sm font-medium text-emerald-700">Recommandations métier</div>
             <ul className="text-xs list-disc pl-4 space-y-1 text-noreon-soft">
               {d.recommendations.map((x, i) => (
                 <li key={i}>{x}</li>
@@ -513,7 +1014,7 @@ function DeepReport({ d }: { d: NonNullable<ChatResponse["deep"]> }) {
               {d.queries.map((q, i) => (
                 <pre
                   key={i}
-                  className="mono bg-black/40 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap"
+                  className="mono bg-slate-100 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap"
                 >
                   {q}
                 </pre>
@@ -535,7 +1036,7 @@ function ConfidenceBar({ c }: { c: { percent: number; factors: string[] } }) {
         <span className="font-medium">Indice de confiance</span>
         <span>{c.percent}%</span>
       </div>
-      <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+      <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
         <div className={`h-full ${color}`} style={{ width: `${c.percent}%` }} />
       </div>
       {c.factors.length > 0 && (
@@ -556,7 +1057,7 @@ function Meta({ label, items }: { label: string; items: string[] }) {
       <div className="text-noreon-soft mb-1">{label}</div>
       <div className="flex flex-wrap gap-1">
         {items.map((i) => (
-          <span key={i} className="badge bg-white/5 mono">
+          <span key={i} className="badge bg-slate-100 mono">
             {i}
           </span>
         ))}
@@ -599,7 +1100,7 @@ function ResultTable({
         </tbody>
       </table>
       {truncated && (
-        <div className="px-3 py-2 text-xs text-amber-200">
+        <div className="px-3 py-2 text-xs text-amber-700">
           Résultats tronqués par le LIMIT automatique.
         </div>
       )}
@@ -623,7 +1124,7 @@ function SchemaPanel({ id }: { id: number }) {
 
   if (err)
     return (
-      <div className="text-sm text-amber-200 bg-amber-500/10 rounded-lg p-3">
+      <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">
         {err} — lancez un scan.
       </div>
     );
@@ -638,7 +1139,7 @@ function SchemaPanel({ id }: { id: number }) {
               <div className="font-medium mono">
                 {t.schema_name}.{t.table_name}
               </div>
-              <span className="badge bg-white/5 text-noreon-soft">
+              <span className="badge bg-slate-100 text-noreon-soft">
                 {t.table_type} · ~{t.estimated_rows ?? "?"} lignes
               </span>
             </div>
@@ -649,7 +1150,7 @@ function SchemaPanel({ id }: { id: number }) {
                   className={`badge mono ${
                     c.is_primary_key
                       ? "bg-noreon-accent/20 text-noreon-accent"
-                      : "bg-white/5 text-noreon-soft"
+                      : "bg-slate-100 text-noreon-soft"
                   }`}
                   title={c.data_type}
                 >
@@ -673,8 +1174,8 @@ function SchemaPanel({ id }: { id: number }) {
                 <span
                   className={`badge ${
                     r.kind === "declared"
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-amber-500/15 text-amber-200"
+                      ? "bg-emerald-500/15 text-emerald-700"
+                      : "bg-amber-500/15 text-amber-700"
                   }`}
                 >
                   {r.kind === "declared" ? "FK déclarée" : "FK inférée"}
@@ -740,7 +1241,7 @@ function ProfilesPanel({ id }: { id: number }) {
                   <td className="px-3 py-1.5">{p.detected_type}</td>
                   <td className="px-3 py-1.5">
                     {p.pii_type ? (
-                      <span className="badge bg-red-500/15 text-red-300">{p.pii_type}</span>
+                      <span className="badge bg-red-500/15 text-red-600">{p.pii_type}</span>
                     ) : (
                       ""
                     )}
@@ -763,7 +1264,7 @@ function ProfilesPanel({ id }: { id: number }) {
 
 /* ------------------------------ QUALITY -------------------------------- */
 function scoreColor(pct: number) {
-  return pct >= 90 ? "text-emerald-300" : pct >= 70 ? "text-amber-300" : "text-red-300";
+  return pct >= 90 ? "text-emerald-700" : pct >= 70 ? "text-amber-700" : "text-red-600";
 }
 function barColor(pct: number) {
   return pct >= 90 ? "bg-emerald-400" : pct >= 70 ? "bg-amber-400" : "bg-red-400";
@@ -806,7 +1307,7 @@ function QualityPanel({ id }: { id: number }) {
               {Math.round(base.score * 100)}%
             </span>
           </div>
-          <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
             <div
               className={`h-full ${barColor(base.score * 100)}`}
               style={{ width: `${base.score * 100}%` }}
@@ -905,10 +1406,10 @@ function ColumnQualityRow({ c }: { c: QualityScore }) {
 
 /* ------------------------------ CONCEPTS ------------------------------- */
 const STATUS_LABELS: Record<string, [string, string]> = {
-  proposed: ["proposé", "bg-amber-500/15 text-amber-200"],
-  validated: ["validé", "bg-emerald-500/15 text-emerald-300"],
-  corrected: ["corrigé", "bg-sky-500/15 text-sky-300"],
-  rejected: ["rejeté", "bg-red-500/15 text-red-300"],
+  proposed: ["proposé", "bg-amber-500/15 text-amber-700"],
+  validated: ["validé", "bg-emerald-500/15 text-emerald-700"],
+  corrected: ["corrigé", "bg-sky-500/15 text-sky-700"],
+  rejected: ["rejeté", "bg-red-500/15 text-red-600"],
 };
 
 function ConceptsPanel({ id }: { id: number }) {
@@ -995,7 +1496,7 @@ function ConceptsPanel({ id }: { id: number }) {
       </div>
 
       {notice && (
-        <div className="text-sm text-noreon-soft bg-white/5 rounded-lg p-3">{notice}</div>
+        <div className="text-sm text-noreon-soft bg-slate-100 rounded-lg p-3">{notice}</div>
       )}
 
       {mappings.length === 0 && (
@@ -1014,7 +1515,7 @@ function ConceptsPanel({ id }: { id: number }) {
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   <button
-                    className="btn bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                    className="btn bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500/30"
                     onClick={() => review(m, "validate")}
                   >
                     Valider
@@ -1034,11 +1535,11 @@ function ConceptsPanel({ id }: { id: number }) {
                         value={correctName}
                         onChange={(e) => setCorrectName(e.target.value)}
                       />
-                      <button className="btn bg-sky-500/20 text-sky-300">OK</button>
+                      <button className="btn bg-sky-500/20 text-sky-700">OK</button>
                     </form>
                   ) : (
                     <button
-                      className="btn bg-sky-500/20 text-sky-300 hover:bg-sky-500/30"
+                      className="btn bg-sky-500/20 text-sky-700 hover:bg-sky-500/30"
                       onClick={() => {
                         setCorrecting(m.id);
                         setCorrectName("");
@@ -1048,7 +1549,7 @@ function ConceptsPanel({ id }: { id: number }) {
                     </button>
                   )}
                   <button
-                    className="btn bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                    className="btn bg-red-500/20 text-red-600 hover:bg-red-500/30"
                     onClick={() => review(m, "reject")}
                   >
                     Rejeter
@@ -1102,7 +1603,7 @@ function MappingCard({
       </div>
       <div className="text-xs text-noreon-soft">{m.rationale}</div>
       {m.needs_arbitration && m.arbitration_note && (
-        <div className="text-xs text-amber-200 bg-amber-500/10 rounded-lg p-2">
+        <div className="text-xs text-amber-700 bg-amber-500/10 rounded-lg p-2">
           ⚠ Arbitrage requis — {m.arbitration_note}
         </div>
       )}
@@ -1144,15 +1645,15 @@ function LogPanel({
               <span
                 className={`badge ${
                   r.status === "ok"
-                    ? "bg-emerald-500/15 text-emerald-300"
-                    : "bg-red-500/15 text-red-300"
+                    ? "bg-emerald-500/15 text-emerald-700"
+                    : "bg-red-500/15 text-red-600"
                 }`}
               >
                 {r.status}
               </span>
             </div>
           </div>
-          <pre className="mono bg-black/40 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+          <pre className="mono bg-slate-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">
             {r.sql}
           </pre>
           <div className="text-noreon-soft flex gap-3">
@@ -1161,7 +1662,7 @@ function LogPanel({
             {r.confidence?.percent != null && (
               <span>confiance {r.confidence.percent}%</span>
             )}
-            {r.block_reason && <span className="text-red-300">{r.block_reason}</span>}
+            {r.block_reason && <span className="text-red-600">{r.block_reason}</span>}
           </div>
         </div>
       ))}

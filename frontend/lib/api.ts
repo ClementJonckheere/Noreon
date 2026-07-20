@@ -372,10 +372,10 @@ export const api = {
     request<QualityScore[]>(
       `/connections/${id}/quality${level ? `?level=${level}` : ""}`,
     ),
-  chat: (id: number, question: string) =>
+  chat: (id: number, question: string, deep = true) =>
     request<ChatResponse>(`/connections/${id}/chat`, {
       method: "POST",
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, deep_analysis: deep }),
     }),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
 
