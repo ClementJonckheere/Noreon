@@ -1,18 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   api,
   ChatResponse,
   Connection,
+  ConvFolder,
+  ConvFull,
+  ConvSummary,
   Governance,
   Me,
   SpaceDetail,
   User,
 } from "@/lib/api";
 import AnswerView from "@/components/AnswerView";
+import ImportConnection from "@/components/ImportConnection";
 
 type SpaceTab = "chat" | "sources" | "governance" | "members";
 
@@ -79,12 +83,44 @@ export default function SpaceWorkspace() {
 }
 
 /* ------------------------------- CHAT --------------------------------- */
+type UiTurn = { id: string; question: string; r: ChatResponse | null; err?: string };
+
 function SpaceChat({ space }: { space: SpaceDetail }) {
+  const sid = space.id;
   const [connId, setConnId] = useState<number | null>(space.connections[0]?.id ?? null);
-  const [q, setQ] = useState("");
   const [deep, setDeep] = useState(true);
+  const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
-  const [thread, setThread] = useState<{ q: string; r: ChatResponse | null; err?: string }[]>([]);
+
+  const [convs, setConvs] = useState<ConvSummary[]>([]);
+  const [folders, setFolders] = useState<ConvFolder[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [turns, setTurns] = useState<UiTurn[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState("");
+  const [newFolder, setNewFolder] = useState<string | null>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (space.connections.length === 0) return;
+    (async () => {
+      const [fs, list] = await Promise.all([api.spaceFolderList(sid), api.spaceConvList(sid, false)]);
+      setFolders(fs);
+      if (list.length === 0) {
+        const c = await api.spaceConvCreate(sid, {});
+        setConvs([c]);
+        select(c.id, c);
+      } else {
+        setConvs(list);
+        select(list[0].id);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sid]);
+
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+  }, [turns.length, busy]);
 
   if (space.connections.length === 0) {
     return (
@@ -95,91 +131,182 @@ function SpaceChat({ space }: { space: SpaceDetail }) {
     );
   }
 
+  async function reload(archived = showArchived) {
+    const list = await api.spaceConvList(sid, archived);
+    setConvs(list);
+    return list;
+  }
+  async function select(cid: number, full?: ConvFull) {
+    setActiveId(cid);
+    const conv = full ?? (await api.spaceConvGet(sid, cid));
+    setTurns(conv.turns.map((t) => ({ id: String(t.id), question: t.question, r: t.response, err: t.error || undefined })));
+  }
+
   async function ask() {
     const text = q.trim();
     if (!text || connId == null || busy) return;
-    setThread((t) => [...t, { q: text, r: null }]);
+    let cid = activeId;
+    if (cid == null) {
+      const c = await api.spaceConvCreate(sid, {});
+      setConvs((cs) => [c, ...cs]);
+      cid = c.id;
+      setActiveId(cid);
+    }
+    const tmp = "pending-" + Date.now();
+    setTurns((t) => [...t, { id: tmp, question: text, r: null }]);
     setQ("");
     setBusy(true);
     try {
-      const r = await api.spaceChat(space.id, connId, text, deep);
-      setThread((t) => t.map((x, i) => (i === t.length - 1 ? { ...x, r } : x)));
+      const { turn, conversation } = await api.spaceConvAddTurn(sid, cid, connId, text, deep);
+      setTurns((t) => t.map((x) => (x.id === tmp ? { id: String(turn.id), question: turn.question, r: turn.response, err: turn.error || undefined } : x)));
+      setConvs((cs) => [conversation, ...cs.filter((c) => c.id !== conversation.id)]);
     } catch (e: any) {
-      setThread((t) => t.map((x, i) => (i === t.length - 1 ? { ...x, err: e.message } : x)));
+      setTurns((t) => t.map((x) => (x.id === tmp ? { ...x, err: e.message } : x)));
     } finally {
       setBusy(false);
     }
   }
 
+  async function newConv(folderId: number | null = null) {
+    if (showArchived) setShowArchived(false);
+    const c = await api.spaceConvCreate(sid, { folder_id: folderId });
+    if (!showArchived) setConvs((cs) => [c, ...cs]);
+    setActiveId(c.id);
+    setTurns([]);
+  }
+  async function delConv(cid: number) {
+    await api.spaceConvDelete(sid, cid);
+    const list = await reload();
+    if (activeId === cid) (list[0] ? select(list[0].id) : newConv());
+  }
+  async function archive(cid: number, a: boolean) {
+    await api.spaceConvUpdate(sid, cid, { archived: a });
+    const list = await reload();
+    if (activeId === cid) (list[0] ? select(list[0].id) : (showArchived ? setTurns([]) : newConv()));
+  }
+
+  const activeSummary = convs.find((c) => c.id === activeId);
+  const matches = (c: ConvSummary) =>
+    !search.trim() || c.title.toLowerCase().includes(search.trim().toLowerCase());
+  const visible = convs.filter(matches);
+
   return (
-    <div className="space-y-4">
-      <div className="card p-3 flex items-center gap-3 flex-wrap">
-        <label className="text-xs text-noreon-soft">Source</label>
-        <select
-          className="input w-auto"
-          value={connId ?? ""}
-          onChange={(e) => setConnId(Number(e.target.value))}
-        >
-          {space.connections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.engine})
-            </option>
-          ))}
-        </select>
-        <div className="inline-flex rounded-lg border border-noreon-border overflow-hidden text-sm ml-auto">
-          <button
-            onClick={() => setDeep(false)}
-            className={`px-3 py-1.5 ${!deep ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft"}`}
-          >
-            ⚡ Rapide
-          </button>
-          <button
-            onClick={() => setDeep(true)}
-            className={`px-3 py-1.5 ${deep ? "bg-sky-500/15 text-sky-700 font-medium" : "text-noreon-soft"}`}
-          >
-            📊 Approfondie
-          </button>
-        </div>
-      </div>
-
-      {thread.map((t, i) => (
-        <div key={i} className="space-y-3">
-          <div className="flex justify-end">
-            <div className="max-w-[80%] rounded-2xl bg-noreon-accent/12 border border-noreon-accent/25 px-4 py-2 text-sm">
-              {t.q}
-            </div>
+    <div className="flex gap-4 h-[calc(100vh-18rem)] min-h-[460px]">
+      <div className="flex-1 min-w-0 flex flex-col card overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-noreon-border flex-wrap">
+          <div className="font-medium truncate flex-1 min-w-[8rem]">
+            {activeSummary?.title ?? "Conversation"}
           </div>
-          {t.err && <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{t.err}</div>}
-          {t.r ? (
-            <AnswerView r={t.r} />
-          ) : (
-            !t.err && <div className="text-sm text-noreon-soft">Analyse en cours…</div>
-          )}
+          <label className="text-xs text-noreon-soft">Source</label>
+          <select className="input w-auto py-1 text-xs" value={connId ?? ""} onChange={(e) => setConnId(Number(e.target.value))}>
+            {space.connections.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <div className="inline-flex rounded-lg border border-noreon-border overflow-hidden text-xs">
+            <button onClick={() => setDeep(false)} className={`px-2 py-1 ${!deep ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft"}`}>⚡</button>
+            <button onClick={() => setDeep(true)} className={`px-2 py-1 ${deep ? "bg-sky-500/15 text-sky-700 font-medium" : "text-noreon-soft"}`}>📊</button>
+          </div>
         </div>
-      ))}
 
-      <div className="relative">
-        <textarea
-          rows={2}
-          className="input resize-none pr-12"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              ask();
-            }
-          }}
-          placeholder="Posez une question sur les données autorisées de cet espace…"
-        />
-        <button
-          onClick={ask}
-          disabled={busy || !q.trim()}
-          className="absolute right-2 bottom-2 w-8 h-8 rounded-full bg-noreon-accent text-white flex items-center justify-center disabled:opacity-40"
-        >
-          ↑
-        </button>
+        <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+          {turns.length === 0 && !busy && (
+            <div className="text-sm text-noreon-soft pt-4">
+              Posez une question sur les données autorisées de cet espace.
+            </div>
+          )}
+          {turns.map((t) => (
+            <div key={t.id} className="space-y-3">
+              <div className="flex justify-end">
+                <div className="max-w-[80%] rounded-2xl bg-noreon-accent/12 border border-noreon-accent/25 px-4 py-2 text-sm">
+                  {t.question}
+                </div>
+              </div>
+              {t.err && <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{t.err}</div>}
+              {t.r ? <AnswerView r={t.r} /> : !t.err && <div className="text-sm text-noreon-soft">Analyse en cours…</div>}
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-noreon-border p-3">
+          <div className="relative">
+            <textarea
+              rows={2}
+              className="input resize-none pr-12"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  ask();
+                }
+              }}
+              placeholder="Posez une question… (Entrée pour envoyer)"
+            />
+            <button onClick={ask} disabled={busy || !q.trim()}
+              className="absolute right-2 bottom-2 w-8 h-8 rounded-full bg-noreon-accent text-white flex items-center justify-center disabled:opacity-40">↑</button>
+          </div>
+        </div>
       </div>
+
+      {/* Historique de l'espace */}
+      <aside className="w-56 shrink-0 hidden lg:flex flex-col card overflow-hidden">
+        <div className="px-2 py-2 border-b border-noreon-border space-y-2">
+          <button onClick={() => newConv()} className="btn-primary w-full justify-center text-xs">+ Conversation</button>
+          {newFolder === null ? (
+            <button onClick={() => setNewFolder("")} className="btn-ghost w-full justify-center text-xs text-slate-600">+ Dossier</button>
+          ) : (
+            <div className="flex gap-1">
+              <input autoFocus className="input py-1 text-xs" placeholder="Dossier" value={newFolder}
+                onChange={(e) => setNewFolder(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter" && newFolder.trim()) { const f = await api.spaceFolderCreate(sid, newFolder.trim()); setFolders((fs) => [...fs, f]); setNewFolder(null); }
+                  if (e.key === "Escape") setNewFolder(null);
+                }} />
+            </div>
+          )}
+          <div className="inline-flex w-full rounded-lg border border-noreon-border overflow-hidden text-xs">
+            <button onClick={async () => { setShowArchived(false); await reload(false); }} className={`flex-1 py-1 ${!showArchived ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft"}`}>Actives</button>
+            <button onClick={async () => { setShowArchived(true); await reload(true); }} className={`flex-1 py-1 ${showArchived ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft"}`}>Archivées</button>
+          </div>
+          <input className="input py-1 text-xs" placeholder="Rechercher…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 text-sm">
+          {folders.map((f) => (
+            <div key={f.id}>
+              <div className="flex items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-noreon-soft">
+                <span className="flex-1 truncate normal-case">{f.name}</span>
+                <button onClick={() => newConv(f.id)} title="Nouvelle ici" className="hover:text-slate-900">+</button>
+                <button onClick={async () => { await api.spaceFolderDelete(sid, f.id); setFolders((fs) => fs.filter((x) => x.id !== f.id)); reload(); }} className="hover:text-red-600">×</button>
+              </div>
+              {visible.filter((c) => c.folder_id === f.id).map((c) => (
+                <SpaceConvRow key={c.id} c={c} active={c.id === activeId} archived={showArchived}
+                  onSelect={() => select(c.id)} onDelete={() => delConv(c.id)} onArchive={() => archive(c.id, !showArchived)} />
+              ))}
+            </div>
+          ))}
+          {visible.filter((c) => !c.folder_id).map((c) => (
+            <SpaceConvRow key={c.id} c={c} active={c.id === activeId} archived={showArchived}
+              onSelect={() => select(c.id)} onDelete={() => delConv(c.id)} onArchive={() => archive(c.id, !showArchived)} />
+          ))}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function SpaceConvRow({ c, active, archived, onSelect, onDelete, onArchive }: {
+  c: ConvSummary; active: boolean; archived: boolean;
+  onSelect: () => void; onDelete: () => void; onArchive: () => void;
+}) {
+  return (
+    <div className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer ${active ? "bg-noreon-accent/12" : "hover:bg-slate-100"}`} onClick={onSelect}>
+      <div className="flex-1 min-w-0">
+        <div className={`truncate text-xs ${active ? "text-slate-900 font-medium" : "text-slate-700"}`}>{c.title}</div>
+        <div className="text-[11px] text-noreon-soft">{c.turn_count} échange(s)</div>
+      </div>
+      <button onClick={(e) => { e.stopPropagation(); onArchive(); }} title={archived ? "Désarchiver" : "Archiver"} className="opacity-0 group-hover:opacity-100 text-noreon-soft hover:text-slate-900 text-xs">{archived ? "⤺" : "▤"}</button>
+      <button onClick={(e) => { e.stopPropagation(); onDelete(); }} title="Supprimer" className="opacity-0 group-hover:opacity-100 text-noreon-soft hover:text-red-600 text-xs">×</button>
     </div>
   );
 }
@@ -215,7 +342,7 @@ function SourcesTab({ space, onChange }: { space: SpaceDetail; onChange: () => v
           </div>
         ))}
       </div>
-      <div className="space-y-2">
+      <div className="space-y-3">
         <div className="text-sm font-medium">Bases disponibles (univers)</div>
         {available.length === 0 && (
           <div className="text-xs text-noreon-soft">Toutes les bases sont déjà rattachées.</div>
@@ -234,6 +361,12 @@ function SourcesTab({ space, onChange }: { space: SpaceDetail; onChange: () => v
             </button>
           </div>
         ))}
+        <ImportConnection
+          onCreated={async (cid) => {
+            await api.spaceAttach(space.id, cid);
+            await onChange();
+          }}
+        />
       </div>
     </div>
   );

@@ -543,6 +543,44 @@ def test_space_governance_end_to_end(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_space_conversations_history(session_with_conn, monkeypatch):
+    """Historique de chat rattaché à l'espace : conversation + tour (source
+    choisie, gouvernance appliquée), rejouable à l'identique."""
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    try:
+        sid = client.post("/spaces", json={"name": "Achat"}, headers=H).json()["id"]
+        client.post(f"/spaces/{sid}/connections", json={"connection_id": conn.id}, headers=H)
+        base = f"/spaces/{sid}/conversations"
+
+        conv = client.post(base, json={}, headers=H).json()
+        cid = conv["id"]
+        r = client.post(f"{base}/{cid}/turns",
+                        json={"connection_id": conn.id, "question": "Combien de clients ?",
+                              "deep_analysis": False}, headers=H)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["turn"]["response"]["rows"][0][0] == 500
+        assert body["turn"]["connection_id"] == conn.id
+        assert body["conversation"]["title"].startswith("Combien de clients")
+
+        # Rechargement (multi-appareils).
+        full = client.get(f"{base}/{cid}", headers=H).json()
+        assert len(full["turns"]) == 1
+
+        # Dossier + archivage propres à l'espace.
+        folder = client.post(f"{base}/folders", json={"name": "Fournisseurs"}, headers=H).json()
+        client.patch(f"{base}/{cid}", json={"folder_id": folder["id"], "archived": True}, headers=H)
+        assert client.get(base, headers=H).json() == []
+        arch = client.get(f"{base}?archived=true", headers=H).json()
+        assert any(c["id"] == cid for c in arch)
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
 def test_reports_generate_edit_export(session_with_conn, monkeypatch):
     """Studio de rapports : générer depuis une source (analyse chiffrée), ajouter
     et éditer un bloc, exporter en Markdown / Word / PDF."""

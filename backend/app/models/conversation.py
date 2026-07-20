@@ -32,7 +32,13 @@ class ConversationFolder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[int] = mapped_column(ForeignKey("connections.id", ondelete="CASCADE"), index=True)
+    # Un dossier appartient soit à une connexion, soit à un espace (chat d'espace).
+    connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), default=None, index=True
+    )
+    space_id: Mapped[int | None] = mapped_column(
+        ForeignKey("spaces.id", ondelete="CASCADE"), default=None, index=True
+    )
     user_ref: Mapped[str] = mapped_column(String(255), default="", index=True)
     name: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -43,7 +49,13 @@ class Conversation(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[int] = mapped_column(ForeignKey("connections.id", ondelete="CASCADE"), index=True)
+    # Une conversation appartient soit à une connexion, soit à un espace.
+    connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), default=None, index=True
+    )
+    space_id: Mapped[int | None] = mapped_column(
+        ForeignKey("spaces.id", ondelete="CASCADE"), default=None, index=True
+    )
     folder_id: Mapped[int | None] = mapped_column(
         ForeignKey("conversation_folders.id", ondelete="SET NULL"), default=None
     )
@@ -69,6 +81,10 @@ class ConversationTurn(Base):
         ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
     ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    # Source utilisée pour ce tour (utile dans un espace multi-BDD).
+    connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("connections.id", ondelete="SET NULL"), default=None
+    )
     question: Mapped[str] = mapped_column(Text)
     deep: Mapped[bool] = mapped_column(Boolean, default=True)
     response: Mapped[dict | None] = mapped_column(JSON, default=None)  # ChatResponse sérialisée

@@ -178,6 +178,19 @@ l'outil, offline. Limite assumée : les graphiques sont exportés en Word/PDF vi
 leur tableau sous-jacent (pas d'image rendue côté serveur, faute de moteur de
 rendu) ; un rendu image ECharts headless est une évolution possible.
 
+### D-17 — Historique de chat par espace + import de BDD depuis l'espace
+**Contexte.** Le chat d'espace était sans mémoire, et l'import de BDD passait par
+la page Connexions de l'univers.
+**Décision.** (a) `conversations` / `conversation_folders` reçoivent un `space_id`
+(nullable) et `connection_id` devient optionnel : une conversation appartient
+soit à une connexion, soit à un espace ; un tour mémorise la `connection_id`
+utilisée (espace multi-BDD). Routes `/spaces/{id}/conversations` (miroir scopé
+espace) ; chaque tour choisit sa source et applique la gouvernance de l'espace.
+(b) Un formulaire d'import (composant réutilisable) crée une connexion et la
+**rattache** aussitôt à l'espace, sans passer par la page Connexions.
+**Conséquence.** Chat d'espace multi-appareils avec dossiers/archivage/recherche,
+et parcours d'onboarding d'une équipe entièrement dans son espace.
+
 ---
 
 ## Dettes / limites connues (à traiter)

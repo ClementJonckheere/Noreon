@@ -440,3 +440,10 @@ class ReportGenerate(BaseModel):
 class ReportAddAnswer(BaseModel):
     title: str = "Analyse"
     response: dict
+
+
+class SpaceTurnCreate(BaseModel):
+    connection_id: int
+    question: str = Field(..., min_length=1)
+    run_analysis: bool = True
+    deep_analysis: bool = True

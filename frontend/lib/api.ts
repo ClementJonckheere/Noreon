@@ -314,6 +314,7 @@ export interface ConvTurn {
   ordinal: number;
   question: string;
   deep: boolean;
+  connection_id?: number | null;
   response: ChatResponse | null;
   error: string | null;
   created_at: string | null;
@@ -584,6 +585,38 @@ export const api = {
     }),
   reportExportUrl: (rid: number, format: "docx" | "pdf" | "md") =>
     `${API_BASE}/reports/${rid}/export?format=${format}`,
+
+  // --- Conversations d'espace ---
+  spaceConvList: (sid: number, archived = false) =>
+    request<ConvSummary[]>(`/spaces/${sid}/conversations?archived=${archived}`),
+  spaceConvGet: (sid: number, cid: number) =>
+    request<ConvFull>(`/spaces/${sid}/conversations/${cid}`),
+  spaceConvCreate: (sid: number, body: { title?: string; folder_id?: number | null }) =>
+    request<ConvFull>(`/spaces/${sid}/conversations`, { method: "POST", body: JSON.stringify(body) }),
+  spaceConvUpdate: (
+    sid: number, cid: number,
+    patch: { title?: string; folder_id?: number | null; archived?: boolean },
+  ) =>
+    request<ConvSummary>(`/spaces/${sid}/conversations/${cid}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  spaceConvDelete: (sid: number, cid: number) =>
+    request<any>(`/spaces/${sid}/conversations/${cid}`, { method: "DELETE" }),
+  spaceConvAddTurn: (sid: number, cid: number, connection_id: number, question: string, deep: boolean) =>
+    request<{ turn: ConvTurn; conversation: ConvSummary }>(
+      `/spaces/${sid}/conversations/${cid}/turns`,
+      { method: "POST", body: JSON.stringify({ connection_id, question, deep_analysis: deep }) },
+    ),
+  spaceFolderList: (sid: number) =>
+    request<ConvFolder[]>(`/spaces/${sid}/conversations/folders`),
+  spaceFolderCreate: (sid: number, name: string) =>
+    request<ConvFolder>(`/spaces/${sid}/conversations/folders`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  spaceFolderDelete: (sid: number, fid: number) =>
+    request<any>(`/spaces/${sid}/conversations/folders/${fid}`, { method: "DELETE" }),
   mfaEnroll: () => request<{ secret: string; otpauth_uri: string }>("/auth/mfa/enroll", { method: "POST" }),
   mfaVerify: (code: string) =>
     request<void>("/auth/mfa/verify", { method: "POST", body: JSON.stringify({ code }) }),
