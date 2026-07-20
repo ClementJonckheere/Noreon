@@ -81,6 +81,8 @@ def answer_question(
     user_ref: str = "system",
     run_analysis: bool = True,
     deep_analysis: bool = True,
+    hidden_tables: set[str] | None = None,
+    hidden_columns: set[tuple[str, str]] | None = None,
 ) -> ChatResponse:
     tenant_settings = db.get(TenantSettings, conn.tenant_id)
     provider = get_provider_for_tenant(tenant_settings)
@@ -100,7 +102,9 @@ def answer_question(
             message="Aucun schéma scanné pour cette connexion. Lancez d'abord un scan.",
         )
 
-    context = build_context(db, snapshot)
+    # Gouvernance par espace : les tables/colonnes masquées n'entrent jamais
+    # dans le contexte fourni au moteur SQL (il ne peut pas les proposer).
+    context = build_context(db, snapshot, hidden_tables=hidden_tables, hidden_columns=hidden_columns)
 
     # Dictionnaire métier validé (Module 5) : la mémoire entreprise enrichit
     # le contexte du moteur SQL (LLM cloud comme heuristique hors-ligne).
@@ -133,6 +137,20 @@ def answer_question(
             status="error", question=question,
             message="Le moteur n'a pas pu produire de requête pour cette question.",
         )
+
+    # Gouvernance (défense en profondeur) : si malgré le filtrage du contexte la
+    # requête référence une table masquée pour l'espace, on bloque explicitement.
+    if hidden_tables:
+        from app.services.sql_guard import referenced_tables
+
+        refs = referenced_tables(gen.sql, adapter.dialect)
+        blocked = refs & {t.lower() for t in hidden_tables}
+        if blocked:
+            return ChatResponse(
+                status="blocked", question=question, sql=gen.sql,
+                message="Accès refusé par la gouvernance de l'espace : la ou les tables "
+                        f"{', '.join(sorted(blocked))} ne sont pas autorisées ici.",
+            )
 
     # Réglages garde-fous (tenant > défauts globaux).
     row_limit = tenant_settings.sql_row_limit if tenant_settings else 10_000

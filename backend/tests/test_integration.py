@@ -494,6 +494,137 @@ def test_conversations_folders_and_archive(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_space_governance_end_to_end(session_with_conn, monkeypatch):
+    """Espace CRM : rattacher une BDD, gouverner les tables/colonnes, et vérifier
+    que le chat de l'espace respecte la gouvernance (table masquée → inaccessible)."""
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    try:
+        # Création d'un espace + rattachement de la BDD (réservé admin).
+        sp = client.post("/spaces", json={"name": "CRM"}, headers=H)
+        assert sp.status_code == 200
+        sid = sp.json()["id"]
+        client.post(f"/spaces/{sid}/connections", json={"connection_id": conn.id}, headers=H)
+
+        base = f"/spaces/{sid}/connections/{conn.id}"
+        gov = client.get(f"{base}/governance", headers=H).json()
+        assert gov["scanned"] is True
+        cust = next(t for t in gov["tables"] if t["table"] == "customers")
+        assert cust["enabled"] is True
+
+        # Chat d'espace : fonctionne tant que la table est autorisée.
+        ask = {"connection_id": conn.id, "question": "Combien de clients ?", "deep_analysis": False}
+        r1 = client.post(f"/spaces/{sid}/chat", json=ask, headers=H).json()
+        assert r1["status"] == "answered" and r1["rows"][0][0] == 500
+
+        # Décocher la table customers → masquée pour l'espace.
+        client.put(f"{base}/tables/public/customers", json={"enabled": False}, headers=H)
+        gov2 = client.get(f"{base}/governance", headers=H).json()
+        assert next(t for t in gov2["tables"] if t["table"] == "customers")["enabled"] is False
+
+        # Le chat ne peut plus atteindre customers (retirée du contexte).
+        r2 = client.post(f"/spaces/{sid}/chat", json=ask, headers=H).json()
+        assert r2["status"] in ("clarification", "blocked")
+
+        # Re-cocher → de nouveau accessible.
+        client.put(f"{base}/tables/public/customers", json={"enabled": True}, headers=H)
+        r3 = client.post(f"/spaces/{sid}/chat", json=ask, headers=H).json()
+        assert r3["status"] == "answered" and r3["rows"][0][0] == 500
+
+        # Gouvernance au niveau colonne : masquer email.
+        client.put(f"{base}/columns/public/customers/email", json={"enabled": False}, headers=H)
+        gov3 = client.get(f"{base}/governance", headers=H).json()
+        cust3 = next(t for t in gov3["tables"] if t["table"] == "customers")
+        assert next(c for c in cust3["columns"] if c["name"] == "email")["enabled"] is False
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
+def test_space_conversations_history(session_with_conn, monkeypatch):
+    """Historique de chat rattaché à l'espace : conversation + tour (source
+    choisie, gouvernance appliquée), rejouable à l'identique."""
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    try:
+        sid = client.post("/spaces", json={"name": "Achat"}, headers=H).json()["id"]
+        client.post(f"/spaces/{sid}/connections", json={"connection_id": conn.id}, headers=H)
+        base = f"/spaces/{sid}/conversations"
+
+        conv = client.post(base, json={}, headers=H).json()
+        cid = conv["id"]
+        r = client.post(f"{base}/{cid}/turns",
+                        json={"connection_id": conn.id, "question": "Combien de clients ?",
+                              "deep_analysis": False}, headers=H)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["turn"]["response"]["rows"][0][0] == 500
+        assert body["turn"]["connection_id"] == conn.id
+        assert body["conversation"]["title"].startswith("Combien de clients")
+
+        # Rechargement (multi-appareils).
+        full = client.get(f"{base}/{cid}", headers=H).json()
+        assert len(full["turns"]) == 1
+
+        # Dossier + archivage propres à l'espace.
+        folder = client.post(f"{base}/folders", json={"name": "Fournisseurs"}, headers=H).json()
+        client.patch(f"{base}/{cid}", json={"folder_id": folder["id"], "archived": True}, headers=H)
+        assert client.get(base, headers=H).json() == []
+        arch = client.get(f"{base}?archived=true", headers=H).json()
+        assert any(c["id"] == cid for c in arch)
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
+def test_reports_generate_edit_export(session_with_conn, monkeypatch):
+    """Studio de rapports : générer depuis une source (analyse chiffrée), ajouter
+    et éditer un bloc, exporter en Markdown / Word / PDF."""
+    db, conn, _ = session_with_conn
+    scanner.scan_and_persist(db, conn, conn_svc.get_source_adapter(conn))
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    try:
+        rep = client.post("/reports", json={}, headers=H).json()
+        rid = rep["id"]
+
+        # Génération IA à partir d'une source réelle → blocs argumentés.
+        gen = client.post(f"/reports/{rid}/generate", json={
+            "prompt": "Montant total des commandes par mois",
+            "connection_id": conn.id, "deep_analysis": True,
+        }, headers=H)
+        assert gen.status_code == 200
+        body = gen.json()
+        assert body["title"].startswith("Montant total")
+        kinds = [b["kind"] for b in body["blocks"]]
+        assert "markdown" in kinds and "table" in kinds  # narratif + données
+
+        # Ajout + édition d'un bloc de texte (modifiable directement).
+        client.post(f"/reports/{rid}/blocks",
+                    json={"kind": "markdown", "content": {"text": "Note manuelle."}}, headers=H)
+        full = client.get(f"/reports/{rid}", headers=H).json()
+        last = full["blocks"][-1]
+        client.put(f"/reports/{rid}/blocks/{last['id']}",
+                   json={"content": {"text": "Note corrigée."}}, headers=H)
+        again = client.get(f"/reports/{rid}", headers=H).json()
+        assert again["blocks"][-1]["content"]["text"] == "Note corrigée."
+
+        # Exports.
+        md = client.get(f"/reports/{rid}/export?format=md", headers=H)
+        assert md.status_code == 200 and b"#" in md.content
+        docx = client.get(f"/reports/{rid}/export?format=docx", headers=H)
+        assert docx.status_code == 200 and docx.content[:2] == b"PK"
+        pdf = client.get(f"/reports/{rid}/export?format=pdf", headers=H)
+        assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
 def test_alert_threshold_evaluation(session_with_conn):
     from app.models.alert import Alert
     from app.services import alerts as alerts_svc

@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.sql_guard import SQLGuardError, guard
+from app.services.sql_guard import SQLGuardError, guard, referenced_tables
+
+
+def test_referenced_tables_extracts_names():
+    assert referenced_tables("SELECT * FROM public.customers") == {"customers"}
+    joined = referenced_tables(
+        "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id"
+    )
+    assert {"orders", "customers"} <= joined
+    assert referenced_tables("not valid sql ((") == set()
 
 
 def test_select_gets_limit_applied():

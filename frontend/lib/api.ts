@@ -314,6 +314,7 @@ export interface ConvTurn {
   ordinal: number;
   question: string;
   deep: boolean;
+  connection_id?: number | null;
   response: ChatResponse | null;
   error: string | null;
   created_at: string | null;
@@ -329,6 +330,54 @@ export interface ConvSummary {
 }
 export interface ConvFull extends ConvSummary {
   turns: ConvTurn[];
+}
+
+// ---- Espaces & gouvernance ----
+export interface Space {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  connection_ids: number[];
+  created_at: string | null;
+}
+export interface SpaceDetail extends Space {
+  connections: { id: number; name: string; engine: string; is_read_only: boolean | null }[];
+  members: { user_id: number; email: string; role: string }[];
+}
+export interface GovColumn {
+  name: string;
+  data_type: string;
+  enabled: boolean;
+}
+export interface GovTable {
+  schema: string;
+  table: string;
+  enabled: boolean;
+  columns: GovColumn[];
+}
+export interface Governance {
+  scanned: boolean;
+  tables: GovTable[];
+}
+
+// ---- Rapports ----
+export interface ReportBlock {
+  id: number;
+  ordinal: number;
+  kind: "markdown" | "table" | "chart";
+  content: any;
+}
+export interface ReportSummary {
+  id: number;
+  title: string;
+  space_id: number | null;
+  block_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+export interface ReportFull extends ReportSummary {
+  blocks: ReportBlock[];
 }
 
 // ---- Endpoints ----
@@ -457,6 +506,117 @@ export const api = {
       body: JSON.stringify({ tenant_slug, email, password, mfa_code: mfa_code ?? null }),
     }),
   me: () => request<Me>("/auth/me"),
+
+  // --- Espaces & gouvernance ---
+  spaces: () => request<Space[]>("/spaces"),
+  spaceCreate: (name: string, description = "") =>
+    request<Space>("/spaces", { method: "POST", body: JSON.stringify({ name, description }) }),
+  space: (sid: number) => request<SpaceDetail>(`/spaces/${sid}`),
+  spaceDelete: (sid: number) => request<any>(`/spaces/${sid}`, { method: "DELETE" }),
+  spaceAttach: (sid: number, connection_id: number) =>
+    request<SpaceDetail>(`/spaces/${sid}/connections`, {
+      method: "POST",
+      body: JSON.stringify({ connection_id }),
+    }),
+  spaceDetach: (sid: number, cid: number) =>
+    request<SpaceDetail>(`/spaces/${sid}/connections/${cid}`, { method: "DELETE" }),
+  spaceAddMember: (sid: number, user_id: number, role = "member") =>
+    request<SpaceDetail>(`/spaces/${sid}/members`, {
+      method: "POST",
+      body: JSON.stringify({ user_id, role }),
+    }),
+  spaceRemoveMember: (sid: number, uid: number) =>
+    request<SpaceDetail>(`/spaces/${sid}/members/${uid}`, { method: "DELETE" }),
+  governance: (sid: number, cid: number) =>
+    request<Governance>(`/spaces/${sid}/connections/${cid}/governance`),
+  toggleTable: (sid: number, cid: number, schema: string, table: string, enabled: boolean) =>
+    request<any>(`/spaces/${sid}/connections/${cid}/tables/${schema}/${table}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
+  toggleColumn: (
+    sid: number, cid: number, schema: string, table: string, column: string, enabled: boolean,
+  ) =>
+    request<any>(`/spaces/${sid}/connections/${cid}/columns/${schema}/${table}/${column}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
+  spaceChat: (sid: number, connection_id: number, question: string, deep: boolean) =>
+    request<ChatResponse>(`/spaces/${sid}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ connection_id, question, deep_analysis: deep }),
+    }),
+
+  // --- Rapports ---
+  reports: (spaceId?: number) =>
+    request<ReportSummary[]>(`/reports${spaceId != null ? `?space_id=${spaceId}` : ""}`),
+  reportCreate: (title?: string, space_id?: number | null) =>
+    request<ReportFull>("/reports", { method: "POST", body: JSON.stringify({ title, space_id }) }),
+  report: (rid: number) => request<ReportFull>(`/reports/${rid}`),
+  reportRename: (rid: number, title: string) =>
+    request<ReportSummary>(`/reports/${rid}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  reportDelete: (rid: number) => request<any>(`/reports/${rid}`, { method: "DELETE" }),
+  reportGenerate: (rid: number, prompt: string, connection_id?: number | null, deep = true) =>
+    request<ReportFull>(`/reports/${rid}/generate`, {
+      method: "POST",
+      body: JSON.stringify({ prompt, connection_id, deep_analysis: deep }),
+    }),
+  reportAddBlock: (rid: number, kind: string, content: any) =>
+    request<ReportFull>(`/reports/${rid}/blocks`, {
+      method: "POST",
+      body: JSON.stringify({ kind, content }),
+    }),
+  reportUpdateBlock: (rid: number, bid: number, content: any) =>
+    request<ReportBlock>(`/reports/${rid}/blocks/${bid}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+  reportDeleteBlock: (rid: number, bid: number) =>
+    request<ReportFull>(`/reports/${rid}/blocks/${bid}`, { method: "DELETE" }),
+  reportMoveBlock: (rid: number, bid: number, direction: "up" | "down") =>
+    request<ReportFull>(`/reports/${rid}/blocks/${bid}/move`, {
+      method: "POST",
+      body: JSON.stringify({ direction }),
+    }),
+  reportAddAnswer: (rid: number, title: string, response: ChatResponse) =>
+    request<ReportFull>(`/reports/${rid}/add-answer`, {
+      method: "POST",
+      body: JSON.stringify({ title, response }),
+    }),
+  reportExportUrl: (rid: number, format: "docx" | "pdf" | "md") =>
+    `${API_BASE}/reports/${rid}/export?format=${format}`,
+
+  // --- Conversations d'espace ---
+  spaceConvList: (sid: number, archived = false) =>
+    request<ConvSummary[]>(`/spaces/${sid}/conversations?archived=${archived}`),
+  spaceConvGet: (sid: number, cid: number) =>
+    request<ConvFull>(`/spaces/${sid}/conversations/${cid}`),
+  spaceConvCreate: (sid: number, body: { title?: string; folder_id?: number | null }) =>
+    request<ConvFull>(`/spaces/${sid}/conversations`, { method: "POST", body: JSON.stringify(body) }),
+  spaceConvUpdate: (
+    sid: number, cid: number,
+    patch: { title?: string; folder_id?: number | null; archived?: boolean },
+  ) =>
+    request<ConvSummary>(`/spaces/${sid}/conversations/${cid}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  spaceConvDelete: (sid: number, cid: number) =>
+    request<any>(`/spaces/${sid}/conversations/${cid}`, { method: "DELETE" }),
+  spaceConvAddTurn: (sid: number, cid: number, connection_id: number, question: string, deep: boolean) =>
+    request<{ turn: ConvTurn; conversation: ConvSummary }>(
+      `/spaces/${sid}/conversations/${cid}/turns`,
+      { method: "POST", body: JSON.stringify({ connection_id, question, deep_analysis: deep }) },
+    ),
+  spaceFolderList: (sid: number) =>
+    request<ConvFolder[]>(`/spaces/${sid}/conversations/folders`),
+  spaceFolderCreate: (sid: number, name: string) =>
+    request<ConvFolder>(`/spaces/${sid}/conversations/folders`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  spaceFolderDelete: (sid: number, fid: number) =>
+    request<any>(`/spaces/${sid}/conversations/folders/${fid}`, { method: "DELETE" }),
   mfaEnroll: () => request<{ secret: string; otpauth_uri: string }>("/auth/mfa/enroll", { method: "POST" }),
   mfaVerify: (code: string) =>
     request<void>("/auth/mfa/verify", { method: "POST", body: JSON.stringify({ code }) }),

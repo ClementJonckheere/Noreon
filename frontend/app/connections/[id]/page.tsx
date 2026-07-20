@@ -7,6 +7,7 @@ import AlertsPanel from "@/components/AlertsPanel";
 import ChartBlock from "@/components/ChartBlock";
 import DefinitionsPanel from "@/components/DefinitionsPanel";
 import GraphPanel from "@/components/GraphPanel";
+import AddToReport from "@/components/AddToReport";
 import {
   api,
   API_BASE,
@@ -997,6 +998,12 @@ function ChatResult({ r }: { r: ChatResponse }) {
             )}
           </div>
         </details>
+      )}
+
+      {r.status === "answered" && (
+        <div className="pt-1">
+          <AddToReport response={r} title={r.question} />
+        </div>
       )}
     </div>
   );

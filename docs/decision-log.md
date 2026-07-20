@@ -139,6 +139,58 @@ la question via le pipeline chat ET la mémorise. Sérialisation JSON via
 front bascule de localStorage vers l'API sans changer l'expérience « façon
 Claude » (composer en bas, liste à droite, dossiers).
 
+### D-15 — Univers → Espaces → BDD + gouvernance des données par espace
+**Contexte.** Noreon n'est plus « une entreprise = une BDD » mais un **univers**
+(tenant) contenant plusieurs **espaces** d'équipe (CRM, Achat…), chacun
+rattachant une ou plusieurs BDD. Une équipe peut voir des données qu'une autre
+ne voit pas, et inversement.
+**Décision.** Modèle `spaces`, `space_connections` (n-n BDD), `space_members`,
+et gouvernance `space_table_access` / `space_column_access`. Politique
+**par exception** : tout est visible par défaut, on ne stocke que ce qui est
+**décoché** (`enabled=false`). L'admin (DSI) crée les espaces, rattache les BDD,
+gère les membres et coche/décoche tables & colonnes — tout le paramétrage est
+**réservé aux administrateurs** (`require_admin`) ; un membre n'accède qu'aux
+espaces dont il fait partie. Le chat d'espace applique la gouvernance :
+tables/colonnes masquées **retirées du contexte** du moteur SQL (il ne peut ni
+les proposer ni les interroger) + **blocage en défense en profondeur** si une
+requête référence malgré tout une table masquée (`referenced_tables` via AST).
+**Croisement multi-BDD** : au niveau de l'analyse (chaque BDD interrogée
+séparément, lecture seule + garde-fous), sans fédération SQL — évolution
+possible vers un entrepôt commun plus tard.
+**Conséquence.** Isolation par équipe + gouvernance fine et auditable, sans
+alourdir le stockage. Réutilise tout l'existant (scan, profilage, chat, analyste
+approfondi) par simple filtrage du contexte.
+
+### D-16 — Studio de rapports (docs IA) + export Word/PDF
+**Contexte.** Au-delà du chat, produire des **livrables** : demander un rapport
+sur un sujet, l'éditer, itérer avec l'IA, l'exporter.
+**Décision.** Modèle `reports` + `report_blocks` (blocs ordonnés :
+markdown | table | chart). Génération **hors-ligne data-backed** : quand une
+source est fournie, on lance l'agent approfondi et on transforme la réponse en
+blocs (narratif, croisement en tableau, graphique, données) — jamais inventé ;
+sans source, un plan à compléter. On peut éditer chaque bloc, réordonner,
+supprimer, ajouter du texte, et **pousser une réponse de chat** (narratif +
+graphique + tableau) via un bouton « Ajouter à un rapport ». Export **DOCX**
+(python-docx), **PDF** (fpdf2) et **Markdown** ; la gouvernance d'espace
+s'applique à la génération quand le rapport est rattaché à un espace.
+**Conséquence.** Boucle complète « analyser → rédiger → exporter » sans quitter
+l'outil, offline. Limite assumée : les graphiques sont exportés en Word/PDF via
+leur tableau sous-jacent (pas d'image rendue côté serveur, faute de moteur de
+rendu) ; un rendu image ECharts headless est une évolution possible.
+
+### D-17 — Historique de chat par espace + import de BDD depuis l'espace
+**Contexte.** Le chat d'espace était sans mémoire, et l'import de BDD passait par
+la page Connexions de l'univers.
+**Décision.** (a) `conversations` / `conversation_folders` reçoivent un `space_id`
+(nullable) et `connection_id` devient optionnel : une conversation appartient
+soit à une connexion, soit à un espace ; un tour mémorise la `connection_id`
+utilisée (espace multi-BDD). Routes `/spaces/{id}/conversations` (miroir scopé
+espace) ; chaque tour choisit sa source et applique la gouvernance de l'espace.
+(b) Un formulaire d'import (composant réutilisable) crée une connexion et la
+**rattache** aussitôt à l'espace, sans passer par la page Connexions.
+**Conséquence.** Chat d'espace multi-appareils avec dossiers/archivage/recherche,
+et parcours d'onboarding d'une équipe entièrement dans son espace.
+
 ---
 
 ## Dettes / limites connues (à traiter)
