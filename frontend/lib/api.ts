@@ -331,6 +331,35 @@ export interface ConvFull extends ConvSummary {
   turns: ConvTurn[];
 }
 
+// ---- Espaces & gouvernance ----
+export interface Space {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  connection_ids: number[];
+  created_at: string | null;
+}
+export interface SpaceDetail extends Space {
+  connections: { id: number; name: string; engine: string; is_read_only: boolean | null }[];
+  members: { user_id: number; email: string; role: string }[];
+}
+export interface GovColumn {
+  name: string;
+  data_type: string;
+  enabled: boolean;
+}
+export interface GovTable {
+  schema: string;
+  table: string;
+  enabled: boolean;
+  columns: GovColumn[];
+}
+export interface Governance {
+  scanned: boolean;
+  tables: GovTable[];
+}
+
 // ---- Endpoints ----
 export const api = {
   listConnections: () => request<Connection[]>("/connections"),
@@ -457,6 +486,46 @@ export const api = {
       body: JSON.stringify({ tenant_slug, email, password, mfa_code: mfa_code ?? null }),
     }),
   me: () => request<Me>("/auth/me"),
+
+  // --- Espaces & gouvernance ---
+  spaces: () => request<Space[]>("/spaces"),
+  spaceCreate: (name: string, description = "") =>
+    request<Space>("/spaces", { method: "POST", body: JSON.stringify({ name, description }) }),
+  space: (sid: number) => request<SpaceDetail>(`/spaces/${sid}`),
+  spaceDelete: (sid: number) => request<any>(`/spaces/${sid}`, { method: "DELETE" }),
+  spaceAttach: (sid: number, connection_id: number) =>
+    request<SpaceDetail>(`/spaces/${sid}/connections`, {
+      method: "POST",
+      body: JSON.stringify({ connection_id }),
+    }),
+  spaceDetach: (sid: number, cid: number) =>
+    request<SpaceDetail>(`/spaces/${sid}/connections/${cid}`, { method: "DELETE" }),
+  spaceAddMember: (sid: number, user_id: number, role = "member") =>
+    request<SpaceDetail>(`/spaces/${sid}/members`, {
+      method: "POST",
+      body: JSON.stringify({ user_id, role }),
+    }),
+  spaceRemoveMember: (sid: number, uid: number) =>
+    request<SpaceDetail>(`/spaces/${sid}/members/${uid}`, { method: "DELETE" }),
+  governance: (sid: number, cid: number) =>
+    request<Governance>(`/spaces/${sid}/connections/${cid}/governance`),
+  toggleTable: (sid: number, cid: number, schema: string, table: string, enabled: boolean) =>
+    request<any>(`/spaces/${sid}/connections/${cid}/tables/${schema}/${table}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
+  toggleColumn: (
+    sid: number, cid: number, schema: string, table: string, column: string, enabled: boolean,
+  ) =>
+    request<any>(`/spaces/${sid}/connections/${cid}/columns/${schema}/${table}/${column}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
+  spaceChat: (sid: number, connection_id: number, question: string, deep: boolean) =>
+    request<ChatResponse>(`/spaces/${sid}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ connection_id, question, deep_analysis: deep }),
+    }),
   mfaEnroll: () => request<{ secret: string; otpauth_uri: string }>("/auth/mfa/enroll", { method: "POST" }),
   mfaVerify: (code: string) =>
     request<void>("/auth/mfa/verify", { method: "POST", body: JSON.stringify({ code }) }),
