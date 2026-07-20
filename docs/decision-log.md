@@ -124,6 +124,21 @@ compteurs : **aucune donnée identifiante** ne sort (PII et colonnes quasi-uniqu
 exclues des dimensions). Best-effort : un échec retombe silencieusement sur le
 rapport chiffré standard. Bornage : ≤ 8 requêtes de suivi + 1 croisement.
 
+### D-14 — Historique de chat côté serveur (multi-appareils) + archivage
+**Contexte.** Le premier historique de chat était stocké dans le navigateur
+(localStorage) : pratique mais non partagé entre appareils/sessions.
+**Décision.** Persister l'historique en base interne : `conversations`,
+`conversation_folders`, `conversation_turns` (la réponse est mémorisée
+sérialisée pour rejouer le fil à l'identique). Scope (tenant, connexion,
+utilisateur) — chacun voit son propre historique. Une conversation peut être
+**rangée dans un dossier** et **archivée** (masquée sans suppression). Le tour
+est créé par un endpoint dédié (`POST …/conversations/{id}/turns`) qui exécute
+la question via le pipeline chat ET la mémorise. Sérialisation JSON via
+`jsonable_encoder` (dates/Decimal) avant stockage.
+**Conséquence.** Historique disponible partout, organisable, archivable. Le
+front bascule de localStorage vers l'API sans changer l'expérience « façon
+Claude » (composer en bas, liste à droite, dossiers).
+
 ---
 
 ## Dettes / limites connues (à traiter)
