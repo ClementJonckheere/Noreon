@@ -8,6 +8,8 @@ import ChartBlock from "@/components/ChartBlock";
 import DefinitionsPanel from "@/components/DefinitionsPanel";
 import GraphPanel from "@/components/GraphPanel";
 import AddToReport from "@/components/AddToReport";
+import InvestigationView from "@/components/InvestigationView";
+import DiscoveriesPanel from "@/components/DiscoveriesPanel";
 import {
   api,
   API_BASE,
@@ -532,7 +534,7 @@ function ChatPanel({
           {loading ? (
             <div className="text-sm text-noreon-soft">Chargement de l'historique…</div>
           ) : turns.length === 0 && !busy ? (
-            <Launcher onAction={runAction} />
+            <Launcher onAction={runAction} connectionId={id} onAsk={(qq) => ask(qq)} />
           ) : (
             turns.map((t) => (
               <div key={t.id} className="space-y-3">
@@ -759,7 +761,15 @@ function ConvRow({
   );
 }
 
-function Launcher({ onAction }: { onAction: (a: Action) => void }) {
+function Launcher({
+  onAction,
+  connectionId,
+  onAsk,
+}: {
+  onAction: (a: Action) => void;
+  connectionId?: number;
+  onAsk?: (q: string) => void;
+}) {
   return (
     <div className="space-y-5 max-w-2xl mx-auto pt-6">
       <div>
@@ -768,6 +778,7 @@ function Launcher({ onAction }: { onAction: (a: Action) => void }) {
           Posez une question sur vos données, ou partez d'une action.
         </p>
       </div>
+      {connectionId != null && <DiscoveriesPanel connectionId={connectionId} onAsk={onAsk} />}
       {ACTION_GROUPS.map((g) => (
         <div key={g.title} className="space-y-2">
           <div className="text-xs font-semibold uppercase tracking-wide text-noreon-soft">
@@ -917,6 +928,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           )}
         </div>
       )}
+
+      {r.investigation && <InvestigationView inv={r.investigation} />}
 
       {r.deep && <DeepReport d={r.deep} />}
 

@@ -3,6 +3,7 @@
 import { ChatResponse } from "@/lib/api";
 import ChartBlock from "@/components/ChartBlock";
 import AddToReport from "@/components/AddToReport";
+import InvestigationView from "@/components/InvestigationView";
 
 // Rendu d'une réponse d'analyse (partagé chat par connexion / chat d'espace).
 export default function AnswerView({ r }: { r: ChatResponse }) {
@@ -48,6 +49,8 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           )}
         </div>
       )}
+
+      {r.investigation && <InvestigationView inv={r.investigation} />}
 
       {r.deep && <DeepReportView d={r.deep} />}
 

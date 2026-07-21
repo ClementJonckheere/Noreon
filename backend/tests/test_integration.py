@@ -543,6 +543,56 @@ def test_space_governance_end_to_end(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_discoveries_proactive(session_with_conn):
+    """À l'ouverture, l'analyste proactif remonte : colonnes suspectes (emails
+    invalides), relations incohérentes (store_id orphelins), anomalie/tendance
+    (chute du CA sur la période)."""
+    from app.services import quality as quality_svc
+    from app.services import discoveries as disc_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+    quality_svc.run_quality(db, conn, cfg)  # calcule l'intégrité des relations
+
+    d = disc_svc.run_discoveries(db, conn, cfg)
+    assert d.scanned is True
+    c = d.counts
+    assert c["suspicious_columns"] >= 1
+    assert c["incoherent_relations"] >= 1
+    assert c["anomalies"] + c["trends"] >= 1
+    # Chaque découverte propose une question prête à creuser.
+    assert any(i.get("suggested_question") for i in d.items)
+
+
+def test_agent_investigation_multi_step(session_with_conn):
+    """Question ANALYTIQUE ouverte → l'agent planifie, enchaîne des
+    sous-questions et synthétise (vrai moteur de raisonnement)."""
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    resp = chat_svc.answer_question(db, conn, "Pourquoi les ventes baissent ?")
+    assert resp.status == "answered"
+    inv = resp.investigation
+    assert inv is not None
+    # Sujet guidé par la question (« ventes » → orders, pas order_items).
+    assert inv["subject"] == "orders"
+    # Un plan explicite + plusieurs sous-questions exécutées.
+    assert len(inv["plan"]) >= 3
+    assert len(inv["steps"]) >= 3
+    # Étape de tendance temporelle chiffrée + conclusion + recommandations.
+    assert any("Tendance" in s["title"] for s in inv["steps"])
+    assert inv["conclusion"] and inv["recommendations"]
+    # Chaque étape porte SON SQL (auditable).
+    assert all(s["sql"] for s in inv["steps"])
+    # Une question simple ne déclenche PAS l'agent.
+    simple = chat_svc.answer_question(db, conn, "Combien de clients ?")
+    assert simple.investigation is None
+
+
 def test_space_conversations_history(session_with_conn, monkeypatch):
     """Historique de chat rattaché à l'espace : conversation + tour (source
     choisie, gouvernance appliquée), rejouable à l'identique."""

@@ -28,6 +28,20 @@ def ask(
     return response.as_dict()
 
 
+@router.get("/discoveries")
+def discoveries(
+    conn: Connection = Depends(get_owned_connection),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Suggestions automatiques à l'ouverture (anomalies, tendances, colonnes
+    suspectes, relations incohérentes) — l'analyste proactif."""
+    from app.services import discoveries as disc_svc
+    from app.services.connections import get_source_adapter
+
+    adapter = get_source_adapter(conn)
+    return disc_svc.run_discoveries(db, conn, adapter).as_dict()
+
+
 @router.get("/queries")
 def query_log(
     conn: Connection = Depends(get_owned_connection),

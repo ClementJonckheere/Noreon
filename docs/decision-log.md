@@ -191,6 +191,35 @@ espace) ; chaque tour choisit sa source et applique la gouvernance de l'espace.
 **Conséquence.** Chat d'espace multi-appareils avec dossiers/archivage/recherche,
 et parcours d'onboarding d'une équipe entièrement dans son espace.
 
+### D-18 — Moteur de raisonnement (agent d'investigation)
+**Contexte.** Un NL→SQL unique ne répond pas à une question ouverte
+(« pourquoi les ventes baissent ? »). Il faut un vrai agent :
+Question → Planification → Sous-questions → Exécution → Synthèse.
+**Décision.** `agent.py` : détecte l'intention analytique, choisit le sujet
+(table de faits guidée par la question — « ventes » → orders), **planifie** les
+axes à examiner (tendance, âge, magasin, produit, ville…) avec une
+justification par étape, **exécute** chaque sous-question par une agrégation en
+lecture seule (mêmes garde-fous, gouvernance d'espace respectée), en extrait un
+**constat chiffré**, puis **synthétise** (facteurs classés, conclusion,
+prochaines actions). Câblé en amont du pipeline chat ; repli silencieux si le
+sujet ne s'y prête pas. Chaque étape porte SON SQL (transparence « preuve »).
+**Conséquence.** Noreon raisonne comme un analyste (plusieurs angles avant de
+conclure), hors-ligne et auditable. Honnêteté assumée : l'agent identifie des
+**corrélations**, pas des causes certaines (mentionné dans les recommandations).
+
+### D-19 — Suggestions automatiques (« Découvertes »), l'analyste proactif
+**Contexte.** À l'ouverture, un vrai analyste ne demande pas « posez votre
+question » : il dit déjà ce qu'il a remarqué.
+**Décision.** `discoveries.py` agrège HORS-LIGNE des signaux déjà produits :
+anomalies/tendance (évolution de la mesure clé — chute mois/mois > 30 %, valeur
+> 2σ, variation globale), colonnes suspectes (profils : invalides, NULL élevé),
+relations incohérentes (intégrité < 100 %). Chaque découverte porte une
+**question de creusement** prête à l'emploi (qui relance le chat / l'agent).
+Route `GET /connections/{id}/discoveries`, affichée dans l'état vide du chat.
+Respecte la gouvernance d'espace (éléments masqués écartés).
+**Conséquence.** L'outil ouvre sur de la valeur (« 2 anomalies, 1 tendance,
+1 colonne suspecte, 2 relations incohérentes ») plutôt que sur une page blanche.
+
 ---
 
 ## Dettes / limites connues (à traiter)
