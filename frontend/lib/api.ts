@@ -393,6 +393,27 @@ export interface ReportFull extends ReportSummary {
   blocks: ReportBlock[];
 }
 
+// ---- Découvertes (suggestions automatiques) ----
+export interface DiscoveryItem {
+  category: "anomaly" | "trend" | "suspicious_column" | "incoherent_relation";
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  table: string | null;
+  column: string | null;
+  suggested_question: string | null;
+}
+export interface Discoveries {
+  scanned: boolean;
+  counts: {
+    anomalies: number;
+    trends: number;
+    suspicious_columns: number;
+    incoherent_relations: number;
+  };
+  items: DiscoveryItem[];
+}
+
 // ---- Endpoints ----
 export const api = {
   listConnections: () => request<Connection[]>("/connections"),
@@ -468,6 +489,7 @@ export const api = {
       body: JSON.stringify({ question, deep_analysis: deep }),
     }),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
+  discoveries: (id: number) => request<Discoveries>(`/connections/${id}/discoveries`),
 
   // --- Conversations serveur ---
   convList: (id: number, archived = false) =>

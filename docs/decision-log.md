@@ -207,6 +207,19 @@ sujet ne s'y prête pas. Chaque étape porte SON SQL (transparence « preuve »)
 conclure), hors-ligne et auditable. Honnêteté assumée : l'agent identifie des
 **corrélations**, pas des causes certaines (mentionné dans les recommandations).
 
+### D-19 — Suggestions automatiques (« Découvertes »), l'analyste proactif
+**Contexte.** À l'ouverture, un vrai analyste ne demande pas « posez votre
+question » : il dit déjà ce qu'il a remarqué.
+**Décision.** `discoveries.py` agrège HORS-LIGNE des signaux déjà produits :
+anomalies/tendance (évolution de la mesure clé — chute mois/mois > 30 %, valeur
+> 2σ, variation globale), colonnes suspectes (profils : invalides, NULL élevé),
+relations incohérentes (intégrité < 100 %). Chaque découverte porte une
+**question de creusement** prête à l'emploi (qui relance le chat / l'agent).
+Route `GET /connections/{id}/discoveries`, affichée dans l'état vide du chat.
+Respecte la gouvernance d'espace (éléments masqués écartés).
+**Conséquence.** L'outil ouvre sur de la valeur (« 2 anomalies, 1 tendance,
+1 colonne suspecte, 2 relations incohérentes ») plutôt que sur une page blanche.
+
 ---
 
 ## Dettes / limites connues (à traiter)

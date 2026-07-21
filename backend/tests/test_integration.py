@@ -543,6 +543,29 @@ def test_space_governance_end_to_end(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_discoveries_proactive(session_with_conn):
+    """À l'ouverture, l'analyste proactif remonte : colonnes suspectes (emails
+    invalides), relations incohérentes (store_id orphelins), anomalie/tendance
+    (chute du CA sur la période)."""
+    from app.services import quality as quality_svc
+    from app.services import discoveries as disc_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+    quality_svc.run_quality(db, conn, cfg)  # calcule l'intégrité des relations
+
+    d = disc_svc.run_discoveries(db, conn, cfg)
+    assert d.scanned is True
+    c = d.counts
+    assert c["suspicious_columns"] >= 1
+    assert c["incoherent_relations"] >= 1
+    assert c["anomalies"] + c["trends"] >= 1
+    # Chaque découverte propose une question prête à creuser.
+    assert any(i.get("suggested_question") for i in d.items)
+
+
 def test_agent_investigation_multi_step(session_with_conn):
     """Question ANALYTIQUE ouverte → l'agent planifie, enchaîne des
     sous-questions et synthétise (vrai moteur de raisonnement)."""
