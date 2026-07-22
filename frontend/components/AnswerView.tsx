@@ -4,6 +4,7 @@ import { ChatResponse } from "@/lib/api";
 import ChartBlock from "@/components/ChartBlock";
 import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
+import WhyChoices from "@/components/WhyChoices";
 
 // Rendu d'une réponse d'analyse (partagé chat par connexion / chat d'espace).
 export default function AnswerView({ r }: { r: ChatResponse }) {
@@ -61,6 +62,8 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           : {r.privacy.values_protected} valeur(s) pseudonymisée(s).
         </div>
       )}
+
+      {r.explanations?.length > 0 && <WhyChoices items={r.explanations} />}
 
       {r.confidence && (
         <div className="card p-4">

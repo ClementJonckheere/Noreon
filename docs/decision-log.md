@@ -235,6 +235,18 @@ sur une histoire, pas une page blanche. (Le passage à un raisonnement
 donnée d'abord au polissage UX/explicabilité, cf. retour « stop aux grosses
 fonctionnalités ».)
 
+### D-21 — Sprint polish V1 : explicabilité, accueil, doc
+**Contexte.** Retour produit : « la valeur = comprendre, raisonner, **expliquer** ;
+stop aux grosses fonctionnalités, place à l'UX/explicabilité/tests/doc ».
+**Décision.** (a) **« Pourquoi ces choix ? »** sur chaque réponse : justification
+de la **table**, des **colonnes**, de la **jointure** (relation nommée détectée
+dans le SQL) et du **graphique** (nature des données). (b) **Accueil
+personnalisé** dans les Insights (« Bonjour {nom} — voici ce que j'ai
+remarqué »). (c) Doc de statut/handoff rafraîchie.
+**Conséquence.** L'explicabilité passe au premier plan (« presque une preuve »),
+sans nouvelle grosse fonctionnalité — conforme au retour. Chantiers gardés pour
+la suite : raisonnement adaptatif, Analyst Memory (V2), analyse quotidienne.
+
 ---
 
 ## Dettes / limites connues (à traiter)

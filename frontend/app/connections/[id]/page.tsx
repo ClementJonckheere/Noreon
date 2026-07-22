@@ -10,6 +10,7 @@ import GraphPanel from "@/components/GraphPanel";
 import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
 import DiscoveriesPanel from "@/components/DiscoveriesPanel";
+import WhyChoices from "@/components/WhyChoices";
 import {
   api,
   API_BASE,
@@ -942,6 +943,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           LLM, ré-identifiées localement.
         </div>
       )}
+
+      {r.explanations?.length > 0 && <WhyChoices items={r.explanations} />}
 
       {r.confidence && <ConfidenceBar c={r.confidence} />}
 

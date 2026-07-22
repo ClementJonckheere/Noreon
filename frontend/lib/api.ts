@@ -256,6 +256,7 @@ export interface ChatResponse {
   columns_used: string[];
   assumptions: string[];
   rationale: string;
+  explanations: string[];
   columns: string[];
   rows: any[][];
   row_count: number;

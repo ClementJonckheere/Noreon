@@ -40,6 +40,7 @@ class ChatResponse:
     columns_used: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     rationale: str = ""
+    explanations: list[str] = field(default_factory=list)
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -304,16 +305,56 @@ def answer_question(
         if t.split(".")[-1] in tscores
     }
 
+    # Explicabilité « preuve » : pourquoi cette table, ces colonnes, cette
+    # jointure, ce graphique — chaque choix est justifié (retour produit).
+    explanations = _explanations(db, snapshot, gen, result.guarded_sql, chart)
+
     return ChatResponse(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
-        assumptions=gen.assumptions, rationale=gen.rationale,
+        assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
         analysis=analysis, deep=deep, confidence=conf.as_dict(), table_quality=table_quality,
         chart=chart, privacy=protection.audit,
     )
+
+
+def _explanations(db: Session, snapshot, gen, guarded_sql: str, chart: dict | None) -> list[str]:
+    """Compose une justification lisible de chaque décision de l'analyse."""
+    from app.models.schema_catalog import DbRelation
+
+    out: list[str] = []
+    if gen.rationale:
+        out.append(f"Table : {gen.rationale}")
+    if gen.columns_used:
+        out.append(f"Colonnes : {', '.join(gen.columns_used)} — retenues d'après la question.")
+
+    # Jointure : si le SQL en contient une, on nomme la relation mobilisée.
+    if snapshot is not None and " join " in f" {guarded_sql.lower()} ":
+        used = {t.split('.')[-1].lower() for t in (gen.tables_used or [])}
+        rels = db.execute(
+            select(DbRelation).where(
+                DbRelation.snapshot_id == snapshot.id, DbRelation.status != "rejected"
+            )
+        ).scalars().all()
+        for r in rels:
+            if r.from_table.lower() in used and r.to_table.lower() in used:
+                tag = {"declared": "FK déclarée", "inferred": "FK inférée",
+                       "validated": "FK validée"}.get(r.kind, r.kind)
+                out.append(
+                    f"Jointure : {r.from_table}.{r.from_column} → {r.to_table}.{r.to_column} "
+                    f"({tag}) — c'est la relation qui relie ces tables."
+                )
+                break
+
+    if chart:
+        if chart.get("type") and chart["type"] != "table":
+            out.append(f"Graphique « {chart['type']} » : {chart.get('reason', '')}".strip())
+        elif chart.get("reason"):
+            out.append(f"Affichage en tableau : {chart['reason']}")
+    return out
 
 
 def _any_sampled(db: Session, connection_id: int, tables_used: list[str]) -> bool:

@@ -104,6 +104,8 @@ def test_chat_count_end_to_end(session_with_conn):
     assert resp.confidence is not None
     assert 0 <= resp.confidence["score"] <= 1
     assert resp.confidence["factors"]  # jamais décoratif
+    # Explicabilité : chaque réponse justifie ses choix (au moins la table).
+    assert resp.explanations and any("Table" in e for e in resp.explanations)
 
 
 def test_chat_blocks_write_attempt(session_with_conn):

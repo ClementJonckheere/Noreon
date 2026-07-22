@@ -25,10 +25,14 @@ export default function DiscoveriesPanel({
   onAsk?: (question: string) => void;
 }) {
   const [d, setD] = useState<Discoveries | null>(null);
+  const [name, setName] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
+    api.me()
+      .then((m) => alive && setName((m.email || "").split("@")[0]))
+      .catch(() => {});
     api
       .discoveries(connectionId)
       .then((r) => alive && setD(r))
@@ -65,6 +69,9 @@ export default function DiscoveriesPanel({
       {/* Accroche « voici ce que j'ai remarqué » */}
       {d.headline.length > 0 && (
         <div className="text-sm bg-indigo-500/5 rounded-lg p-3 space-y-0.5">
+          <div className="font-medium">
+            Bonjour{name ? ` ${name}` : ""} — voici ce que j'ai remarqué :
+          </div>
           {d.headline.map((h, i) => (
             <div key={i} className={i === 0 ? "font-medium" : "text-noreon-soft text-xs"}>
               {i === 0 ? "🧭 " : "↓ "}

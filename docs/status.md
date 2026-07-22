@@ -1,24 +1,34 @@
 # Noreon — État du projet & handoff
 
-_Dernière mise à jour : livraison V1.0 (auth & rôles), commit `6af8785`._
+_Dernière mise à jour : sprint « polish V1 » (explicabilité, Insights, accueil)._
 _Branche de travail : `claude/project-spec-analysis-q7jtjl` — PR #1._
 
 ---
 
 ## 1. Résumé exécutif
 
-Tout le périmètre fonctionnel du cahier des charges (v2.0) est implémenté :
-**les 11 modules + les chapitres transverses** (§5 sécurité/RGPD, §6
-architecture, §7 agents). Le produit tourne de bout en bout sur **PostgreSQL,
-MySQL/MariaDB, CSV et Excel**, avec authentification, rôles et droits par source.
+Tout le périmètre du cahier des charges (v2.0) est implémenté — **les 11 modules
++ les chapitres transverses** — puis Noreon a évolué au-delà du CDC vers une
+**plateforme d'analyse** : espaces d'équipe, studio de rapports, agent de
+raisonnement et analyste proactif. De bout en bout sur **PostgreSQL,
+MySQL/MariaDB, CSV et Excel**, avec auth, rôles et gouvernance des données.
 
-- **134 tests** passent (unitaires + intégration sur bases réelles).
-- **Analyste approfondi** (au-delà de la sortie de données) : croisements de
-  dimensions, facteurs explicatifs et présentation métier (voir D-13).
-- **7 versions livrées** en 7 commits (V0.1 → V1.0).
-- Reste, comme extensions datées « à venir » dans le CDC : **SSO SAML/OIDC**,
-  **API publique**, connecteurs additionnels (SQL Server, Snowflake, BigQuery,
-  API REST — mécaniques via la couche d'adaptateurs).
+- **137 tests** passent (unitaires + intégration sur bases réelles).
+- Capacités ajoutées après le CDC :
+  - **Analyste approfondi** : croisements de dimensions, drivers, présentation (D-13).
+  - **Univers → Espaces → BDD + gouvernance** (cocher/décocher tables & colonnes,
+    droits admin, croisement multi-BDD au niveau analyse) (D-15).
+  - **Historique de chat serveur** (dossiers, archivage, recherche, renommage),
+    par connexion **et** par espace (D-14, D-17).
+  - **Studio de rapports** : génération IA, édition par blocs, export Word/PDF/MD (D-16).
+  - **Moteur de raisonnement** (agent) : planification → sous-questions → synthèse (D-18).
+  - **Insights proactifs** : anomalies/tendances/opportunités/qualité, hiérarchisés
+    et « racontés », avec accueil personnalisé (D-19, D-20).
+  - **Explicabilité étendue** : « Pourquoi ces choix ? » (table, colonnes, jointure,
+    graphique) sur chaque réponse.
+- Reste, comme extensions « à venir » : **raisonnement adaptatif**, **Analyst
+  Memory** (V2), **analyse quotidienne planifiée**, SSO SAML/OIDC, API publique,
+  connecteurs additionnels.
 
 ---
 
