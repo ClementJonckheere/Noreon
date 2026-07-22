@@ -220,6 +220,21 @@ Respecte la gouvernance d'espace (éléments masqués écartés).
 **Conséquence.** L'outil ouvre sur de la valeur (« 2 anomalies, 1 tendance,
 1 colonne suspecte, 2 relations incohérentes ») plutôt que sur une page blanche.
 
+### D-20 — « Insights » : hiérarchie, récit et distinction anomalie/opportunité
+**Contexte.** Retours produit sur les « Découvertes » : vocabulaire plus premium,
+cartes qui *racontent une histoire*, distinction anomalie (problème) vs
+opportunité (intéressant), et une hiérarchie de priorité.
+**Décision.** Renommage → **Insights**. Chaque trouvaille porte un **niveau**
+(🔴 critique / 🟠 important / 🟢 opportunité / ⚪ information) et un **récit**
+métier actionnable (pas un chiffre brut). Une **accroche** en tête résume « ce
+que j'ai remarqué ». Les hausses deviennent des **opportunités** (catégorie
+distincte des anomalies). Tri par niveau.
+**Conséquence.** Lecture immédiate de ce qui mérite l'attention ; l'outil ouvre
+sur une histoire, pas une page blanche. (Le passage à un raisonnement
+**adaptatif** et l'**Analyst Memory** restent des chantiers identifiés — priorité
+donnée d'abord au polissage UX/explicabilité, cf. retour « stop aux grosses
+fonctionnalités ».)
+
 ---
 
 ## Dettes / limites connues (à traiter)

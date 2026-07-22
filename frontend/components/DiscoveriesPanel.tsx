@@ -3,21 +3,20 @@
 import { useEffect, useState } from "react";
 import { api, Discoveries, DiscoveryItem } from "@/lib/api";
 
-const CAT_META: Record<string, { icon: string; label: string }> = {
-  anomaly: { icon: "⚠", label: "Anomalie" },
-  trend: { icon: "📈", label: "Tendance" },
-  suspicious_column: { icon: "🔎", label: "Colonne suspecte" },
-  incoherent_relation: { icon: "🔗", label: "Relation incohérente" },
+// Hiérarchie premium (retour utilisateur) : critique 🔴 / important 🟠 /
+// opportunité 🟢 / information ⚪.
+const LEVEL_META: Record<
+  string,
+  { dot: string; label: string; card: string }
+> = {
+  critical: { dot: "🔴", label: "Critique", card: "bg-red-500/5 border-red-500/25" },
+  important: { dot: "🟠", label: "Important", card: "bg-amber-500/5 border-amber-500/25" },
+  opportunity: { dot: "🟢", label: "Opportunité", card: "bg-emerald-500/5 border-emerald-500/25" },
+  info: { dot: "⚪", label: "Information", card: "bg-slate-50 border-noreon-border" },
 };
 
-const SEV_COLOR: Record<string, string> = {
-  high: "bg-red-500/10 text-red-700 border-red-500/20",
-  medium: "bg-amber-500/10 text-amber-700 border-amber-500/20",
-  low: "bg-slate-100 text-slate-600 border-noreon-border",
-};
-
-// Panneau proactif : « voici ce qu'un analyste aurait remarqué ». Cliquer une
-// découverte lance la question de creusement dans le chat.
+// « Insights » : l'analyste proactif. Une accroche qui raconte, puis des cartes
+// hiérarchisées qui racontent une histoire (pas juste un chiffre brut).
 export default function DiscoveriesPanel({
   connectionId,
   onAsk,
@@ -44,24 +43,37 @@ export default function DiscoveriesPanel({
     return <div className="text-xs text-noreon-soft">Analyse proactive en cours…</div>;
   if (!d || !d.scanned || d.items.length === 0) return null;
 
-  const c = d.counts;
-  const chips = [
-    ["anomalies", c.anomalies, "anomalie(s)"],
-    ["trends", c.trends, "tendance(s)"],
-    ["suspicious_columns", c.suspicious_columns, "colonne(s) suspecte(s)"],
-    ["incoherent_relations", c.incoherent_relations, "relation(s) incohérente(s)"],
-  ] as const;
+  const lv = d.levels;
+  const chips: [string, number][] = [
+    ["🔴 Critique", lv.critical],
+    ["🟠 Important", lv.important],
+    ["🟢 Opportunité", lv.opportunity],
+    ["⚪ Information", lv.info],
+  ];
 
   return (
     <div className="card p-4 space-y-3 border border-indigo-500/25">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-semibold text-indigo-700">🧭 Découvertes</span>
-        {chips.filter(([, n]) => n > 0).map(([k, n, label]) => (
-          <span key={k} className="badge bg-indigo-500/10 text-indigo-700">
+        <span className="text-sm font-semibold text-indigo-700">✨ Insights</span>
+        {chips.filter(([, n]) => n > 0).map(([label, n]) => (
+          <span key={label} className="badge bg-indigo-500/10 text-indigo-700">
             {n} {label}
           </span>
         ))}
       </div>
+
+      {/* Accroche « voici ce que j'ai remarqué » */}
+      {d.headline.length > 0 && (
+        <div className="text-sm bg-indigo-500/5 rounded-lg p-3 space-y-0.5">
+          {d.headline.map((h, i) => (
+            <div key={i} className={i === 0 ? "font-medium" : "text-noreon-soft text-xs"}>
+              {i === 0 ? "🧭 " : "↓ "}
+              {h}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-2">
         {d.items.map((it, i) => (
           <DiscoveryCard key={i} it={it} onAsk={onAsk} />
@@ -78,19 +90,21 @@ function DiscoveryCard({
   it: DiscoveryItem;
   onAsk?: (q: string) => void;
 }) {
-  const meta = CAT_META[it.category] ?? { icon: "•", label: it.category };
+  const meta = LEVEL_META[it.level] ?? LEVEL_META.info;
   return (
-    <div className={`rounded-lg border p-2 text-xs ${SEV_COLOR[it.severity]}`}>
-      <div className="font-medium">
-        {meta.icon} {it.title}
+    <div className={`rounded-lg border p-2.5 text-xs ${meta.card}`}>
+      <div className="flex items-center gap-1.5">
+        <span>{meta.dot}</span>
+        <span className="font-medium">{it.title}</span>
       </div>
-      <div className="opacity-80 mt-0.5">{it.detail}</div>
+      {/* La carte raconte une histoire, pas seulement un chiffre. */}
+      <div className="mt-1 text-slate-600">{it.narrative || it.detail}</div>
       {it.suggested_question && onAsk && (
         <button
           onClick={() => onAsk(it.suggested_question!)}
-          className="mt-1 underline decoration-dotted hover:opacity-80"
+          className="mt-1.5 text-indigo-700 underline decoration-dotted hover:opacity-80"
         >
-          Creuser : « {it.suggested_question} »
+          Creuser →
         </button>
       )}
     </div>

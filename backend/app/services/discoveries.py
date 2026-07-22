@@ -37,10 +37,14 @@ log = get_logger("noreon.discoveries")
 
 @dataclass
 class Finding:
-    category: str      # anomaly | trend | suspicious_column | incoherent_relation
+    category: str      # anomaly | trend | opportunity | suspicious_column | incoherent_relation
     severity: str      # high | medium | low
+    # Hiérarchie premium (retour utilisateur) : critical 🔴 | important 🟠 |
+    # opportunity 🟢 | info ⚪.
+    level: str
     title: str
     detail: str
+    narrative: str = ""   # « raconte une histoire » : phrase métier actionnable
     table: str | None = None
     column: str | None = None
     # Question prête à l'emploi pour creuser (déclenche l'agent / le chat).
@@ -50,7 +54,9 @@ class Finding:
 @dataclass
 class Discoveries:
     scanned: bool = False
-    counts: dict = field(default_factory=dict)
+    counts: dict = field(default_factory=dict)          # par catégorie
+    levels: dict = field(default_factory=dict)          # par niveau de hiérarchie
+    headline: list = field(default_factory=list)        # accroche « depuis votre dernière visite »
     items: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -58,6 +64,7 @@ class Discoveries:
 
 
 _SEV_RANK = {"high": 0, "medium": 1, "low": 2}
+_LEVEL_RANK = {"critical": 0, "important": 1, "opportunity": 2, "info": 3}
 
 
 def run_discoveries(
@@ -90,11 +97,15 @@ def run_discoveries(
             continue
         if r.integrity_ratio is not None and r.integrity_ratio < 0.999:
             pct = (1 - r.integrity_ratio) * 100
+            sev = "high" if pct >= 5 else "medium"
             findings.append(Finding(
-                category="incoherent_relation",
-                severity="high" if pct >= 5 else "medium",
+                category="incoherent_relation", severity=sev,
+                level="critical" if pct >= 5 else "important",
                 title=f"Relation incohérente : {r.from_table}.{r.from_column} → {r.to_table}",
                 detail=f"{pct:.1f}% de valeurs orphelines (sans correspondance dans {r.to_table}).",
+                narrative=(f"{pct:.1f}% des « {r.from_table} » pointent vers un « {r.to_table} » "
+                           "inexistant : ces lignes risquent d'être ignorées dans les jointures, "
+                           "donc de fausser les totaux."),
                 table=r.from_table, column=r.from_column,
                 suggested_question=f"Combien de {r.from_table} par {r.from_column} ?",
             ))
@@ -111,34 +122,65 @@ def run_discoveries(
         if p.invalid_count and p.invalid_count > 0:
             fmt = f" ({p.format_checked})" if p.format_checked else ""
             findings.append(Finding(
-                category="suspicious_column", severity="medium",
+                category="suspicious_column", severity="medium", level="important",
                 title=f"Colonne « {p.table_name}.{p.column_name} » : valeurs non conformes",
                 detail=f"{p.invalid_count} valeur(s) hors format attendu{fmt}.",
+                narrative=(f"La colonne « {p.column_name} » contient {p.invalid_count} valeur(s) "
+                           f"hors format{fmt} : fiabilité à surveiller pour toute analyse qui s'appuie dessus."),
                 table=p.table_name, column=p.column_name,
             ))
         elif p.null_rate is not None and p.null_rate >= 0.3:
+            hi = p.null_rate >= 0.6
             findings.append(Finding(
-                category="suspicious_column",
-                severity="high" if p.null_rate >= 0.6 else "medium",
+                category="suspicious_column", severity="high" if hi else "medium",
+                level="critical" if hi else "important",
                 title=f"Colonne « {p.table_name}.{p.column_name} » : beaucoup de valeurs manquantes",
                 detail=f"{p.null_rate * 100:.0f}% de valeurs nulles.",
+                narrative=(f"« {p.column_name} » est vide à {p.null_rate * 100:.0f}% : les analyses "
+                           "qui la mobilisent porteront sur une population partielle."),
                 table=p.table_name, column=p.column_name,
             ))
 
     # --- Anomalies & tendance sur la mesure clé ---
     _temporal_findings(db, conn, adapter, findings, hidden_tables, hidden_columns)
 
-    # Tri par sévérité, plafonnement.
-    findings.sort(key=lambda f: (_SEV_RANK.get(f.severity, 3),))
+    # Tri par niveau de hiérarchie (critique d'abord), plafonnement.
+    findings.sort(key=lambda f: (_LEVEL_RANK.get(f.level, 3), _SEV_RANK.get(f.severity, 3)))
     findings = findings[:max_items]
 
     counts = {
         "anomalies": sum(1 for f in findings if f.category == "anomaly"),
         "trends": sum(1 for f in findings if f.category == "trend"),
+        "opportunities": sum(1 for f in findings if f.category == "opportunity"),
         "suspicious_columns": sum(1 for f in findings if f.category == "suspicious_column"),
         "incoherent_relations": sum(1 for f in findings if f.category == "incoherent_relation"),
     }
-    return Discoveries(scanned=True, counts=counts, items=[asdict(f) for f in findings])
+    levels = {lv: sum(1 for f in findings if f.level == lv)
+              for lv in ("critical", "important", "opportunity", "info")}
+    return Discoveries(
+        scanned=True, counts=counts, levels=levels,
+        headline=_headline(findings), items=[asdict(f) for f in findings],
+    )
+
+
+def _headline(findings: list[Finding]) -> list[str]:
+    """Accroche « ce que j'ai remarqué » — 2 à 3 phrases prioritaires."""
+    lines: list[str] = []
+    trend = next((f for f in findings if f.category == "trend"), None)
+    if trend:
+        lines.append(trend.title.replace("Tendance : ", "") + ".")
+    opp = next((f for f in findings if f.category == "opportunity"), None)
+    if opp:
+        lines.append(opp.title.replace("Opportunité : ", "") + ".")
+    crit = sum(1 for f in findings if f.level == "critical")
+    quality = sum(1 for f in findings
+                  if f.category in ("suspicious_column", "incoherent_relation"))
+    if quality:
+        lines.append(f"Qualité des données : {quality} point(s) à corriger"
+                     + (" (dont critiques)" if crit else "") + ".")
+    if not lines:
+        lines.append(f"{len(findings)} observation(s) sur vos données.")
+    return lines[:3]
 
 
 def _temporal_findings(db, conn, adapter, findings, hidden_tables, hidden_columns) -> None:
@@ -186,38 +228,56 @@ def _temporal_findings(db, conn, adapter, findings, hidden_tables, hidden_column
     values = [v for _, v in rows]
     first, last = values[0], values[-1]
     pct = ((last - first) / first * 100) if first else 0
-    if abs(pct) >= 5:
+    if pct <= -5:  # baisse → tendance à surveiller
         findings.append(Finding(
-            category="trend",
-            severity="high" if abs(pct) >= 25 else "medium",
-            title=f"Tendance : {label} en {'baisse' if pct < 0 else 'hausse'} de {abs(pct):.0f}%",
+            category="trend", severity="high" if pct <= -25 else "medium",
+            level="important",
+            title=f"Tendance : {label} en baisse de {abs(pct):.0f}%",
             detail=f"De {_fmt(first)} ({rows[0][0]}) à {_fmt(last)} ({rows[-1][0]}).",
+            narrative=(f"Sur la période, {label} recule de {abs(pct):.0f}%. "
+                       "À surveiller : identifions ce qui porte la baisse."),
             table=fact.name,
-            suggested_question=f"Pourquoi {label} évolue ainsi ?",
+            suggested_question=f"Pourquoi {label} baisse ?",
+        ))
+    elif pct >= 5:  # hausse → opportunité à exploiter
+        findings.append(Finding(
+            category="opportunity", severity="low", level="opportunity",
+            title=f"Opportunité : {label} en hausse de {pct:.0f}%",
+            detail=f"De {_fmt(first)} ({rows[0][0]}) à {_fmt(last)} ({rows[-1][0]}).",
+            narrative=(f"{label} progresse de {pct:.0f}% : une dynamique à comprendre et à "
+                       "amplifier (quels segments la portent ?)."),
+            table=fact.name,
+            suggested_question=f"Qu'est-ce qui explique la hausse de {label} ?",
         ))
 
-    # Chutes/à-coups mois à mois (> 30 %).
+    # Chutes/à-coups mois à mois (> 30 %) → anomalie critique.
     for i in range(1, len(rows)):
         prev, cur = values[i - 1], values[i]
         if prev and (cur - prev) / prev <= -0.3:
+            drop = abs((cur - prev) / prev) * 100
             findings.append(Finding(
-                category="anomaly", severity="high",
-                title=f"Anomalie : chute de {abs((cur - prev) / prev) * 100:.0f}% en {rows[i][0]}",
+                category="anomaly", severity="high", level="critical",
+                title=f"Anomalie : chute de {drop:.0f}% en {rows[i][0]}",
                 detail=f"{label} passe de {_fmt(prev)} à {_fmt(cur)}.",
+                narrative=(f"Décrochage brutal en {rows[i][0]} : {label} tombe de {_fmt(prev)} à "
+                           f"{_fmt(cur)} (-{drop:.0f}%). À investiguer en priorité "
+                           "(événement métier, promotion, ou données incomplètes ?)."),
                 table=fact.name,
                 suggested_question=f"Pourquoi {label} chute en {rows[i][0]} ?",
             ))
 
-    # Valeurs atypiques (> 2σ de la moyenne).
+    # Valeurs atypiques (> 2σ de la moyenne) → à surveiller.
     if len(values) >= 6:
         m, sd = mean(values), pstdev(values)
         if sd > 0:
             for (per, v) in rows:
                 if abs(v - m) > 2 * sd:
                     findings.append(Finding(
-                        category="anomaly", severity="medium",
+                        category="anomaly", severity="medium", level="important",
                         title=f"Valeur atypique en {per}",
                         detail=f"{label} = {_fmt(v)} (moyenne {_fmt(m)}, > 2σ).",
+                        narrative=(f"En {per}, {label} s'écarte nettement de la normale "
+                                   f"({_fmt(v)} vs moyenne {_fmt(m)})."),
                         table=fact.name,
                         suggested_question=f"Que s'est-il passé en {per} ?",
                     ))

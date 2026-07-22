@@ -395,22 +395,21 @@ export interface ReportFull extends ReportSummary {
 
 // ---- Découvertes (suggestions automatiques) ----
 export interface DiscoveryItem {
-  category: "anomaly" | "trend" | "suspicious_column" | "incoherent_relation";
+  category: "anomaly" | "trend" | "opportunity" | "suspicious_column" | "incoherent_relation";
   severity: "high" | "medium" | "low";
+  level: "critical" | "important" | "opportunity" | "info";
   title: string;
   detail: string;
+  narrative: string;
   table: string | null;
   column: string | null;
   suggested_question: string | null;
 }
 export interface Discoveries {
   scanned: boolean;
-  counts: {
-    anomalies: number;
-    trends: number;
-    suspicious_columns: number;
-    incoherent_relations: number;
-  };
+  counts: Record<string, number>;
+  levels: { critical: number; important: number; opportunity: number; info: number };
+  headline: string[];
   items: DiscoveryItem[];
 }
 

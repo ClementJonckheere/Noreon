@@ -564,6 +564,11 @@ def test_discoveries_proactive(session_with_conn):
     assert c["anomalies"] + c["trends"] >= 1
     # Chaque découverte propose une question prête à creuser.
     assert any(i.get("suggested_question") for i in d.items)
+    # Hiérarchie premium (critique/important/opportunité/info) + accroche + récit.
+    assert set(d.levels) == {"critical", "important", "opportunity", "info"}
+    assert sum(d.levels.values()) == len(d.items)
+    assert d.headline and all(isinstance(h, str) for h in d.headline)
+    assert all("level" in i and i.get("narrative") for i in d.items)
 
 
 def test_agent_investigation_multi_step(session_with_conn):
