@@ -87,6 +87,26 @@ def build_graph(db: Session, conn: Connection) -> dict:
             "confidence": r.confidence,
             "cardinality": r.cardinality,
             "integrity_ratio": r.integrity_ratio,
+            "rationale": _relation_rationale(r),
         })
 
     return {"nodes": nodes, "edges": edges}
+
+
+def _relation_rationale(r) -> str:
+    """Explique EN CLAIR pourquoi cette relation existe (explicabilité)."""
+    if r.kind == "declared":
+        why = (f"Clé étrangère déclarée en base : {r.from_table}.{r.from_column} référence "
+               f"{r.to_table}.{r.to_column}.")
+    elif r.kind == "inferred":
+        why = (f"Relation déduite par convention de nommage : « {r.from_column} » pointe vers "
+               f"la clé de « {r.to_table} » (aucune FK déclarée).")
+    elif r.kind == "validated":
+        why = f"Relation confirmée par un utilisateur (validée dans la boucle humaine)."
+    else:
+        why = f"Relation {r.kind}."
+    if r.cardinality:
+        why += f" Cardinalité {r.cardinality}."
+    if r.integrity_ratio is not None and r.integrity_ratio < 0.999:
+        why += f" Attention : {(1 - r.integrity_ratio) * 100:.1f}% d'orphelins."
+    return why

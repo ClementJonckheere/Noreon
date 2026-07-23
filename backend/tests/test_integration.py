@@ -291,6 +291,8 @@ def test_knowledge_graph(session_with_conn):
     assert inferred["kind"] == "inferred"
     assert inferred["cardinality"] == "n-1"
     assert inferred["integrity_ratio"] is not None and inferred["integrity_ratio"] < 1.0
+    # Explicabilité : chaque relation dit EN CLAIR pourquoi elle existe.
+    assert inferred["rationale"] and "convention" in inferred["rationale"].lower()
 
     # payments.order_id : une commande a au plus un paiement dans la démo ? Non —
     # on vérifie simplement qu'une cardinalité est mesurée partout où l'intégrité l'est.

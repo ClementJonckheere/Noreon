@@ -128,6 +128,7 @@ export interface GraphEdge {
   confidence: number;
   cardinality: string | null;
   integrity_ratio: number | null;
+  rationale?: string;
 }
 export interface Graph {
   nodes: GraphNode[];
