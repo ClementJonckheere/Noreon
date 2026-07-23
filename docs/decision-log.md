@@ -284,6 +284,39 @@ branchée, tokens & coût se remplissent sans changement d'API.
 
 ---
 
+### D-23 — Sprint « analyste de confiance » (A→F)
+**Contexte.** Vision produit : Noreon doit se relire, douter, se corriger, se
+justifier, connaître l'entreprise et savoir simuler.
+**Décision.**
+- **A — Validation Engine** (`validation.py`) : « relecture » systématique de
+  chaque analyse (mesure HT/TTC, cohérence des dates, NULL, duplication de
+  jointure, plausibilité du volume) ; **hypothèses retenues** explicites ;
+  **score de fiabilité du rapport** (étoiles + facteurs) ; verdict **« je ne
+  peux pas conclure »** (causalité non établie, distinct de « impossible de
+  répondre »).
+- **B — Le moteur change d'avis** (`agent.py`) : hypothèse de départ confrontée
+  au facteur dominant → **auto-révision** ; **journal de raisonnement** horodaté
+  (analyses essayées / rejetées / retenues).
+- **C — Mesures contradictoires** (`heuristic.py`) : plusieurs montants →
+  recommandation **TTC** argumentée, HT explicite respecté ; jamais de fusion
+  silencieuse.
+- **D — Contexte d'entreprise** (`company_context.py`, migration
+  `e5f6a7b8c9d0`) : conventions (TTC, mensuel, périmètre) connues, injectées au
+  moteur et affichées en hypothèses — **jamais redemandées**. Priorité :
+  question explicite > convention entreprise > défaut TTC.
+- **E — Rapport vivant + sources** : la réponse **cite ses sources** (table
+  principale/jointe + qualité) et devient consultable couche par couche.
+- **F — What if ?** (`simulation.py`) : projection d'un scénario (« panier moyen
+  +10% ») avec répartition du gain et **hypothèses affichées** (projection, pas
+  prédiction) ; + **métriques d'usage** (`telemetry`, `/metrics/usage`) : quels
+  insights/graphiques/concepts/simulations servent le plus.
+**Conséquence.** Noreon passe d'« il répond » à « il se relit, doute, se
+corrige, se justifie et projette » — tout hors-ligne et auditable. Coût : une
+migration légère (contexte entreprise) ; le reste sans schéma (compteurs en
+mémoire, calculs à la volée).
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est
