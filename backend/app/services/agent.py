@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -106,9 +107,27 @@ class Investigation:
     # Données de tendance (pour un graphique dans la réponse).
     trend_columns: list[str] = field(default_factory=list)
     trend_rows: list[list] = field(default_factory=list)
+    # Journal de raisonnement (pour les experts) : chaque étape horodatée, avec
+    # les analyses ESSAYÉES, REJETÉES et RETENUES.
+    journal: list[dict] = field(default_factory=list)       # {t, phase, detail, status}
+    # « Le moteur change d'avis » : hypothèse initiale vs. ce que disent les données.
+    revisions: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+def _now() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def _initial_hypothesis(dims: list) -> object | None:
+    """Ce qu'un analyste supposerait a priori — souvent la fidélité, sinon le
+    premier axe candidat. Sert de point de comparaison pour l'auto-révision."""
+    for d in dims:
+        if re.search(r"loyal|fidel|fidél", d.label, re.IGNORECASE):
+            return d
+    return dims[0] if dims else None
 
 
 def _dim_rationale(label: str) -> str:
@@ -171,6 +190,16 @@ def run_investigation(
     inv = Investigation(question=question, subject=fact.name, metric_label=metric)
     queries: list[str] = []
 
+    # Journal de raisonnement — trace vivante pour les experts.
+    inv.journal.append({"t": _now(), "phase": "question", "status": "info",
+                        "detail": f"Question reçue : « {question} ». Sujet retenu : {fact.name} "
+                                  f"(mesure : {metric})."})
+    # Hypothèse initiale (avant de regarder les données) — servira à l'auto-révision.
+    initial = _initial_hypothesis(dims)
+    if initial is not None:
+        inv.journal.append({"t": _now(), "phase": "plan", "status": "info",
+                            "detail": f"Hypothèse de départ : « {initial.label} » porte probablement la variation."})
+
     # --- Étape tendance (si une date existe sur la table de faits) ---
     date_col = next((c for c in fact.columns if c.is_temporal
                      and (fact.name.lower(), c.name.lower()) not in hidden_columns), None)
@@ -213,13 +242,36 @@ def run_investigation(
                          {"label": "variation_%", "value": round(pct, 1)}],
             )))
 
+    if date_col is not None and inv.trend_rows:
+        inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
+                            "detail": f"Tendance temporelle établie ({trend_dir})."})
+
     # --- Étapes par dimension : plan puis exécution ---
     segmentations = []
     for dim in dims[:_MAX_DIM_STEPS]:
         seg = _run_segmentation(adapter, conn.id, guard_args, fact, dim, measure_sql)
         if seg is not None:
             segmentations.append(seg)
+            inv.journal.append({"t": _now(), "phase": "analysis", "status": "info",
+                                "detail": f"Analyse « {dim.label} » : signal mesuré (force {seg.power:.2f})."})
+        else:
+            inv.journal.append({"t": _now(), "phase": "analysis", "status": "rejected",
+                                "detail": f"Analyse « {dim.label} » écartée : aucun signal exploitable."})
     segmentations.sort(key=lambda s: s.power, reverse=True)
+
+    # Ce que disent réellement les données : le facteur dominant.
+    if segmentations:
+        winner = segmentations[0].dim
+        inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
+                            "detail": f"Facteur dominant retenu : « {winner.label} »."})
+        # Auto-révision : le moteur change d'avis si les données contredisent
+        # l'hypothèse de départ. « Je pensais fidélité, finalement promotions. »
+        if initial is not None and initial.label != winner.label:
+            revision = (f"Je pensais que « {initial.label} » portait la variation ; "
+                        f"finalement ce sont les écarts de « {winner.label} » qui structurent le plus {noun}.")
+            inv.revisions.append(revision)
+            inv.journal.append({"t": _now(), "phase": "revision", "status": "info",
+                                "detail": revision})
 
     for seg in segmentations:
         top = seg.groups[0]
@@ -291,6 +343,9 @@ def run_investigation(
     inv.recommendations.append(
         "Valider ces pistes avec le métier avant décision (l'agent identifie des corrélations, pas des causes certaines)."
     )
+
+    inv.journal.append({"t": _now(), "phase": "synthesis", "status": "accepted",
+                        "detail": "Synthèse : facteurs classés, conclusion et recommandations produites."})
 
     inv.queries = queries
     return inv

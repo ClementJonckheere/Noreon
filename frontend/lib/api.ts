@@ -297,6 +297,8 @@ export interface ChatResponse {
     queries: string[];
     trend_columns: string[];
     trend_rows: any[][];
+    journal: { t: string; phase: string; status: string; detail: string }[];
+    revisions: string[];
   } | null;
   deep: {
     subject: string;

@@ -815,6 +815,15 @@ def test_agent_investigation_multi_step(session_with_conn):
     assert inv["conclusion"] and inv["recommendations"]
     # Chaque étape porte SON SQL (auditable).
     assert all(s["sql"] for s in inv["steps"])
+    # Journal de raisonnement (experts) : timeline horodatée avec des analyses
+    # essayées et au moins une retenue.
+    journal = inv["journal"]
+    assert journal and all({"t", "phase", "status", "detail"} <= set(e) for e in journal)
+    assert journal[0]["phase"] == "question"
+    assert any(e["status"] == "accepted" for e in journal)
+    # « revisions » existe (peut être vide selon les données), et si l'hypothèse
+    # de départ diffère du facteur dominant, une révision est tracée.
+    assert isinstance(inv["revisions"], list)
     # Une question simple ne déclenche PAS l'agent.
     simple = chat_svc.answer_question(db, conn, "Combien de clients ?")
     assert simple.investigation is None
