@@ -11,6 +11,7 @@ utilisés, temps d'exécution, indice de confiance calibré (Module 10).
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from time import perf_counter
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.models.profile import ColumnProfile
 from app.models.query_log import QueryLog
 from app.models.tenant import TenantSettings
 from app.services import confidence as confidence_svc
+from app.services import telemetry
 from app.services.connections import get_source_adapter
 from app.services.executor import CostThresholdExceeded
 from app.services.schema_context import build_context, current_snapshot
@@ -174,7 +176,10 @@ def answer_question(
                 )
 
     # 1) Génération SQL via la couche LLM, dans le dialecte du moteur source.
+    _t_llm = perf_counter()
     gen = provider.generate_sql(question, context, dialect=adapter.dialect)
+    telemetry.record_llm((perf_counter() - _t_llm) * 1000,
+                         tokens=getattr(gen, "tokens", 0) or 0)
 
     if gen.unanswerable:
         # Refus honnête : l'information demandée est absente des données. On
@@ -188,6 +193,9 @@ def answer_question(
 
     if gen.clarification_needed:
         # « Il ne devine jamais silencieusement » — on remonte la question.
+        # Journalisé pour mesurer le taux de clarifications (observabilité).
+        _log_query(db, conn, question, "", gen, status="clarification",
+                   block_reason=gen.clarification_needed)
         return ChatResponse(
             status="clarification", question=question,
             message=gen.clarification_needed, rationale=gen.rationale,

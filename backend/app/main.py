@@ -14,6 +14,7 @@ from app.api.routes import (
     conversations,
     definitions,
     health,
+    metrics,
     profiling,
     quality,
     reports,
@@ -62,6 +63,7 @@ app.include_router(conversations.router)
 app.include_router(spaces.router)
 app.include_router(space_conversations.router)
 app.include_router(reports.router)
+app.include_router(metrics.router)
 
 
 @app.get("/")

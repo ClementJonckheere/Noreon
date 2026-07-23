@@ -26,6 +26,7 @@ from app.core.logging import get_logger
 from app.models.profile import ColumnProfile
 from app.models.quality import QualityScore
 from app.models.schema_catalog import DbRelation, SchemaSnapshot
+from app.services import telemetry
 from app.services.deep_analysis import (
     _date_bucket,
     _fmt,
@@ -395,9 +396,11 @@ def cached_discoveries(db: Session, conn, adapter, *, force: bool = False,
         # Tant que l'empreinte est identique, l'insight reste valide (le TTL n'est
         # qu'un garde-fou : c'est le contenu réel qui gouverne l'obsolescence).
         if hit is not None and (now - hit[0]) < ttl:
+            telemetry.record_cache(True)
             out = dict(hit[1])
             out["cached"] = True
             return out
+    telemetry.record_cache(False)
 
     with _CACHE_LOCK:
         previous = _LAST_FP.get(conn.id)

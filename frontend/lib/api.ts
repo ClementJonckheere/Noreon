@@ -424,6 +424,29 @@ export interface DiscoveryItem {
   column: string | null;
   suggested_question: string | null;
 }
+export interface ProductMetrics {
+  window_days: number;
+  total_analyses: number;
+  by_status: Record<string, number>;
+  quality: {
+    avg_duration_ms: number | null;
+    avg_confidence: number | null;
+    resolution_rate: number | null;
+    clarification_rate: number | null;
+    sql_validation_rate: number | null;
+  };
+  costs: {
+    llm_calls: number;
+    llm_tokens_total: number;
+    llm_ms_avg: number | null;
+    avg_sql_cost: number | null;
+    avg_sql_ms: number | null;
+    cache_hit_rate: number | null;
+    cache_hits: number;
+    cache_misses: number;
+  };
+}
+
 export interface DiscoveryFingerprint {
   schema: string;
   profiles: string;
@@ -520,6 +543,15 @@ export const api = {
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
   discoveries: (id: number, force = false) =>
     request<Discoveries>(`/connections/${id}/discoveries${force ? "?refresh=true" : ""}`),
+
+  // --- Observabilité (qualité produit + coûts) ---
+  metrics: (opts?: { days?: number; connectionId?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.days) p.set("days", String(opts.days));
+    if (opts?.connectionId) p.set("connection_id", String(opts.connectionId));
+    const qs = p.toString();
+    return request<ProductMetrics>(`/metrics${qs ? `?${qs}` : ""}`);
+  },
 
   // --- Conversations serveur ---
   convList: (id: number, archived = false) =>

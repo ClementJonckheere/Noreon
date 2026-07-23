@@ -704,6 +704,40 @@ def test_sql_non_regression_families(session_with_conn):
     assert not r.rows
 
 
+def test_product_metrics_observability(session_with_conn):
+    """Noreon mesure son propre travail : après quelques analyses, le tableau de
+    bord d'observabilité expose des KPIs qualité + coûts cohérents."""
+    from app.services import metrics as metrics_svc
+    from app.services import telemetry
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+    telemetry.reset()
+
+    chat_svc.answer_question(db, conn, "Combien de clients ?", deep_analysis=False)
+    chat_svc.answer_question(db, conn, "Nombre de commandes", deep_analysis=False)
+    chat_svc.answer_question(db, conn, "Montant ?", deep_analysis=False)  # clarification
+    chat_svc.answer_question(db, conn, "Combien de clients sont heureux ?",
+                             deep_analysis=False)  # unanswerable
+    db.flush()
+
+    m = metrics_svc.product_metrics(db, tenant_id=conn.tenant_id)
+    assert m["total_analyses"] >= 4
+    q = m["quality"]
+    # Deux réussites, une clarification, un refus.
+    assert q["resolution_rate"] is not None and 0 < q["resolution_rate"] < 1
+    assert q["clarification_rate"] and q["clarification_rate"] > 0
+    assert q["avg_duration_ms"] is not None
+    assert q["avg_confidence"] is not None
+    # Coûts : la couche LLM a été chronométrée ; provider heuristique → 0 jeton.
+    c = m["costs"]
+    assert c["llm_calls"] >= 4
+    assert c["llm_tokens_total"] == 0
+    assert c["avg_sql_ms"] is not None
+
+
 def test_agent_investigation_multi_step(session_with_conn):
     """Question ANALYTIQUE ouverte → l'agent planifie, enchaîne des
     sous-questions et synthétise (vrai moteur de raisonnement)."""
