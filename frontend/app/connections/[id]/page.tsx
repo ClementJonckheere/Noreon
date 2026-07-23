@@ -10,6 +10,8 @@ import GraphPanel from "@/components/GraphPanel";
 import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
 import SimulationView from "@/components/SimulationView";
+import EvidenceGraph from "@/components/EvidenceGraph";
+import ConfidenceBreakdown from "@/components/ConfidenceBreakdown";
 import DiscoveriesPanel from "@/components/DiscoveriesPanel";
 import WhyChoices from "@/components/WhyChoices";
 import ValidationPanel from "@/components/ValidationPanel";
@@ -958,7 +960,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
         <WhyChoices items={r.explanations} proof={r.proof} />
       )}
 
-      {r.confidence && <ConfidenceBar c={r.confidence} />}
+      {r.confidence && <ConfidenceBreakdown c={r.confidence} />}
 
       {r.chart && r.chart.type !== "table" && r.columns.length > 0 && (
         <ChartBlock columns={r.columns} rows={r.rows} suggestion={r.chart} />
@@ -967,6 +969,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
       {r.columns.length > 0 && (
         <ResultTable columns={r.columns} rows={r.rows} truncated={r.truncated} />
       )}
+
+      {r.status === "answered" && <EvidenceGraph r={r} />}
 
       {r.sources?.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap text-xs text-noreon-soft">

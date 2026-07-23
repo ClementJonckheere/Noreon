@@ -273,6 +273,7 @@ export interface ChatResponse {
     columns_present: number;
     quality_pct: number | null;
     concept: string | null;
+    level: "strong" | "medium" | "weak";
     steps: string[];
   } | null;
   // Validation Engine (« relecture ») : contrôles, hypothèses, fiabilité, verdict.
@@ -285,7 +286,7 @@ export interface ChatResponse {
     options: { column: string; kind: "HT" | "TTC" | null; note: string; recommended: boolean; chosen: boolean }[];
   } | null;
   // Sources citées : tables sur lesquelles s'appuie la réponse (comme un article).
-  sources: { table: string; role: "principale" | "jointe"; quality_pct: number | null }[];
+  sources: { table: string; role: "principale" | "jointe"; quality_pct: number | null; level?: "strong" | "medium" | "weak" }[];
   // « What if ? » : projection d'un scénario.
   simulation: {
     scenario: string;
@@ -343,7 +344,11 @@ export interface ChatResponse {
     recommendations: string[];
     queries: string[];
   } | null;
-  confidence: { percent: number; factors: string[] } | null;
+  confidence: {
+    percent: number;
+    factors: string[];
+    breakdown?: { factor: string; weight_pct: number; subscore_pct: number; contribution_pct: number }[];
+  } | null;
   table_quality: Record<string, number>;
   chart: {
     type: string;

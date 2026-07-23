@@ -115,6 +115,16 @@ def test_chat_count_end_to_end(session_with_conn):
     # Rapport vivant (E) : la réponse cite ses sources (comme un article).
     assert resp.sources and resp.sources[0]["table"] == "customers"
     assert resp.sources[0]["role"] == "principale"
+    # Evidence Graph (G) : niveau de preuve sur les sources et la preuve de table.
+    assert resp.sources[0]["level"] in ("strong", "medium", "weak")
+    assert resp.proof["level"] in ("strong", "medium", "weak")
+    # Confidence breakdown (G) : décomposition pondérée cohérente avec le score.
+    bd = resp.confidence["breakdown"]
+    assert {f["factor"] for f in bd} == {
+        "qualité", "concepts", "relations", "SQL", "couverture", "hypothèses"
+    }
+    total = sum(f["contribution_pct"] for f in bd)
+    assert abs(total - resp.confidence["percent"]) <= 1  # somme ≈ score
 
 
 def test_chat_blocks_write_attempt(session_with_conn):

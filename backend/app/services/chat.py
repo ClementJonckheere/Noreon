@@ -422,9 +422,27 @@ def answer_question(
     )
 
 
+def _evidence_level(*, quality_pct: int | None = None, concept: bool = False,
+                    inferred: bool = False, assumptions: int = 0) -> str:
+    """Niveau de preuve — toutes les preuves n'ont pas la même valeur.
+
+    🟢 forte : FK déclarée / concept validé / qualité > 98 %.
+    🟡 moyenne : relation inférée / concept suggéré / quelques NULL.
+    🔴 faible : heuristique seule / peu de données / hypothèses nombreuses.
+    """
+    if assumptions >= 3 or (quality_pct is not None and quality_pct < 70):
+        return "weak"
+    if (quality_pct is not None and quality_pct >= 98) or concept:
+        if not inferred and assumptions == 0:
+            return "strong"
+    if inferred or assumptions >= 1 or (quality_pct is not None and quality_pct < 90):
+        return "medium"
+    return "strong" if quality_pct is not None else "medium"
+
+
 def _sources(tables_used: list[str], columns_used: list[str], tscores: dict) -> list[dict]:
     """Cite les sources de la réponse (comme un article) : table principale puis
-    tables jointes, avec leur score qualité — pour tracer d'où vient chaque chiffre."""
+    tables jointes, avec leur score qualité et leur niveau de preuve."""
     out: list[dict] = []
     seen: set[str] = set()
     for i, t in enumerate(tables_used or []):
@@ -433,10 +451,12 @@ def _sources(tables_used: list[str], columns_used: list[str], tscores: dict) -> 
             continue
         seen.add(name.lower())
         q = tscores.get(name.lower())
+        qpct = round(q * 100) if q is not None else None
         out.append({
             "table": name,
             "role": "principale" if i == 0 else "jointe",
-            "quality_pct": round(q * 100) if q is not None else None,
+            "quality_pct": qpct,
+            "level": _evidence_level(quality_pct=qpct),
         })
     return out
 
@@ -496,6 +516,8 @@ def _table_proof(db: Session, conn: Connection, snapshot, gen, tscores: dict) ->
         "columns_present": len(present),
         "quality_pct": quality_pct,
         "concept": concept,
+        "level": _evidence_level(quality_pct=quality_pct, concept=bool(concept),
+                                 assumptions=len(gen.assumptions or [])),
         "steps": steps,
     }
 
