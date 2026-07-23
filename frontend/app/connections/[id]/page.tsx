@@ -552,7 +552,7 @@ function ChatPanel({
                 ) : (
                   !t.error && (
                     <div className="text-sm text-noreon-soft flex items-center gap-2">
-                      <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                      <span className="dots"><span /><span /><span /></span>
                       {t.deep
                         ? "Analyse approfondie en cours (requêtes de suivi)…"
                         : "Analyse en cours…"}
@@ -889,7 +889,7 @@ function ChatResult({ r }: { r: ChatResponse }) {
     no_schema: "text-amber-700",
   };
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fade-in">
       {r.status !== "answered" && (
         <div className={`card p-4 text-sm ${statusColor[r.status] || ""}`}>
           <div className="font-medium capitalize mb-1">{r.status}</div>

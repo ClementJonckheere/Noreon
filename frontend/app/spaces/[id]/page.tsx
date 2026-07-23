@@ -223,7 +223,11 @@ function SpaceChat({ space }: { space: SpaceDetail }) {
                 </div>
               </div>
               {t.err && <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{t.err}</div>}
-              {t.r ? <AnswerView r={t.r} /> : !t.err && <div className="text-sm text-noreon-soft">Analyse en cours…</div>}
+              {t.r ? <AnswerView r={t.r} /> : !t.err && (
+                <div className="text-sm text-noreon-soft flex items-center gap-2">
+                  <span className="dots"><span /><span /><span /></span> Analyse en cours…
+                </div>
+              )}
             </div>
           ))}
         </div>

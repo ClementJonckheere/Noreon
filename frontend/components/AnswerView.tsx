@@ -16,7 +16,7 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
     no_schema: "text-amber-700",
   };
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fade-in">
       {r.status !== "answered" && (
         <div className={`card p-4 text-sm ${statusColor[r.status] || ""}`}>
           <div className="font-medium capitalize mb-1">{r.status}</div>

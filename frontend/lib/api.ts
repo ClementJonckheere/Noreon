@@ -26,15 +26,21 @@ export function authHeaders(): Record<string, string> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(),
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+        ...(init?.headers || {}),
+      },
+      cache: "no-store",
+    });
+  } catch {
+    // Erreur réseau (serveur injoignable, coupure) → message humain.
+    throw new Error("Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.");
+  }
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
       clearToken();
@@ -44,6 +50,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const body = await res.json();
       detail = body.detail || JSON.stringify(body);
     } catch {}
+    if (res.status >= 500) detail = "Une erreur est survenue côté serveur. Réessayez dans un instant.";
     throw new Error(detail);
   }
   if (res.status === 204) return undefined as T;
