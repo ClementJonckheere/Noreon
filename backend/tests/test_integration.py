@@ -741,6 +741,49 @@ def test_product_metrics_observability(session_with_conn):
     assert c["avg_sql_ms"] is not None
 
 
+def test_whatif_simulation(session_with_conn):
+    """« What if ? » : « et si le panier moyen augmentait de 10% ? » → projection
+    du CA (hausse), répartition du gain, hypothèses affichées."""
+    from app.services import simulation as sim_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    assert sim_svc.detect("Et si le panier moyen augmentait de 10% ?") is True
+    assert sim_svc.detect("Combien de clients ?") is False
+
+    r = chat_svc.answer_question(db, conn, "Et si le panier moyen augmentait de 10% ?")
+    assert r.status == "answered"
+    s = r.simulation
+    assert s is not None
+    assert s["delta_pct"] == 10
+    # Projection cohérente : à volume constant, le CA monte de ~10%.
+    assert s["projected"]["after"] > s["projected"]["before"]
+    assert 9 <= s["projected"]["delta_pct"] <= 11
+    assert s["assumptions"]  # hypothèses affichées (projection, pas prédiction)
+
+    # Une baisse est bien projetée à la baisse.
+    r2 = chat_svc.answer_question(db, conn, "Et si les ventes baissaient de 20% ?")
+    assert r2.simulation and r2.simulation["projected"]["delta_pct"] < 0
+
+
+def test_usage_metrics_tracking():
+    """Métriques d'usage : les évènements produit sont comptés et agrégés."""
+    from app.services import telemetry
+
+    telemetry.reset()
+    assert telemetry.record_usage("chart_export", "png") is True
+    telemetry.record_usage("chart_export", "png")
+    telemetry.record_usage("insight_drill", "anomaly")
+    assert telemetry.record_usage("inconnu") is False
+    snap = telemetry.usage_snapshot()
+    assert snap["by_event"]["chart_export"] == 2
+    assert snap["by_event"]["insight_drill"] == 1
+    assert snap["top"][0]["count"] >= snap["top"][-1]["count"]
+
+
 def test_company_context_hypotheses(session_with_conn):
     """Contexte d'entreprise (D) : les conventions (TTC, mensuel, France…) sont
     connues du moteur et apparaissent comme hypothèses retenues — sans être

@@ -151,7 +151,10 @@ function DiscoveryCard({
       <div className="mt-1 text-slate-600">{it.narrative || it.detail}</div>
       {it.suggested_question && onAsk && (
         <button
-          onClick={() => onAsk(it.suggested_question!)}
+          onClick={() => {
+            api.recordUsage("insight_drill", it.category);
+            onAsk(it.suggested_question!);
+          }}
           className="mt-1.5 text-indigo-700 underline decoration-dotted hover:opacity-80"
         >
           Creuser →

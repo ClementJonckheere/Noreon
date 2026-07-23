@@ -53,6 +53,8 @@ class ChatResponse:
     measure_options: dict | None = None
     # Sources citées (comme un article) : tables sur lesquelles s'appuie la réponse.
     sources: list[dict] = field(default_factory=list)
+    # « What if ? » : projection d'un scénario (« et si le panier moyen +10% ? »).
+    simulation: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -154,6 +156,37 @@ def answer_question(
     max_conc = tenant_settings.sql_max_concurrent_per_connection if tenant_settings else 1
     guard_args = {"row_limit": row_limit, "timeout_seconds": timeout,
                   "max_cost": max_cost, "max_concurrent": max_conc}
+
+    # 0bis) « What if ? » : question de scénario (« et si le panier moyen
+    # augmentait de 10% ? ») → on projette au lieu d'analyser l'existant.
+    if run_analysis:
+        from app.services import simulation as sim_svc
+
+        if sim_svc.detect(question):
+            try:
+                sim = sim_svc.run_simulation(
+                    db, conn, adapter, question, guard_args=guard_args,
+                    hidden_tables=hidden_tables, hidden_columns=hidden_columns,
+                )
+            except Exception as exc:  # noqa: BLE001 - best-effort
+                log.warning("Simulation indisponible : %s", exc)
+                sim = None
+            if sim is not None:
+                telemetry.record_usage("whatif_run")
+                _log_query(db, conn, question, "-- simulation what-if --", None,
+                           status="ok", row_count=len(sim.breakdown))
+                cols = ["segment", "gain"]
+                rows = [[b["segment"], b["gain"]] for b in sim.breakdown]
+                from app.services.charting import suggest_chart
+
+                chart = suggest_chart(cols, rows) if rows else None
+                return ChatResponse(
+                    status="answered", question=question, message=sim.narrative,
+                    rationale="Projection de scénario (simulation hors-ligne, hypothèses affichées).",
+                    tables_used=[sim.lever], simulation=sim.as_dict(),
+                    columns=cols, rows=rows, row_count=len(rows),
+                    chart=chart.as_dict() if chart else None,
+                )
 
     # 0) Agent d'investigation : pour une question ANALYTIQUE ouverte (« pourquoi
     # les ventes baissent ? »), on planifie et on enchaîne des sous-questions au

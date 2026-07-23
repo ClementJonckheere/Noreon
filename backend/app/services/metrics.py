@@ -98,4 +98,6 @@ def product_metrics(
             "cache_hits": tel["cache_hits"],
             "cache_misses": tel["cache_misses"],
         },
+        # --- Usage (ce qui sert le plus → où investir) ---
+        "usage": telemetry.usage_snapshot(),
     }

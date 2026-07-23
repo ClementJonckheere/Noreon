@@ -9,6 +9,7 @@ import DefinitionsPanel from "@/components/DefinitionsPanel";
 import GraphPanel from "@/components/GraphPanel";
 import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
+import SimulationView from "@/components/SimulationView";
 import DiscoveriesPanel from "@/components/DiscoveriesPanel";
 import WhyChoices from "@/components/WhyChoices";
 import ValidationPanel from "@/components/ValidationPanel";
@@ -932,6 +933,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           )}
         </div>
       )}
+
+      {r.simulation && <SimulationView s={r.simulation} />}
 
       {r.investigation && <InvestigationView inv={r.investigation} />}
 

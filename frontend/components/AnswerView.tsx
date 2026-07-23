@@ -7,6 +7,7 @@ import InvestigationView from "@/components/InvestigationView";
 import WhyChoices from "@/components/WhyChoices";
 import ValidationPanel from "@/components/ValidationPanel";
 import MeasureChoice from "@/components/MeasureChoice";
+import SimulationView from "@/components/SimulationView";
 
 // Rendu d'une réponse d'analyse (partagé chat par connexion / chat d'espace).
 export default function AnswerView({ r }: { r: ChatResponse }) {
@@ -53,6 +54,8 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           )}
         </div>
       )}
+
+      {r.simulation && <SimulationView s={r.simulation} />}
 
       {r.investigation && <InvestigationView inv={r.investigation} />}
 

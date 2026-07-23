@@ -5,6 +5,14 @@ import { api, ProductMetrics } from "@/lib/api";
 
 // Observabilité produit — Noreon mesure son propre fonctionnement.
 // Deux familles : QUALITÉ (rassure le client, pilote le produit) et COÛTS.
+const USAGE_LABEL: Record<string, string> = {
+  insight_drill: "Insights creusés",
+  chart_export: "Graphiques exportés",
+  report_open: "Rapports ouverts",
+  concept_use: "Concepts utilisés",
+  whatif_run: "Simulations lancées",
+};
+
 export default function MetricsPage() {
   const [m, setM] = useState<ProductMetrics | null>(null);
   const [days, setDays] = useState(30);
@@ -70,6 +78,17 @@ export default function MetricsPage() {
               <Tile label="SQL validés" value={pct(m.quality.sql_validation_rate)} good />
             </div>
           </section>
+
+          {Object.keys(m.usage?.by_event || {}).length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-sm font-medium text-fuchsia-700">Usage — ce qui sert le plus</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {Object.entries(m.usage.by_event).map(([ev, n]) => (
+                  <Tile key={ev} label={USAGE_LABEL[ev] || ev} value={num(n)} />
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="space-y-2">
             <h2 className="text-sm font-medium text-sky-700">Coûts</h2>

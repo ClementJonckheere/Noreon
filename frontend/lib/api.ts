@@ -286,6 +286,18 @@ export interface ChatResponse {
   } | null;
   // Sources citées : tables sur lesquelles s'appuie la réponse (comme un article).
   sources: { table: string; role: "principale" | "jointe"; quality_pct: number | null }[];
+  // « What if ? » : projection d'un scénario.
+  simulation: {
+    scenario: string;
+    lever: string;
+    delta_pct: number;
+    metric_label: string;
+    baseline: { count: number; total: number; avg: number };
+    projected: { before: number; after: number; delta_pct: number; delta_abs: number };
+    breakdown: { segment: string; dimension: string; share: number; gain: number }[];
+    assumptions: string[];
+    narrative: string;
+  } | null;
   columns: string[];
   rows: any[][];
   row_count: number;
@@ -474,6 +486,10 @@ export interface ProductMetrics {
     cache_hits: number;
     cache_misses: number;
   };
+  usage: {
+    by_event: Record<string, number>;
+    top: { key: string; count: number }[];
+  };
 }
 
 export interface DiscoveryFingerprint {
@@ -589,6 +605,12 @@ export const api = {
     const qs = p.toString();
     return request<ProductMetrics>(`/metrics${qs ? `?${qs}` : ""}`);
   },
+  // Usage produit (best-effort, silencieux) : signale ce qui sert le plus.
+  recordUsage: (event: string, label?: string) =>
+    request<{ recorded: boolean }>("/metrics/usage", {
+      method: "POST",
+      body: JSON.stringify({ event, label: label ?? null }),
+    }).catch(() => undefined),
 
   // --- Conversations serveur ---
   convList: (id: number, archived = false) =>

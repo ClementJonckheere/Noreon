@@ -5,6 +5,7 @@
 // l'utilisateur peut forcer un autre type. Exports PNG / SVG / CSV.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "@/lib/api";
 
 // Palette catégorielle validée (validate_palette.js, surface #141b2e,
 // tous checks PASS : bande de luminance, chroma, ΔE CVD, contraste ≥3:1).
@@ -207,6 +208,7 @@ export default function ChartBlock({
       backgroundColor: "#141b2e",
     });
     downloadURL(url, "noreon_graphique.png");
+    api.recordUsage("chart_export", "png");
   }
 
   async function exportSVG() {
@@ -222,6 +224,7 @@ export default function ChartBlock({
     tmp.remove();
     const blob = new Blob([svg], { type: "image/svg+xml" });
     downloadURL(URL.createObjectURL(blob), "noreon_graphique.svg");
+    api.recordUsage("chart_export", "svg");
   }
 
   function exportCSV() {
@@ -232,6 +235,7 @@ export default function ChartBlock({
     const csv = [columns.map(esc).join(";"), ...rows.map((r) => r.map(esc).join(";"))].join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
     downloadURL(URL.createObjectURL(blob), "noreon_donnees.csv");
+    api.recordUsage("chart_export", "csv");
   }
 
   if (rows.length < 2) return null;
