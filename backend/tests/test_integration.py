@@ -592,6 +592,52 @@ def test_discoveries_proactive(session_with_conn, monkeypatch):
     assert calls["n"] == 2
 
 
+def test_sql_non_regression(session_with_conn):
+    """Jeu métier de référence (indicateur CDC « ≥ 90 % de requêtes correctes »).
+
+    Chaque question passe par le pipeline complet ; un validateur vérifie la
+    forme du SQL et/ou le résultat. On exige un taux de réussite ≥ 90 %.
+    """
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    def sql(r):
+        return (r.sql or "").lower()
+
+    CASES = [
+        ("Combien de clients ?", lambda r: r.rows[0][0] == 500 and "count(*)" in sql(r)),
+        ("Nombre de commandes", lambda r: r.rows[0][0] == 3000),
+        ("Combien de produits ?", lambda r: r.rows[0][0] == 80),
+        ("Montre les magasins", lambda r: r.row_count == 4),
+        ("Montant total des commandes", lambda r: "sum(amount_ttc)" in sql(r) and r.rows[0][0] > 0),
+        ("Quel est le montant moyen des commandes ?", lambda r: "avg(amount_ttc)" in sql(r)),
+        ("Montant total des commandes par mois",
+         lambda r: "group by" in sql(r) and r.row_count >= 12),
+        ("Nombre de commandes par magasin",
+         lambda r: "group by" in sql(r) and r.row_count >= 1),
+        ("Top 5 clients par loyalty_points",
+         lambda r: r.row_count == 5 and "order by" in sql(r) and "desc" in sql(r)),
+        ("Montant total des commandes par magasin",
+         lambda r: "sum(amount_ttc)" in sql(r) and "group by" in sql(r)),
+    ]
+
+    passed, failures = 0, []
+    for question, ok in CASES:
+        try:
+            resp = chat_svc.answer_question(db, conn, question, deep_analysis=False)
+            if resp.status == "answered" and ok(resp):
+                passed += 1
+            else:
+                failures.append(f"{question} → status={resp.status}, sql={resp.sql}")
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{question} → exception {exc}")
+
+    rate = passed / len(CASES)
+    assert rate >= 0.9, f"Taux de réussite {rate:.0%} < 90% — échecs : {failures}"
+
+
 def test_agent_investigation_multi_step(session_with_conn):
     """Question ANALYTIQUE ouverte → l'agent planifie, enchaîne des
     sous-questions et synthétise (vrai moteur de raisonnement)."""
