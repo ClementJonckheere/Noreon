@@ -275,6 +275,8 @@ export interface ChatResponse {
     concept: string | null;
     steps: string[];
   } | null;
+  // Validation Engine (« relecture ») : contrôles, hypothèses, fiabilité, verdict.
+  validation: ValidationReport | null;
   columns: string[];
   rows: any[][];
   row_count: number;
@@ -424,6 +426,16 @@ export interface DiscoveryItem {
   column: string | null;
   suggested_question: string | null;
 }
+export interface ValidationReport {
+  checks: { key: string; label: string; status: "pass" | "warn" | "fail"; detail: string }[];
+  hypotheses: string[];
+  reliability_percent: number;
+  reliability_stars: number;
+  reliability_factors: { label: string; status: "ok" | "warn" | "fail" }[];
+  verdict: "cannot_conclude" | null;
+  verdict_note: string | null;
+}
+
 export interface ProductMetrics {
   window_days: number;
   total_analyses: number;

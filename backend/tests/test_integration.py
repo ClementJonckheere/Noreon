@@ -738,6 +738,61 @@ def test_product_metrics_observability(session_with_conn):
     assert c["avg_sql_ms"] is not None
 
 
+def test_validation_engine_relecture(session_with_conn):
+    """Le Validation Engine « relit » chaque analyse : contrôles, hypothèses
+    explicites, score de fiabilité du rapport."""
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    r = chat_svc.answer_question(db, conn, "Montant total des commandes par mois",
+                                 deep_analysis=False)
+    assert r.status == "answered"
+    val = r.validation
+    assert val is not None
+    # Des contrôles ont été exécutés (mesure, dates, NULL, volume…).
+    keys = {c["key"] for c in val["checks"]}
+    assert {"measure", "row_count"} & keys
+    assert all(c["status"] in ("pass", "warn", "fail") for c in val["checks"])
+    # Hypothèses rendues explicites (au moins la mesure).
+    assert any("Mesure" in h for h in val["hypotheses"])
+    # Score de fiabilité du RAPPORT + étoiles + facteurs.
+    assert 0 <= val["reliability_percent"] <= 100
+    assert 1 <= val["reliability_stars"] <= 5
+    assert val["reliability_factors"]
+    # Une question factuelle n'est pas causale → pas de verdict « cannot_conclude ».
+    assert val["verdict"] is None
+
+
+def test_validation_cannot_conclude(session_with_conn):
+    """« Je ne peux pas conclure » — distinct de « impossible de répondre » :
+    l'analyse tourne mais aucune cause n'est établissable."""
+    from app.services import validation as validation_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    v = validation_svc.validate(
+        db, conn, question="Pourquoi le CA baisse ?", sql="SELECT 1",
+        tables_used=["orders"], columns_used=["amount_ttc"],
+        row_count=12, truncated=False, assumptions=[],
+        confidence_score=0.9, has_drivers=False, causal_hint=True,
+    )
+    assert v.verdict == "cannot_conclude"
+    assert "lien de causalité" in (v.verdict_note or "")
+    # Avec un driver identifié, plus de verdict d'impuissance.
+    v2 = validation_svc.validate(
+        db, conn, question="Pourquoi le CA baisse ?", sql="SELECT 1",
+        tables_used=["orders"], columns_used=["amount_ttc"],
+        row_count=12, truncated=False, assumptions=[],
+        confidence_score=0.9, has_drivers=True, causal_hint=True,
+    )
+    assert v2.verdict is None
+
+
 def test_agent_investigation_multi_step(session_with_conn):
     """Question ANALYTIQUE ouverte → l'agent planifie, enchaîne des
     sous-questions et synthétise (vrai moteur de raisonnement)."""

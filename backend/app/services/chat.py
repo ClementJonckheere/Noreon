@@ -46,6 +46,9 @@ class ChatResponse:
     # « Preuve » quantifiée du choix de table (couverture colonnes, score qualité,
     # concept métier validé) — transforme la justification en démonstration.
     proof: dict | None = None
+    # Validation Engine (« relecture ») : contrôles, hypothèses explicites,
+    # score de fiabilité du rapport, verdict « je ne peux pas conclure ».
+    validation: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -165,6 +168,17 @@ def answer_question(
                 )
                 _log_query(db, conn, question, "-- investigation multi-étapes --", None,
                            status="ok", row_count=len(inv.steps), confidence=conf.as_dict())
+                # Relecture : sur une investigation causale, le moteur peut
+                # conclure « je ne peux pas conclure » s'il n'a pas isolé de driver.
+                from app.services import validation as validation_svc
+
+                inv_validation = validation_svc.validate(
+                    db, conn, question=question, sql="",
+                    tables_used=[inv.subject], columns_used=inv.trend_columns,
+                    row_count=len(inv.trend_rows), truncated=False, assumptions=[],
+                    confidence_score=conf.score, has_drivers=bool(inv.key_drivers),
+                    causal_hint=True,
+                ).as_dict()
                 return ChatResponse(
                     status="answered", question=question,
                     message=agent_svc.summary_message(inv),
@@ -172,6 +186,7 @@ def answer_question(
                     tables_used=[inv.subject],
                     columns=inv.trend_columns, rows=inv.trend_rows, row_count=len(inv.trend_rows),
                     investigation=inv.as_dict(), confidence=conf.as_dict(),
+                    validation=inv_validation,
                     chart=chart.as_dict() if chart else None,
                 )
 
@@ -331,11 +346,25 @@ def answer_question(
     explanations = _explanations(db, snapshot, gen, result.guarded_sql, chart)
     proof = _table_proof(db, conn, snapshot, gen, tscores)
 
+    # Validation Engine (« relecture ») : le moteur vérifie sa propre analyse
+    # avant de la montrer (mesure, dates, NULL, duplication, volume) et en
+    # calcule la fiabilité + les hypothèses retenues.
+    from app.services import validation as validation_svc
+
+    has_drivers = bool(deep and deep.get("drivers"))
+    validation = validation_svc.validate(
+        db, conn, question=question, sql=result.guarded_sql,
+        tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
+        row_count=result.row_count, truncated=result.truncated,
+        assumptions=gen.assumptions, confidence_score=conf.score,
+        has_drivers=has_drivers,
+    ).as_dict()
+
     return ChatResponse(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
         assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
-        proof=proof,
+        proof=proof, validation=validation,
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,

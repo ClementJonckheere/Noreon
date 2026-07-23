@@ -11,6 +11,7 @@ import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
 import DiscoveriesPanel from "@/components/DiscoveriesPanel";
 import WhyChoices from "@/components/WhyChoices";
+import ValidationPanel from "@/components/ValidationPanel";
 import {
   api,
   API_BASE,
@@ -944,6 +945,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           LLM, ré-identifiées localement.
         </div>
       )}
+
+      {r.validation && <ValidationPanel v={r.validation} />}
 
       {(r.explanations?.length > 0 || r.proof) && (
         <WhyChoices items={r.explanations} proof={r.proof} />

@@ -5,6 +5,7 @@ import ChartBlock from "@/components/ChartBlock";
 import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
 import WhyChoices from "@/components/WhyChoices";
+import ValidationPanel from "@/components/ValidationPanel";
 
 // Rendu d'une réponse d'analyse (partagé chat par connexion / chat d'espace).
 export default function AnswerView({ r }: { r: ChatResponse }) {
@@ -63,6 +64,8 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           : {r.privacy.values_protected} valeur(s) pseudonymisée(s).
         </div>
       )}
+
+      {r.validation && <ValidationPanel v={r.validation} />}
 
       {(r.explanations?.length > 0 || r.proof) && (
         <WhyChoices items={r.explanations} proof={r.proof} />
