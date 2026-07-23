@@ -593,6 +593,20 @@ def test_discoveries_proactive(session_with_conn, monkeypatch):
     disc_svc.cached_discoveries(db, conn, cfg, force=True)
     assert calls["n"] == 2
 
+    # Versionnement par empreinte : l'insight porte son empreinte à 3 composants
+    # (schéma / profils / qualité) et une empreinte combinée déterministe.
+    fp = first["fingerprint"]
+    assert set(fp) == {"schema", "profiles", "quality", "combined"}
+    assert all(isinstance(fp[k], str) and fp[k] for k in fp)
+    # Empreinte reproductible tant que les données ne bougent pas.
+    assert disc_svc._fingerprint(db, conn, disc_svc.current_snapshot(db, conn))["combined"] == fp["combined"]
+    # Si le schéma change, l'empreinte schéma change → obsolescence explicable.
+    prev = dict(fp)
+    changed = {**fp, "schema": "deadbeef0000"}
+    assert disc_svc._stale_reason(changed, prev) == ["schéma"]
+    assert disc_svc._stale_reason({**fp, "quality": "0000deadbeef"}, prev) == ["qualité"]
+    assert disc_svc._stale_reason(None, prev) == []
+
 
 def test_sql_non_regression(session_with_conn):
     """Jeu métier de référence (indicateur CDC « ≥ 90 % de requêtes correctes »).

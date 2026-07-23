@@ -414,12 +414,23 @@ export interface DiscoveryItem {
   column: string | null;
   suggested_question: string | null;
 }
+export interface DiscoveryFingerprint {
+  schema: string;
+  profiles: string;
+  quality: string;
+  combined: string;
+}
 export interface Discoveries {
   scanned: boolean;
   counts: Record<string, number>;
   levels: { critical: number; important: number; opportunity: number; info: number };
   headline: string[];
   items: DiscoveryItem[];
+  cached?: boolean;
+  // Versionnement par empreinte : hash(schéma)+hash(profils)+hash(qualité).
+  fingerprint?: DiscoveryFingerprint;
+  // Composants ayant changé depuis le dernier calcul (pourquoi l'insight a été refait).
+  stale_reason?: string[];
 }
 
 // ---- Endpoints ----

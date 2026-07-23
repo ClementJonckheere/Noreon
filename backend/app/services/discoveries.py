@@ -13,6 +13,7 @@ Tout est calculé HORS-LIGNE à partir de signaux déjà produits :
 """
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -23,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models.profile import ColumnProfile
+from app.models.quality import QualityScore
 from app.models.schema_catalog import DbRelation, SchemaSnapshot
 from app.services.deep_analysis import (
     _date_bucket,
@@ -286,47 +288,139 @@ def _temporal_findings(db, conn, adapter, findings, hidden_tables, hidden_column
 
 
 # ---------------------------------------------------------------------------
-# Cache (perf) : les Insights sont rejoués à chaque ouverture du chat. On évite
-# de relancer la requête source à chaque fois — cache in-process par
-# (connexion, version de schéma), avec TTL et invalidation au re-scan.
+# Cache versionné par EMPREINTE (perf + traçabilité).
+#
+# Les Insights dépendent de trois sources : le SCHÉMA (tables/colonnes/relations),
+# les PROFILS (statistiques de contenu) et la QUALITÉ (scores auditables). On
+# calcule une empreinte pour chacune ; leur combinaison est la clé de cache.
+#
+#     Insight → hash(schéma) + hash(profils) + hash(qualité) → clé de cache
+#
+# Avantage décisif : quand un insight est recalculé, on sait EXACTEMENT pourquoi
+# l'ancien est devenu obsolète (le schéma a changé ? un re-profilage ? un
+# nouveau calcul qualité ?). L'empreinte détaillée et la raison d'obsolescence
+# sont exposées dans la réponse (`fingerprint`, `stale_reason`).
 # ---------------------------------------------------------------------------
-_CACHE: dict[tuple[int, int], tuple[float, dict]] = {}
+_CACHE: dict[tuple[int, str], tuple[float, dict]] = {}
+_LAST_FP: dict[int, dict] = {}   # dernière empreinte connue par connexion (pour le diff)
 _CACHE_LOCK = threading.Lock()
 _TTL_SECONDS = 300
 
+_FP_LABELS = {"schema": "schéma", "profiles": "profils", "quality": "qualité"}
 
-def cached_discoveries(db: Session, conn, adapter, *, force: bool = False,
-                       ttl: int = _TTL_SECONDS) -> dict:
-    snapshot = db.execute(
+
+def current_snapshot(db: Session, conn):
+    """Snapshot de schéma courant d'une connexion (ou None)."""
+    return db.execute(
         select(SchemaSnapshot).where(
             SchemaSnapshot.connection_id == conn.id, SchemaSnapshot.is_current.is_(True)
         )
     ).scalar_one_or_none()
+
+
+def _short(payload: str) -> str:
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _fingerprint(db: Session, conn, snapshot) -> dict:
+    """Empreinte des trois dépendances d'un insight : schéma, profils, qualité.
+
+    Chaque composant est un hash court, stable et déterministe des signaux réels.
+    """
+    # Schéma : la signature du snapshot est déjà un sha256 du schéma (Module 2),
+    # on y adjoint version + relations (une validation de relation change la carte).
+    rel_sig = db.execute(
+        select(DbRelation.from_table, DbRelation.from_column, DbRelation.to_table,
+               DbRelation.status, DbRelation.integrity_ratio)
+        .where(DbRelation.snapshot_id == snapshot.id)
+        .order_by(DbRelation.from_table, DbRelation.from_column, DbRelation.to_table)
+    ).all()
+    schema_fp = _short(f"{snapshot.signature}|v{snapshot.version}|"
+                       + ";".join(f"{a}.{b}->{c}:{s}:{i}" for a, b, c, s, i in rel_sig))
+
+    # Profils : métriques qui font varier les insights (NULL, invalides, type, PII).
+    prof_sig = db.execute(
+        select(ColumnProfile.table_name, ColumnProfile.column_name,
+               ColumnProfile.null_rate, ColumnProfile.invalid_count,
+               ColumnProfile.detected_type, ColumnProfile.pii_type)
+        .where(ColumnProfile.connection_id == conn.id)
+        .order_by(ColumnProfile.table_name, ColumnProfile.column_name)
+    ).all()
+    profiles_fp = _short("|".join(
+        f"{t}.{c}:{nr}:{iv}:{dt}:{pii}" for t, c, nr, iv, dt, pii in prof_sig
+    )) if prof_sig else "none"
+
+    # Qualité : scores auditables (base/table/relation/colonne).
+    qual_sig = db.execute(
+        select(QualityScore.level, QualityScore.table_name, QualityScore.column_name,
+               QualityScore.relation_ref, QualityScore.score)
+        .where(QualityScore.connection_id == conn.id)
+        .order_by(QualityScore.level, QualityScore.table_name,
+                  QualityScore.column_name, QualityScore.relation_ref)
+    ).all()
+    quality_fp = _short("|".join(
+        f"{lv}:{t}:{c}:{r}:{round(s or 0, 4)}" for lv, t, c, r, s in qual_sig
+    )) if qual_sig else "none"
+
+    combined = _short(f"{schema_fp}+{profiles_fp}+{quality_fp}")
+    return {"schema": schema_fp, "profiles": profiles_fp,
+            "quality": quality_fp, "combined": combined}
+
+
+def _stale_reason(previous: dict | None, current: dict) -> list[str]:
+    """Explique pourquoi l'insight précédent est périmé : composant(s) modifié(s)."""
+    if previous is None:
+        return []
+    reasons = []
+    for comp, label in _FP_LABELS.items():
+        if previous.get(comp) != current.get(comp):
+            reasons.append(label)
+    return reasons
+
+
+def cached_discoveries(db: Session, conn, adapter, *, force: bool = False,
+                       ttl: int = _TTL_SECONDS) -> dict:
+    snapshot = current_snapshot(db, conn)
     if snapshot is None:
         return Discoveries(scanned=False).as_dict()
 
-    key = (conn.id, snapshot.id)
+    # L'empreinte est peu coûteuse (quelques SELECT de métadonnées) — bien moins
+    # que run_discoveries (qui rejoue la requête temporelle sur la source).
+    fp = _fingerprint(db, conn, snapshot)
+    key = (conn.id, fp["combined"])
     now = time.time()
     if not force:
         with _CACHE_LOCK:
             hit = _CACHE.get(key)
+        # Tant que l'empreinte est identique, l'insight reste valide (le TTL n'est
+        # qu'un garde-fou : c'est le contenu réel qui gouverne l'obsolescence).
         if hit is not None and (now - hit[0]) < ttl:
             out = dict(hit[1])
             out["cached"] = True
             return out
 
+    with _CACHE_LOCK:
+        previous = _LAST_FP.get(conn.id)
+    reasons = _stale_reason(previous, fp)
+
     value = run_discoveries(db, conn, adapter).as_dict()
     value["cached"] = False
+    value["fingerprint"] = fp
+    value["stale_reason"] = reasons
     with _CACHE_LOCK:
         _CACHE[key] = (now, value)
-        # Purge des versions de schéma périmées pour cette connexion.
+        _LAST_FP[conn.id] = fp
+        # Purge des empreintes périmées pour cette connexion.
         for k in [k for k in _CACHE if k[0] == conn.id and k != key]:
             _CACHE.pop(k, None)
     return value
 
 
 def invalidate(connection_id: int) -> None:
-    """À appeler après un re-scan / re-profilage pour rafraîchir les Insights."""
+    """À appeler après un re-scan / re-profilage pour rafraîchir les Insights.
+
+    On ne touche pas à `_LAST_FP` : garder la dernière empreinte permet, au
+    prochain calcul, d'expliquer QUEL composant a changé (stale_reason)."""
     with _CACHE_LOCK:
         for k in [k for k in _CACHE if k[0] == connection_id]:
             _CACHE.pop(k, None)

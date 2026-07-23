@@ -104,6 +104,31 @@ export default function DiscoveriesPanel({
           <DiscoveryCard key={i} it={it} onAsk={onAsk} />
         ))}
       </div>
+
+      {/* Versionnement par empreinte : on sait EXACTEMENT sur quoi l'insight
+          est calé et pourquoi il a été rafraîchi. */}
+      {d.fingerprint && (
+        <div className="pt-1 flex items-center gap-2 flex-wrap text-[11px] text-noreon-soft">
+          <span title="Empreinte des dépendances de l'insight">
+            🔖 version{" "}
+            <code className="mono">{d.fingerprint.combined}</code>
+          </span>
+          <span className="text-noreon-border">·</span>
+          <span title="schéma / profils / qualité">
+            schéma <code className="mono">{d.fingerprint.schema}</code> · profils{" "}
+            <code className="mono">{d.fingerprint.profiles}</code> · qualité{" "}
+            <code className="mono">{d.fingerprint.quality}</code>
+          </span>
+          {d.stale_reason && d.stale_reason.length > 0 && (
+            <span className="badge bg-amber-500/10 text-amber-700">
+              recalculé : {d.stale_reason.join(", ")} modifié(s)
+            </span>
+          )}
+          {d.cached && (
+            <span className="badge bg-emerald-500/10 text-emerald-700">au cache</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
