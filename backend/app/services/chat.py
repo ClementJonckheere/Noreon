@@ -49,6 +49,8 @@ class ChatResponse:
     # Validation Engine (« relecture ») : contrôles, hypothèses explicites,
     # score de fiabilité du rapport, verdict « je ne peux pas conclure ».
     validation: dict | None = None
+    # Arbitrage de mesure (montants contradictoires) : recommandation + pourquoi.
+    measure_options: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -364,7 +366,7 @@ def answer_question(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
         assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
-        proof=proof, validation=validation,
+        proof=proof, validation=validation, measure_options=gen.measure_options,
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,

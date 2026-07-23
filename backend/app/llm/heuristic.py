@@ -251,6 +251,80 @@ class HeuristicProvider(LLMProvider):
         # laisse le pipeline traiter la partie reconnue).
         return unknown if unknown and len(unknown) == len(tail_tokens) else None
 
+    # --- Arbitrage des mesures monétaires (piège HT / TTC) ---
+    _MONEY_RE = re.compile(r"amount|montant|\bprice\b|prix|revenue|revenu|turnover|\bca\b|sales?_?value|net_price", re.I)
+
+    @staticmethod
+    def _money_kind(name: str) -> str | None:
+        low = _norm(name)
+        toks = set(_tokens(name))
+        if "ttc" in toks or "_ttc" in low or {"gross", "incl", "brut"} & toks:
+            return "TTC"
+        if "ht" in toks or "_ht" in low or {"net", "hors"} & toks or "net_price" in low:
+            return "HT"
+        return None
+
+    def _monetary_columns(self, table: _Table, exclude: set[str]) -> list[_Column]:
+        return [c for c in table.columns
+                if _is_numeric(c.dtype) and not c.is_pk
+                and not c.name.lower().endswith("id")
+                and c.name not in exclude
+                and self._MONEY_RE.search(c.name)]
+
+    def _arbitrate_measure(
+        self, monetary: list[_Column], q: str, prechosen: _Column | None
+    ) -> tuple[_Column, dict | None]:
+        """Choisit la mesure et documente l'arbitrage.
+
+        Règle : TTC par défaut (référence du chiffre d'affaires), sauf si la
+        question demande explicitement du HT / net. Une mention explicite « TTC »
+        ou « HT » dans la question fait foi ; sinon on RECOMMANDE le TTC."""
+        wants_ht = bool(re.search(r"\bht\b|hors[- ]taxe|\bnet\b", q))
+        wants_ttc = bool(re.search(r"\bttc\b|toutes[- ]taxes|\bbrut\b", q))
+        ttc = next((c for c in monetary if self._money_kind(c.name) == "TTC"), None)
+        ht = next((c for c in monetary if self._money_kind(c.name) == "HT"), None)
+
+        if wants_ht and ht is not None:
+            chosen = ht
+        elif wants_ttc and ttc is not None:
+            chosen = ttc
+        elif prechosen is not None and self._money_kind(prechosen.name) == "TTC":
+            chosen = prechosen
+        else:
+            chosen = ttc or prechosen or monetary[0]
+
+        if len(monetary) < 2:
+            return chosen, None
+
+        def describe(c: _Column) -> str:
+            k = self._money_kind(c.name)
+            return {"TTC": "TTC (toutes taxes comprises)", "HT": "HT (hors taxes)"}.get(k, "nature ambiguë")
+
+        options = [{
+            "column": c.name,
+            "kind": self._money_kind(c.name),
+            "note": describe(c),
+            "recommended": c.name == (ttc.name if ttc else chosen.name),
+            "chosen": c.name == chosen.name,
+        } for c in monetary]
+
+        if self._money_kind(chosen.name) == "TTC":
+            reason = (f"Trois mesures possibles ; je retiens « {chosen.name} » : c'est le montant "
+                      "TTC, référence du chiffre d'affaires. Un montant HT ou un montant brut "
+                      "sans taxe donneraient un total différent.")
+        elif wants_ht:
+            reason = (f"Vous demandez le HT : je retiens « {chosen.name} ». À noter qu'un montant "
+                      "TTC existe (référence habituelle du CA).")
+        else:
+            reason = (f"Plusieurs montants coexistent ; « {chosen.name} » est de nature ambiguë. "
+                      "Vérifiez s'il s'agit de HT ou de TTC — je recommande une mesure TTC explicite.")
+        return chosen, {
+            "chosen": chosen.name,
+            "chosen_kind": self._money_kind(chosen.name),
+            "options": options,
+            "reason": reason,
+        }
+
     def _pick_column(
         self,
         table: _Table,
@@ -469,6 +543,16 @@ class HeuristicProvider(LLMProvider):
             if group and not group[2]:
                 excluded.add(group[0])
             col = self._pick_column(table, q_tokens, numeric_only=True, exclude=excluded)
+            # Arbitrage des mesures monétaires : quand plusieurs montants coexistent
+            # (amount / amount_ttc / net_price), le moteur RECOMMANDE le TTC et
+            # documente le choix plutôt que de deviner en silence.
+            measure_options = None
+            monetary = self._monetary_columns(table, excluded)
+            money_q = bool(re.search(r"montant|chiffre|\bca\b|revenu|prix|somme|total", q))
+            if monetary and (col is None or col in monetary or money_q):
+                col, measure_options = self._arbitrate_measure(monetary, q, col)
+                if measure_options:
+                    assumptions.append(measure_options["reason"])
             if col is None:
                 # Hypothèse explicite (jamais silencieuse) : s'il n'existe
                 # qu'UNE colonne numérique métier (hors clés techniques),
@@ -505,6 +589,7 @@ class HeuristicProvider(LLMProvider):
                     tables_used=[table.fq],
                     columns_used=[col.name, galias],
                     assumptions=assumptions,
+                    measure_options=measure_options,
                     rationale=f"Calcul de {fn} sur {table.name}, ventilé par {galias}.",
                 )
             sql = f"SELECT {fn}({col.name}) AS {fn}_{col.name} FROM {table.fq}"
@@ -514,6 +599,7 @@ class HeuristicProvider(LLMProvider):
                 tables_used=[table.fq],
                 columns_used=[col.name],
                 assumptions=assumptions,
+                measure_options=measure_options,
                 rationale=f"Question interprétée comme un calcul de {fn} sur {table.name}.",
             )
 

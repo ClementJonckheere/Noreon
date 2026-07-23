@@ -12,6 +12,7 @@ import InvestigationView from "@/components/InvestigationView";
 import DiscoveriesPanel from "@/components/DiscoveriesPanel";
 import WhyChoices from "@/components/WhyChoices";
 import ValidationPanel from "@/components/ValidationPanel";
+import MeasureChoice from "@/components/MeasureChoice";
 import {
   api,
   API_BASE,
@@ -945,6 +946,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
           LLM, ré-identifiées localement.
         </div>
       )}
+
+      {r.measure_options && <MeasureChoice m={r.measure_options} />}
 
       {r.validation && <ValidationPanel v={r.validation} />}
 

@@ -277,6 +277,13 @@ export interface ChatResponse {
   } | null;
   // Validation Engine (« relecture ») : contrôles, hypothèses, fiabilité, verdict.
   validation: ValidationReport | null;
+  // Arbitrage de mesure : plusieurs montants possibles → recommandation + pourquoi.
+  measure_options: {
+    chosen: string;
+    chosen_kind: "HT" | "TTC" | null;
+    reason: string;
+    options: { column: string; kind: "HT" | "TTC" | null; note: string; recommended: boolean; chosen: boolean }[];
+  } | null;
   columns: string[];
   rows: any[][];
   row_count: number;

@@ -32,6 +32,9 @@ class SQLGenerationResult:
     # (ex. un filtre « clients heureux » sans colonne correspondante). Le moteur
     # préfère refuser plutôt que de deviner silencieusement.
     unanswerable: str | None = None
+    # Arbitrage de mesure : quand plusieurs montants coexistent (amount / amount_ttc
+    # / net_price), le moteur explique le choix et RECOMMANDE (TTC par défaut).
+    measure_options: dict | None = None
     rationale: str = ""
 
 
