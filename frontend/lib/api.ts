@@ -265,6 +265,16 @@ export interface ChatResponse {
   assumptions: string[];
   rationale: string;
   explanations: string[];
+  // Preuve quantifiée du choix de table (couverture / qualité / concept validé).
+  proof: {
+    table: string;
+    coverage_pct: number;
+    columns_needed: number;
+    columns_present: number;
+    quality_pct: number | null;
+    concept: string | null;
+    steps: string[];
+  } | null;
   columns: string[];
   rows: any[][];
   row_count: number;

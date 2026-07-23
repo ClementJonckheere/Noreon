@@ -106,6 +106,12 @@ def test_chat_count_end_to_end(session_with_conn):
     assert resp.confidence["factors"]  # jamais décoratif
     # Explicabilité : chaque réponse justifie ses choix (au moins la table).
     assert resp.explanations and any("Table" in e for e in resp.explanations)
+    # Explicabilité « preuve » : le choix de table est démontré, pas seulement
+    # affirmé — couverture des colonnes nécessaires + étapes vérifiables.
+    assert resp.proof is not None
+    assert resp.proof["table"] == "customers"
+    assert resp.proof["coverage_pct"] == 100  # comptage : aucune colonne manquante
+    assert resp.proof["steps"] and "colonnes nécessaires" in resp.proof["steps"][0]
 
 
 def test_chat_blocks_write_attempt(session_with_conn):

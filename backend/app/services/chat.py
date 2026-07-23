@@ -41,6 +41,9 @@ class ChatResponse:
     assumptions: list[str] = field(default_factory=list)
     rationale: str = ""
     explanations: list[str] = field(default_factory=list)
+    # « Preuve » quantifiée du choix de table (couverture colonnes, score qualité,
+    # concept métier validé) — transforme la justification en démonstration.
+    proof: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -318,17 +321,78 @@ def answer_question(
     # Explicabilité « preuve » : pourquoi cette table, ces colonnes, cette
     # jointure, ce graphique — chaque choix est justifié (retour produit).
     explanations = _explanations(db, snapshot, gen, result.guarded_sql, chart)
+    proof = _table_proof(db, conn, snapshot, gen, tscores)
 
     return ChatResponse(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
         assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
+        proof=proof,
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
         analysis=analysis, deep=deep, confidence=conf.as_dict(), table_quality=table_quality,
         chart=chart, privacy=protection.audit,
     )
+
+
+def _table_proof(db: Session, conn: Connection, snapshot, gen, tscores: dict) -> dict | None:
+    """Transforme « pourquoi cette table ? » en PREUVE chiffrée et vérifiable :
+
+        - couverture : X% des colonnes nécessaires sont présentes dans la table ;
+        - qualité    : score qualité auditable de la table ;
+        - concept    : concept métier VALIDÉ (boucle humaine) rattaché à la table.
+    """
+    if snapshot is None or not gen.tables_used:
+        return None
+    from app.models.schema_catalog import DbColumn, DbTable
+    from app.models.semantic import BusinessConcept, ConceptMapping
+
+    table = gen.tables_used[0].split(".")[-1]
+
+    # Colonnes réelles du schéma (pour distinguer les vraies références des alias
+    # calculés comme « periode » ou « total »).
+    rows = db.execute(
+        select(DbTable.table_name, DbColumn.name)
+        .join(DbColumn, DbColumn.table_id == DbTable.id)
+        .where(DbTable.snapshot_id == snapshot.id)
+    ).all()
+    all_cols = {c.lower() for _, c in rows}
+    table_cols = {c.lower() for t, c in rows if t.lower() == table.lower()}
+
+    used = [c.lower() for c in (gen.columns_used or [])]
+    needed = [c for c in used if c in all_cols]          # vraies colonnes citées
+    present = [c for c in needed if c in table_cols]
+    coverage = round(len(present) / len(needed) * 100) if needed else 100
+    quality_pct = round(tscores.get(table.lower(), 0) * 100) if tscores.get(table.lower()) else None
+
+    # Concept métier VALIDÉ rattaché à cette table (mémoire entreprise).
+    concept = db.execute(
+        select(BusinessConcept.name)
+        .join(ConceptMapping, ConceptMapping.concept_id == BusinessConcept.id)
+        .where(
+            ConceptMapping.connection_id == conn.id,
+            ConceptMapping.table_name == table,
+            ConceptMapping.status.in_(("validated", "corrected")),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+
+    steps = [f"{coverage}% des colonnes nécessaires présentes"
+             + (f" ({len(present)}/{len(needed)})" if needed else "")]
+    if quality_pct is not None:
+        steps.append(f"score qualité {quality_pct}%")
+    if concept:
+        steps.append(f"concept validé : {concept}")
+    return {
+        "table": table,
+        "coverage_pct": coverage,
+        "columns_needed": len(needed),
+        "columns_present": len(present),
+        "quality_pct": quality_pct,
+        "concept": concept,
+        "steps": steps,
+    }
 
 
 def _explanations(db: Session, snapshot, gen, guarded_sql: str, chart: dict | None) -> list[str]:

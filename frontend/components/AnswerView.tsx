@@ -64,7 +64,9 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
         </div>
       )}
 
-      {r.explanations?.length > 0 && <WhyChoices items={r.explanations} />}
+      {(r.explanations?.length > 0 || r.proof) && (
+        <WhyChoices items={r.explanations} proof={r.proof} />
+      )}
 
       {r.confidence && (
         <div className="card p-4">
