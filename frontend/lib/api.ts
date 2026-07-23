@@ -489,7 +489,8 @@ export const api = {
       body: JSON.stringify({ question, deep_analysis: deep }),
     }),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
-  discoveries: (id: number) => request<Discoveries>(`/connections/${id}/discoveries`),
+  discoveries: (id: number, force = false) =>
+    request<Discoveries>(`/connections/${id}/discoveries${force ? "?refresh=true" : ""}`),
 
   // --- Conversations serveur ---
   convList: (id: number, archived = false) =>

@@ -30,6 +30,9 @@ def scan(
     adapter = conn_svc.get_source_adapter(conn)
     snapshot, changed = scanner.scan_and_persist(db, conn, adapter)
     db.commit()
+    from app.services import discoveries as disc_svc
+
+    disc_svc.invalidate(conn.id)  # Insights à recalculer après un scan
     return ScanOut(
         snapshot_id=snapshot.id, version=snapshot.version, signature=snapshot.signature,
         table_count=snapshot.table_count, changed=changed,

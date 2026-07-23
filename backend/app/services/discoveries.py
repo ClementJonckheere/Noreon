@@ -13,6 +13,8 @@ Tout est calculé HORS-LIGNE à partir de signaux déjà produits :
 """
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import asdict, dataclass, field
 from statistics import mean, pstdev
 
@@ -281,3 +283,50 @@ def _temporal_findings(db, conn, adapter, findings, hidden_tables, hidden_column
                         table=fact.name,
                         suggested_question=f"Que s'est-il passé en {per} ?",
                     ))
+
+
+# ---------------------------------------------------------------------------
+# Cache (perf) : les Insights sont rejoués à chaque ouverture du chat. On évite
+# de relancer la requête source à chaque fois — cache in-process par
+# (connexion, version de schéma), avec TTL et invalidation au re-scan.
+# ---------------------------------------------------------------------------
+_CACHE: dict[tuple[int, int], tuple[float, dict]] = {}
+_CACHE_LOCK = threading.Lock()
+_TTL_SECONDS = 300
+
+
+def cached_discoveries(db: Session, conn, adapter, *, force: bool = False,
+                       ttl: int = _TTL_SECONDS) -> dict:
+    snapshot = db.execute(
+        select(SchemaSnapshot).where(
+            SchemaSnapshot.connection_id == conn.id, SchemaSnapshot.is_current.is_(True)
+        )
+    ).scalar_one_or_none()
+    if snapshot is None:
+        return Discoveries(scanned=False).as_dict()
+
+    key = (conn.id, snapshot.id)
+    now = time.time()
+    if not force:
+        with _CACHE_LOCK:
+            hit = _CACHE.get(key)
+        if hit is not None and (now - hit[0]) < ttl:
+            out = dict(hit[1])
+            out["cached"] = True
+            return out
+
+    value = run_discoveries(db, conn, adapter).as_dict()
+    value["cached"] = False
+    with _CACHE_LOCK:
+        _CACHE[key] = (now, value)
+        # Purge des versions de schéma périmées pour cette connexion.
+        for k in [k for k in _CACHE if k[0] == conn.id and k != key]:
+            _CACHE.pop(k, None)
+    return value
+
+
+def invalidate(connection_id: int) -> None:
+    """À appeler après un re-scan / re-profilage pour rafraîchir les Insights."""
+    with _CACHE_LOCK:
+        for k in [k for k in _CACHE if k[0] == connection_id]:
+            _CACHE.pop(k, None)

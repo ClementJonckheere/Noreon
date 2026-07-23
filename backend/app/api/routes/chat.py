@@ -32,14 +32,18 @@ def ask(
 def discoveries(
     conn: Connection = Depends(get_owned_connection),
     db: Session = Depends(get_db),
+    refresh: bool = False,
 ) -> dict:
     """Suggestions automatiques à l'ouverture (anomalies, tendances, colonnes
-    suspectes, relations incohérentes) — l'analyste proactif."""
+    suspectes, relations incohérentes) — l'analyste proactif.
+
+    Mis en cache (par version de schéma) pour un affichage instantané ;
+    `?refresh=true` force le recalcul."""
     from app.services import discoveries as disc_svc
     from app.services.connections import get_source_adapter
 
     adapter = get_source_adapter(conn)
-    return disc_svc.run_discoveries(db, conn, adapter).as_dict()
+    return disc_svc.cached_discoveries(db, conn, adapter, force=refresh)
 
 
 @router.get("/queries")

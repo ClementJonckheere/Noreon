@@ -27,6 +27,7 @@ export default function DiscoveriesPanel({
   const [d, setD] = useState<Discoveries | null>(null);
   const [name, setName] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -42,6 +43,15 @@ export default function DiscoveriesPanel({
       alive = false;
     };
   }, [connectionId]);
+
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      setD(await api.discoveries(connectionId, true));
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   if (loading)
     return <div className="text-xs text-noreon-soft">Analyse proactive en cours…</div>;
@@ -64,6 +74,14 @@ export default function DiscoveriesPanel({
             {n} {label}
           </span>
         ))}
+        <button
+          onClick={refresh}
+          disabled={refreshing}
+          title="Recalculer les insights"
+          className="ml-auto text-noreon-soft hover:text-slate-900 disabled:opacity-50"
+        >
+          {refreshing ? "…" : "↻"}
+        </button>
       </div>
 
       {/* Accroche « voici ce que j'ai remarqué » */}

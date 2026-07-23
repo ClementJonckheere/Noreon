@@ -545,7 +545,7 @@ def test_space_governance_end_to_end(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_discoveries_proactive(session_with_conn):
+def test_discoveries_proactive(session_with_conn, monkeypatch):
     """À l'ouverture, l'analyste proactif remonte : colonnes suspectes (emails
     invalides), relations incohérentes (store_id orphelins), anomalie/tendance
     (chute du CA sur la période)."""
@@ -571,6 +571,25 @@ def test_discoveries_proactive(session_with_conn):
     assert sum(d.levels.values()) == len(d.items)
     assert d.headline and all(isinstance(h, str) for h in d.headline)
     assert all("level" in i and i.get("narrative") for i in d.items)
+
+    # Cache (perf) : le 2e appel est servi depuis le cache, sans recalcul.
+    calls = {"n": 0}
+    real = disc_svc.run_discoveries
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    import app.services.discoveries as _mod
+    _mod.invalidate(conn.id)
+    monkeypatch.setattr(_mod, "run_discoveries", counting)
+    first = disc_svc.cached_discoveries(db, conn, cfg)
+    second = disc_svc.cached_discoveries(db, conn, cfg)
+    assert first["cached"] is False and second["cached"] is True
+    assert calls["n"] == 1  # un seul vrai calcul
+    # Le forçage recalcule.
+    disc_svc.cached_discoveries(db, conn, cfg, force=True)
+    assert calls["n"] == 2
 
 
 def test_agent_investigation_multi_step(session_with_conn):
