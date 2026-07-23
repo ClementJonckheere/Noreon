@@ -11,6 +11,7 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
   const statusColor: Record<string, string> = {
     answered: "text-emerald-700",
     clarification: "text-amber-700",
+    unanswerable: "text-slate-700",
     blocked: "text-red-600",
     error: "text-red-600",
     no_schema: "text-amber-700",

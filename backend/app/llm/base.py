@@ -28,6 +28,10 @@ class SQLGenerationResult:
     columns_used: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     clarification_needed: str | None = None
+    # Refus explicite : la question porte sur une information ABSENTE des données
+    # (ex. un filtre « clients heureux » sans colonne correspondante). Le moteur
+    # préfère refuser plutôt que de deviner silencieusement.
+    unanswerable: str | None = None
     rationale: str = ""
 
 

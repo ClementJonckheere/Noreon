@@ -654,6 +654,50 @@ def test_sql_non_regression(session_with_conn):
     assert rate >= 0.9, f"Taux de réussite {rate:.0%} < 90% — échecs : {failures}"
 
 
+def test_sql_non_regression_families(session_with_conn):
+    """Non-régression par FAMILLES de comportement attendu — chacune vérifie une
+    posture différente du moteur :
+
+    - simple    → SQL direct (comptage)                       → status answered
+    - métier    → concept métier (CA TTC → sum(amount_ttc))    → status answered
+    - ambigu    → plusieurs colonnes possibles (« montant »)   → status clarification
+    - impossible→ information absente (« clients heureux »)     → status unanswerable
+      avec le message « Impossible de répondre avec les données disponibles ».
+    """
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    def ask(q):
+        return chat_svc.answer_question(db, conn, q, deep_analysis=False)
+
+    # 1) SIMPLE — comptage direct.
+    r = ask("Nombre de clients")
+    assert r.status == "answered" and r.rows[0][0] == 500
+
+    # 2) MÉTIER — « CA TTC » doit viser la colonne TTC (amount_ttc), pas HT.
+    r = ask("CA TTC des commandes")
+    assert r.status == "answered"
+    assert "sum(amount_ttc)" in (r.sql or "").lower()
+
+    # 3) AMBIGU — « Montant » seul, sans sujet : le moteur NE devine PAS la table
+    #    (montant existe dans plusieurs tables) → il demande une clarification.
+    r = ask("Montant ?")
+    assert r.status == "clarification", (
+        f"attendu une demande de clarification, obtenu {r.status} / {r.sql}"
+    )
+    assert r.message  # il explique ce qu'il lui manque
+
+    # 4) IMPOSSIBLE — information absente des données → refus honnête.
+    r = ask("Combien de clients sont heureux ?")
+    assert r.status == "unanswerable", f"attendu unanswerable, obtenu {r.status}"
+    assert "impossible de répondre avec les données disponibles" in (r.message or "").lower()
+    # Aucune requête n'a été exécutée (pas de comptage silencieux des 500 clients).
+    assert not r.sql
+    assert not r.rows
+
+
 def test_agent_investigation_multi_step(session_with_conn):
     """Question ANALYTIQUE ouverte → l'agent planifie, enchaîne des
     sous-questions et synthétise (vrai moteur de raisonnement)."""

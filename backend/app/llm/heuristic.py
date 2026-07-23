@@ -196,6 +196,61 @@ class HeuristicProvider(LLMProvider):
             return None
         return best
 
+    # Marqueurs d'un filtre/qualificatif dans la question (« clients QUI SONT
+    # heureux », « commandes AYANT … »). Ce qui suit doit correspondre à une
+    # colonne connue ; sinon l'information est absente des données → refus.
+    _FILTER_MARKERS = r"\b(qui sont|qui ont|sont|est|ayant|dont|etant)\b"
+    _PREDICATE_STOP = {
+        "combien", "nombre", "count", "compter", "quel", "quelle", "quels", "quelles",
+        "de", "des", "du", "la", "le", "les", "un", "une", "au", "aux", "en",
+        "sont", "est", "qui", "ont", "ayant", "dont", "avec", "par", "et", "ou",
+        "moyenne", "moyen", "moyens", "total", "totale", "somme", "montant",
+        "montre", "liste", "afficher", "affiche", "donne", "donner",
+        "how", "many", "the", "of", "are", "is", "with", "that", "has", "have",
+    }
+
+    def _known_terms(self, table: _Table, biz_syns: dict[str, set[str]] | None) -> set[str]:
+        terms: set[str] = {_norm(table.name)}
+        for c in table.columns:
+            terms.add(c.name.lower())
+            terms.update(_tokens(c.name))
+        for syn in (biz_syns or {}).get(table.name, set()):
+            terms.update(_tokens(syn))
+        return terms
+
+    @staticmethod
+    def _term_known(tok: str, known: set[str]) -> bool:
+        variants = set(_SYNONYMS.get(tok, [])) | {tok}
+        for v in variants:
+            if not v:
+                continue
+            if v in known or any(v in k or k in v for k in known):
+                return True
+        return False
+
+    def _unresolved_filter(
+        self, question: str, table: _Table, biz_syns: dict[str, set[str]] | None
+    ) -> list[str] | None:
+        """Détecte un prédicat de filtre dont AUCUN terme ne correspond au schéma.
+
+        « Combien de clients sont heureux ? » → « heureux » n'est ni une colonne
+        ni une valeur connue : plutôt que de compter tous les clients (deviner en
+        ignorant le filtre), le moteur refuse honnêtement.
+        """
+        q = _norm(question)
+        m = re.search(self._FILTER_MARKERS + r"\s+(.+)$", q)
+        if not m:
+            return None
+        tail_tokens = [t for t in _tokens(m.group(2))
+                       if t not in self._PREDICATE_STOP and len(t) > 2]
+        if not tail_tokens:
+            return None
+        known = self._known_terms(table, biz_syns)
+        unknown = [t for t in tail_tokens if not self._term_known(t, known)]
+        # Refus seulement si TOUT le prédicat est étranger au schéma (sinon on
+        # laisse le pipeline traiter la partie reconnue).
+        return unknown if unknown and len(unknown) == len(tail_tokens) else None
+
     def _pick_column(
         self,
         table: _Table,
@@ -379,6 +434,21 @@ class HeuristicProvider(LLMProvider):
                     f"(tables disponibles : {', '.join(t.name for t in tables) or 'aucune'}) ?"
                 ),
                 rationale="Aucune table du schéma ne correspond aux termes de la question.",
+            )
+
+        # Refus honnête : la question porte un filtre sur une information absente
+        # des données (ex. « clients heureux ») → ne jamais compter en ignorant
+        # le filtre.
+        unknown = self._unresolved_filter(question, table, biz_syns)
+        if unknown:
+            return SQLGenerationResult(
+                sql="",
+                unanswerable=(
+                    "Impossible de répondre avec les données disponibles : "
+                    f"« {' '.join(unknown)} » ne correspond à aucune colonne connue "
+                    f"de « {table.name} ». Aucune donnée ne permet ce filtre."
+                ),
+                rationale=f"Filtre non résoluble sur {table.name} : {', '.join(unknown)}.",
             )
 
         assumptions: list[str] = []

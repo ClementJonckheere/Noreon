@@ -32,7 +32,7 @@ log = get_logger("noreon.chat")
 
 @dataclass
 class ChatResponse:
-    status: str  # answered | clarification | blocked | error | no_schema
+    status: str  # answered | clarification | unanswerable | blocked | error | no_schema
     question: str
     message: str = ""
     sql: str | None = None
@@ -172,6 +172,16 @@ def answer_question(
 
     # 1) Génération SQL via la couche LLM, dans le dialecte du moteur source.
     gen = provider.generate_sql(question, context, dialect=adapter.dialect)
+
+    if gen.unanswerable:
+        # Refus honnête : l'information demandée est absente des données. On
+        # préfère le dire plutôt que de deviner (indicateur CDC « impossible »).
+        _log_query(db, conn, question, "", gen, status="unanswerable",
+                   block_reason=gen.unanswerable)
+        return ChatResponse(
+            status="unanswerable", question=question,
+            message=gen.unanswerable, rationale=gen.rationale,
+        )
 
     if gen.clarification_needed:
         # « Il ne devine jamais silencieusement » — on remonte la question.
