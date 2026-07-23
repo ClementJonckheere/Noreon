@@ -18,6 +18,18 @@ rapports, **agent de raisonnement** et **analyste proactif**. Multi-moteurs
 > résultats et aider à décider**. Tout fonctionne **hors-ligne** (provider
 > heuristique) et reste **auditable** de bout en bout.
 
+### Le pipeline Noreon
+
+L'analyse autonome se déroule en cinq temps — c'est l'identité du produit :
+
+| Temps | Composant | Rôle |
+|---|---|---|
+| **Discover** | Scanner | cartographie tables, colonnes, clés (déclarées **et** inférées) |
+| **Understand** | Profiler | types réels, PII, score qualité auditable |
+| **Connect** | Knowledge Graph | relie les entités métier (relations documentées, validées) |
+| **Reason** | Planner / agent | planifie → sous-questions → SQL → synthèse |
+| **Reveal** | Insights | remonte de lui-même anomalies, tendances, opportunités |
+
 ---
 
 ## Ce qui est implémenté
