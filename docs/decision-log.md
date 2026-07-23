@@ -249,6 +249,41 @@ la suite : raisonnement adaptatif, Analyst Memory (V2), analyse quotidienne.
 
 ---
 
+### D-22 — Sprint « aller plus loin » : preuve, refus, observabilité, identité
+**Contexte.** Retour produit approfondi : versionner les insights par empreinte,
+enrichir la non-régression SQL (familles simple/métier/ambigu/impossible),
+transformer la justification en **preuve**, mesurer le produit lui-même, et lui
+donner une **identité**.
+**Décision.**
+- **Insights versionnés par empreinte** : cache clé = `hash(schéma) +
+  hash(profils) + hash(qualité)`. Tant que l'empreinte combinée est stable,
+  l'insight reste valide (TTL = simple garde-fou). En cas de recalcul, la réponse
+  porte `fingerprint` + `stale_reason` (composant modifié) → obsolescence
+  **explicable**.
+- **Refus honnête (`unanswerable`)** : un filtre portant sur une information
+  absente (« clients heureux ») déclenche « Impossible de répondre avec les
+  données disponibles » **sans exécuter de SQL**, plutôt qu'un comptage
+  silencieux. Détection conservatrice (refus seulement si **tout** le prédicat
+  est étranger au schéma). Non-régression organisée en 4 familles.
+- **Explicabilité = preuve** : le choix de table est **démontré** (couverture des
+  colonnes nécessaires réellement citées, score qualité, concept métier validé)
+  — champ `proof`, chaîne de preuve dans « Pourquoi ces choix ? ».
+- **Observabilité** : Noreon mesure son propre travail. `telemetry` (compteurs
+  LLM/cache en mémoire) + `metrics` (agrégats du journal d'audit) → page
+  `/metrics` : **qualité** (temps, confiance, % résolues, % clarifications,
+  % SQL validés) et **coûts** (appels/jetons LLM, temps LLM & SQL, cache). Les
+  clarifications sont désormais journalisées pour être mesurables.
+- **Identité du pipeline** : Discover (Scanner) → Understand (Profiler) →
+  Connect (Knowledge Graph) → Reason (Planner/agent) → Reveal (Insights),
+  exposée dans l'UI (ruban) et le README.
+**Conséquence.** Le produit gagne en **traçabilité** (empreintes), en
+**honnêteté** (refus explicite), en **preuve** (explicabilité chiffrée) et en
+**auto-mesure** — le tout hors-ligne et sans migration de schéma (compteurs en
+mémoire). Le provider heuristique reporte 0 jeton : quand une clé LLM est
+branchée, tokens & coût se remplissent sans changement d'API.
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est
@@ -258,5 +293,9 @@ la suite : raisonnement adaptatif, Analyst Memory (V2), analyse quotidienne.
 - **Tunnel SSH** : champ d'option présent, implémentation à faire (SSL/TLS OK).
 - **pgvector/embeddings** : appariement sémantique encore lexical + contenu ;
   gain attendu avec des embeddings.
-- **Non-régression SQL** : mettre en place un jeu métier de référence pour
-  mesurer l'indicateur « ≥ 90 % de requêtes correctes ».
+- **Non-régression SQL** : jeu métier de référence en place (≥ 90 %) + 4 familles
+  (simple/métier/ambigu/impossible). Reste à élargir la couverture au fil des
+  nouveaux patterns rencontrés en production.
+- **Coûts LLM** : jetons/coût réels à 0 tant que le provider heuristique
+  hors-ligne est utilisé ; le remplissage devient effectif dès qu'une clé
+  OpenAI/Anthropic/Mistral est branchée (l'instrumentation est déjà en place).
