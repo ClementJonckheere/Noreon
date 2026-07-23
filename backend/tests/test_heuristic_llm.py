@@ -140,3 +140,16 @@ def test_single_measure_no_arbitration():
     p = HeuristicProvider()
     r = p.generate_sql("montant moyen des commandes", SCHEMA)  # orders n'a qu'« amount »
     assert r.measure_options is None
+
+
+def test_company_context_amount_basis_drives_default():
+    """Contexte d'entreprise (D) : sans mention explicite, la convention « HT »
+    de l'entreprise oriente le choix par défaut (au lieu du TTC)."""
+    p = HeuristicProvider()
+    ctx_ht = MONEY_SCHEMA + "\nContexte entreprise (conventions à respecter) :\n  - Montants : HT\n"
+    r = p.generate_sql("Montant total des commandes", ctx_ht)
+    assert "sum(net_price)" in r.sql.lower()  # HT par convention d'entreprise
+    assert r.measure_options["chosen"] == "net_price"
+    # Une demande explicite de TTC prime sur la convention.
+    r2 = p.generate_sql("Montant total TTC des commandes", ctx_ht)
+    assert r2.measure_options["chosen"] == "amount_ttc"

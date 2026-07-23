@@ -133,6 +133,16 @@ def answer_question(
     if defs_text:
         context = context + "\n" + defs_text
 
+    # Contexte d'entreprise (D) : les conventions d'analyse (TTC, mensuel,
+    # « France uniquement »…) sont connues du moteur et jamais redemandées.
+    from app.services import company_context as company_ctx
+
+    company = company_ctx.get_context(tenant_settings) if tenant_settings else company_ctx.get_context(None)
+    company_block = company_ctx.context_block(company)
+    if company_block:
+        context = context + "\n" + company_block
+    company_hypotheses = company_ctx.as_hypotheses(company)
+
     adapter = get_source_adapter(conn)
 
     # Réglages garde-fous (tenant > défauts globaux) — utiles à l'agent aussi.
@@ -359,7 +369,7 @@ def answer_question(
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
         row_count=result.row_count, truncated=result.truncated,
         assumptions=gen.assumptions, confidence_score=conf.score,
-        has_drivers=has_drivers,
+        has_drivers=has_drivers, context_hypotheses=company_hypotheses,
     ).as_dict()
 
     return ChatResponse(

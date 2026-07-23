@@ -435,6 +435,12 @@ export interface DiscoveryItem {
   column: string | null;
   suggested_question: string | null;
 }
+export interface AnalysisContext {
+  amount_basis: "TTC" | "HT" | null;
+  period_grain: "month" | "week" | "day" | "quarter" | "year" | null;
+  conventions: string[];
+}
+
 export interface ValidationReport {
   checks: { key: string; label: string; status: "pass" | "warn" | "fail"; detail: string }[];
   hypotheses: string[];
@@ -564,6 +570,14 @@ export const api = {
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
   discoveries: (id: number, force = false) =>
     request<Discoveries>(`/connections/${id}/discoveries${force ? "?refresh=true" : ""}`),
+
+  // --- Contexte d'entreprise (conventions d'analyse persistantes) ---
+  getAnalysisContext: () => request<AnalysisContext>("/settings/analysis-context"),
+  updateAnalysisContext: (body: AnalysisContext) =>
+    request<AnalysisContext>("/settings/analysis-context", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   // --- Observabilité (qualité produit + coûts) ---
   metrics: (opts?: { days?: number; connectionId?: number }) => {

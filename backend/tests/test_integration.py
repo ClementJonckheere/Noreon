@@ -738,6 +738,33 @@ def test_product_metrics_observability(session_with_conn):
     assert c["avg_sql_ms"] is not None
 
 
+def test_company_context_hypotheses(session_with_conn):
+    """Contexte d'entreprise (D) : les conventions (TTC, mensuel, France…) sont
+    connues du moteur et apparaissent comme hypothèses retenues — sans être
+    redemandées."""
+    from app.models.tenant import TenantSettings
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    ts = db.get(TenantSettings, conn.tenant_id)
+    ts.analysis_context = {
+        "amount_basis": "TTC", "period_grain": "month",
+        "conventions": ["France uniquement", "Hors magasins de test"],
+    }
+    db.flush()
+
+    r = chat_svc.answer_question(db, conn, "Montant total des commandes", deep_analysis=False)
+    assert r.status == "answered"
+    hyp = r.validation["hypotheses"]
+    assert "Montants en TTC" in hyp
+    assert "Analyse mensuelle" in hyp
+    assert "France uniquement" in hyp
+    assert "Hors magasins de test" in hyp
+
+
 def test_validation_engine_relecture(session_with_conn):
     """Le Validation Engine « relit » chaque analyse : contrôles, hypothèses
     explicites, score de fiabilité du rapport."""

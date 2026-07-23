@@ -284,6 +284,13 @@ class PreferencesIn(BaseModel):
     auto_save_definitions: bool | None = None
 
 
+class AnalysisContextIn(BaseModel):
+    """Conventions d'analyse de l'entreprise (contexte persistant)."""
+    amount_basis: str | None = None      # "TTC" | "HT" | None
+    period_grain: str | None = None      # "month"|"week"|"day"|"quarter"|"year"|None
+    conventions: list[str] | None = None # ex. ["France uniquement", "Hors magasins de test"]
+
+
 # ---- Authentification & rôles (Module 11) ----
 class RegisterIn(BaseModel):
     tenant_slug: str = Field(..., min_length=1, max_length=64)

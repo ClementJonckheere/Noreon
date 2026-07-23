@@ -135,6 +135,12 @@ class _Definition:
     filter_sql: str | None
 
 
+def _company_amount_basis(schema_context: str) -> str | None:
+    """Convention d'entreprise sur la base monétaire (« Montants : TTC/HT »)."""
+    m = re.search(r"montants?\s*:\s*(ttc|ht)\b", schema_context, re.IGNORECASE)
+    return m.group(1).upper() if m else None
+
+
 def parse_definitions(schema_context: str) -> list[_Definition]:
     """Extrait les définitions métier du contexte (voir definitions_context)."""
     defs: list[_Definition] = []
@@ -272,13 +278,14 @@ class HeuristicProvider(LLMProvider):
                 and self._MONEY_RE.search(c.name)]
 
     def _arbitrate_measure(
-        self, monetary: list[_Column], q: str, prechosen: _Column | None
+        self, monetary: list[_Column], q: str, prechosen: _Column | None,
+        company_basis: str | None = None,
     ) -> tuple[_Column, dict | None]:
         """Choisit la mesure et documente l'arbitrage.
 
-        Règle : TTC par défaut (référence du chiffre d'affaires), sauf si la
-        question demande explicitement du HT / net. Une mention explicite « TTC »
-        ou « HT » dans la question fait foi ; sinon on RECOMMANDE le TTC."""
+        Règle : la question explicite fait foi (« HT »/« TTC ») ; sinon la
+        convention d'entreprise (contexte D) ; sinon TTC par défaut (référence
+        du chiffre d'affaires)."""
         wants_ht = bool(re.search(r"\bht\b|hors[- ]taxe|\bnet\b", q))
         wants_ttc = bool(re.search(r"\bttc\b|toutes[- ]taxes|\bbrut\b", q))
         ttc = next((c for c in monetary if self._money_kind(c.name) == "TTC"), None)
@@ -287,6 +294,10 @@ class HeuristicProvider(LLMProvider):
         if wants_ht and ht is not None:
             chosen = ht
         elif wants_ttc and ttc is not None:
+            chosen = ttc
+        elif company_basis == "HT" and ht is not None:
+            chosen = ht
+        elif company_basis == "TTC" and ttc is not None:
             chosen = ttc
         elif prechosen is not None and self._money_kind(prechosen.name) == "TTC":
             chosen = prechosen
@@ -489,6 +500,7 @@ class HeuristicProvider(LLMProvider):
         self.dialect = dialect  # oriente la troncature de date (_date_trunc)
         tables, biz_syns = parse_schema_context(schema_context)
         definitions = parse_definitions(schema_context)
+        self._company_basis = _company_amount_basis(schema_context)  # convention entreprise (D)
         q = _norm(question)
         q_tokens = set(_tokens(question))
 
@@ -550,7 +562,9 @@ class HeuristicProvider(LLMProvider):
             monetary = self._monetary_columns(table, excluded)
             money_q = bool(re.search(r"montant|chiffre|\bca\b|revenu|prix|somme|total", q))
             if monetary and (col is None or col in monetary or money_q):
-                col, measure_options = self._arbitrate_measure(monetary, q, col)
+                col, measure_options = self._arbitrate_measure(
+                    monetary, q, col, company_basis=getattr(self, "_company_basis", None)
+                )
                 if measure_options:
                     assumptions.append(measure_options["reason"])
             if col is None:

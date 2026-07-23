@@ -87,8 +87,14 @@ def validate(
     row_count: int, truncated: bool, assumptions: list[str],
     confidence_score: float, has_drivers: bool = True,
     causal_hint: bool | None = None,
+    context_hypotheses: list[str] | None = None,
 ) -> Validation:
     v = Validation()
+    # Conventions d'entreprise (D) : rendues visibles en tête des hypothèses —
+    # le moteur les applique sans les redemander.
+    for h in (context_hypotheses or []):
+        if h not in v.hypotheses:
+            v.hypotheses.append(h)
     table_names = [t.split(".")[-1].lower() for t in (tables_used or [])]
     used_cols = {c.lower() for c in (columns_used or [])}
     sql_l = (sql or "").lower()
