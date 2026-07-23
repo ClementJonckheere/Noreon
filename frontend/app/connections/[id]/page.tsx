@@ -965,6 +965,19 @@ function ChatResult({ r }: { r: ChatResponse }) {
         <ResultTable columns={r.columns} rows={r.rows} truncated={r.truncated} />
       )}
 
+      {r.sources?.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs text-noreon-soft">
+          <span>📎 Sources :</span>
+          {r.sources.map((s) => (
+            <span key={s.table} className="badge bg-slate-100 text-slate-700">
+              <span className="mono">{s.table}</span>
+              <span> · {s.role}</span>
+              {s.quality_pct !== null && <span className="text-emerald-600"> · {s.quality_pct}%</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Transparence : SQL, tables, colonnes, hypothèses, temps */}
       {r.sql && (
         <details className="card p-4" open>

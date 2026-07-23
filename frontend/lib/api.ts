@@ -284,6 +284,8 @@ export interface ChatResponse {
     reason: string;
     options: { column: string; kind: "HT" | "TTC" | null; note: string; recommended: boolean; chosen: boolean }[];
   } | null;
+  // Sources citées : tables sur lesquelles s'appuie la réponse (comme un article).
+  sources: { table: string; role: "principale" | "jointe"; quality_pct: number | null }[];
   columns: string[];
   rows: any[][];
   row_count: number;

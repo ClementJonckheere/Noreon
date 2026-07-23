@@ -112,6 +112,9 @@ def test_chat_count_end_to_end(session_with_conn):
     assert resp.proof["table"] == "customers"
     assert resp.proof["coverage_pct"] == 100  # comptage : aucune colonne manquante
     assert resp.proof["steps"] and "colonnes nécessaires" in resp.proof["steps"][0]
+    # Rapport vivant (E) : la réponse cite ses sources (comme un article).
+    assert resp.sources and resp.sources[0]["table"] == "customers"
+    assert resp.sources[0]["role"] == "principale"
 
 
 def test_chat_blocks_write_attempt(session_with_conn):

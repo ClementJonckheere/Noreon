@@ -96,7 +96,10 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
       )}
 
       {r.columns.length > 0 && (
-        <div className="card overflow-x-auto">
+        <details className="card overflow-x-auto" open={r.rows.length <= 12}>
+          <summary className="cursor-pointer text-sm font-medium px-3 py-2">
+            Données ({r.row_count} ligne{r.row_count > 1 ? "s" : ""})
+          </summary>
           <table className="w-full text-xs">
             <thead className="text-noreon-soft border-b border-noreon-border">
               <tr>{r.columns.map((c) => <th key={c} className="text-left px-3 py-2">{c}</th>)}</tr>
@@ -109,8 +112,10 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </details>
       )}
+
+      {r.sources?.length > 0 && <SourcesBar sources={r.sources} />}
 
       {r.sql && (
         <details className="card p-4">
@@ -126,6 +131,26 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           <AddToReport response={r} title={r.question} />
         </div>
       )}
+    </div>
+  );
+}
+
+// Sources citées — d'où vient chaque chiffre (comme un article scientifique).
+function SourcesBar({ sources }: { sources: ChatResponse["sources"] }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap text-xs text-noreon-soft">
+      <span>📎 Sources :</span>
+      {sources.map((s) => (
+        <span
+          key={s.table}
+          className="badge bg-slate-100 text-slate-700"
+          title={s.quality_pct !== null ? `Qualité ${s.quality_pct}%` : undefined}
+        >
+          <span className="mono">{s.table}</span>
+          <span className="text-noreon-soft"> · {s.role}</span>
+          {s.quality_pct !== null && <span className="text-emerald-600"> · {s.quality_pct}%</span>}
+        </span>
+      ))}
     </div>
   );
 }

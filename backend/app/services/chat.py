@@ -51,6 +51,8 @@ class ChatResponse:
     validation: dict | None = None
     # Arbitrage de mesure (montants contradictoires) : recommandation + pourquoi.
     measure_options: dict | None = None
+    # Sources citées (comme un article) : tables sur lesquelles s'appuie la réponse.
+    sources: list[dict] = field(default_factory=list)
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -199,6 +201,7 @@ def answer_question(
                     columns=inv.trend_columns, rows=inv.trend_rows, row_count=len(inv.trend_rows),
                     investigation=inv.as_dict(), confidence=conf.as_dict(),
                     validation=inv_validation,
+                    sources=_sources([inv.subject], inv.trend_columns, {}),
                     chart=chart.as_dict() if chart else None,
                 )
 
@@ -377,12 +380,32 @@ def answer_question(
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
         assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
         proof=proof, validation=validation, measure_options=gen.measure_options,
+        sources=_sources(gen.tables_used, gen.columns_used, tscores),
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
         analysis=analysis, deep=deep, confidence=conf.as_dict(), table_quality=table_quality,
         chart=chart, privacy=protection.audit,
     )
+
+
+def _sources(tables_used: list[str], columns_used: list[str], tscores: dict) -> list[dict]:
+    """Cite les sources de la réponse (comme un article) : table principale puis
+    tables jointes, avec leur score qualité — pour tracer d'où vient chaque chiffre."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for i, t in enumerate(tables_used or []):
+        name = t.split(".")[-1]
+        if name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        q = tscores.get(name.lower())
+        out.append({
+            "table": name,
+            "role": "principale" if i == 0 else "jointe",
+            "quality_pct": round(q * 100) if q is not None else None,
+        })
+    return out
 
 
 def _table_proof(db: Session, conn: Connection, snapshot, gen, tscores: dict) -> dict | None:
