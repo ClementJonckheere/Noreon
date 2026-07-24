@@ -11,6 +11,7 @@ utilisés, temps d'exécution, indice de confiance calibré (Module 10).
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from time import perf_counter
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.models.profile import ColumnProfile
 from app.models.query_log import QueryLog
 from app.models.tenant import TenantSettings
 from app.services import confidence as confidence_svc
+from app.services import telemetry
 from app.services.connections import get_source_adapter
 from app.services.executor import CostThresholdExceeded
 from app.services.schema_context import build_context, current_snapshot
@@ -32,7 +34,7 @@ log = get_logger("noreon.chat")
 
 @dataclass
 class ChatResponse:
-    status: str  # answered | clarification | blocked | error | no_schema
+    status: str  # answered | clarification | unanswerable | blocked | error | no_schema
     question: str
     message: str = ""
     sql: str | None = None
@@ -40,6 +42,19 @@ class ChatResponse:
     columns_used: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     rationale: str = ""
+    explanations: list[str] = field(default_factory=list)
+    # « Preuve » quantifiée du choix de table (couverture colonnes, score qualité,
+    # concept métier validé) — transforme la justification en démonstration.
+    proof: dict | None = None
+    # Validation Engine (« relecture ») : contrôles, hypothèses explicites,
+    # score de fiabilité du rapport, verdict « je ne peux pas conclure ».
+    validation: dict | None = None
+    # Arbitrage de mesure (montants contradictoires) : recommandation + pourquoi.
+    measure_options: dict | None = None
+    # Sources citées (comme un article) : tables sur lesquelles s'appuie la réponse.
+    sources: list[dict] = field(default_factory=list)
+    # « What if ? » : projection d'un scénario (« et si le panier moyen +10% ? »).
+    simulation: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -122,6 +137,16 @@ def answer_question(
     if defs_text:
         context = context + "\n" + defs_text
 
+    # Contexte d'entreprise (D) : les conventions d'analyse (TTC, mensuel,
+    # « France uniquement »…) sont connues du moteur et jamais redemandées.
+    from app.services import company_context as company_ctx
+
+    company = company_ctx.get_context(tenant_settings) if tenant_settings else company_ctx.get_context(None)
+    company_block = company_ctx.context_block(company)
+    if company_block:
+        context = context + "\n" + company_block
+    company_hypotheses = company_ctx.as_hypotheses(company)
+
     adapter = get_source_adapter(conn)
 
     # Réglages garde-fous (tenant > défauts globaux) — utiles à l'agent aussi.
@@ -131,6 +156,37 @@ def answer_question(
     max_conc = tenant_settings.sql_max_concurrent_per_connection if tenant_settings else 1
     guard_args = {"row_limit": row_limit, "timeout_seconds": timeout,
                   "max_cost": max_cost, "max_concurrent": max_conc}
+
+    # 0bis) « What if ? » : question de scénario (« et si le panier moyen
+    # augmentait de 10% ? ») → on projette au lieu d'analyser l'existant.
+    if run_analysis:
+        from app.services import simulation as sim_svc
+
+        if sim_svc.detect(question):
+            try:
+                sim = sim_svc.run_simulation(
+                    db, conn, adapter, question, guard_args=guard_args,
+                    hidden_tables=hidden_tables, hidden_columns=hidden_columns,
+                )
+            except Exception as exc:  # noqa: BLE001 - best-effort
+                log.warning("Simulation indisponible : %s", exc)
+                sim = None
+            if sim is not None:
+                telemetry.record_usage("whatif_run")
+                _log_query(db, conn, question, "-- simulation what-if --", None,
+                           status="ok", row_count=len(sim.breakdown))
+                cols = ["segment", "gain"]
+                rows = [[b["segment"], b["gain"]] for b in sim.breakdown]
+                from app.services.charting import suggest_chart
+
+                chart = suggest_chart(cols, rows) if rows else None
+                return ChatResponse(
+                    status="answered", question=question, message=sim.narrative,
+                    rationale="Projection de scénario (simulation hors-ligne, hypothèses affichées).",
+                    tables_used=[sim.lever], simulation=sim.as_dict(),
+                    columns=cols, rows=rows, row_count=len(rows),
+                    chart=chart.as_dict() if chart else None,
+                )
 
     # 0) Agent d'investigation : pour une question ANALYTIQUE ouverte (« pourquoi
     # les ventes baissent ? »), on planifie et on enchaîne des sous-questions au
@@ -159,6 +215,17 @@ def answer_question(
                 )
                 _log_query(db, conn, question, "-- investigation multi-étapes --", None,
                            status="ok", row_count=len(inv.steps), confidence=conf.as_dict())
+                # Relecture : sur une investigation causale, le moteur peut
+                # conclure « je ne peux pas conclure » s'il n'a pas isolé de driver.
+                from app.services import validation as validation_svc
+
+                inv_validation = validation_svc.validate(
+                    db, conn, question=question, sql="",
+                    tables_used=[inv.subject], columns_used=inv.trend_columns,
+                    row_count=len(inv.trend_rows), truncated=False, assumptions=[],
+                    confidence_score=conf.score, has_drivers=bool(inv.key_drivers),
+                    causal_hint=True,
+                ).as_dict()
                 return ChatResponse(
                     status="answered", question=question,
                     message=agent_svc.summary_message(inv),
@@ -166,14 +233,32 @@ def answer_question(
                     tables_used=[inv.subject],
                     columns=inv.trend_columns, rows=inv.trend_rows, row_count=len(inv.trend_rows),
                     investigation=inv.as_dict(), confidence=conf.as_dict(),
+                    validation=inv_validation,
+                    sources=_sources([inv.subject], inv.trend_columns, {}),
                     chart=chart.as_dict() if chart else None,
                 )
 
     # 1) Génération SQL via la couche LLM, dans le dialecte du moteur source.
+    _t_llm = perf_counter()
     gen = provider.generate_sql(question, context, dialect=adapter.dialect)
+    telemetry.record_llm((perf_counter() - _t_llm) * 1000,
+                         tokens=getattr(gen, "tokens", 0) or 0)
+
+    if gen.unanswerable:
+        # Refus honnête : l'information demandée est absente des données. On
+        # préfère le dire plutôt que de deviner (indicateur CDC « impossible »).
+        _log_query(db, conn, question, "", gen, status="unanswerable",
+                   block_reason=gen.unanswerable)
+        return ChatResponse(
+            status="unanswerable", question=question,
+            message=gen.unanswerable, rationale=gen.rationale,
+        )
 
     if gen.clarification_needed:
         # « Il ne devine jamais silencieusement » — on remonte la question.
+        # Journalisé pour mesurer le taux de clarifications (observabilité).
+        _log_query(db, conn, question, "", gen, status="clarification",
+                   block_reason=gen.clarification_needed)
         return ChatResponse(
             status="clarification", question=question,
             message=gen.clarification_needed, rationale=gen.rationale,
@@ -304,16 +389,173 @@ def answer_question(
         if t.split(".")[-1] in tscores
     }
 
+    # Explicabilité « preuve » : pourquoi cette table, ces colonnes, cette
+    # jointure, ce graphique — chaque choix est justifié (retour produit).
+    explanations = _explanations(db, snapshot, gen, result.guarded_sql, chart)
+    proof = _table_proof(db, conn, snapshot, gen, tscores)
+
+    # Validation Engine (« relecture ») : le moteur vérifie sa propre analyse
+    # avant de la montrer (mesure, dates, NULL, duplication, volume) et en
+    # calcule la fiabilité + les hypothèses retenues.
+    from app.services import validation as validation_svc
+
+    has_drivers = bool(deep and deep.get("drivers"))
+    validation = validation_svc.validate(
+        db, conn, question=question, sql=result.guarded_sql,
+        tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
+        row_count=result.row_count, truncated=result.truncated,
+        assumptions=gen.assumptions, confidence_score=conf.score,
+        has_drivers=has_drivers, context_hypotheses=company_hypotheses,
+    ).as_dict()
+
     return ChatResponse(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
-        assumptions=gen.assumptions, rationale=gen.rationale,
+        assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
+        proof=proof, validation=validation, measure_options=gen.measure_options,
+        sources=_sources(gen.tables_used, gen.columns_used, tscores),
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
         analysis=analysis, deep=deep, confidence=conf.as_dict(), table_quality=table_quality,
         chart=chart, privacy=protection.audit,
     )
+
+
+def _evidence_level(*, quality_pct: int | None = None, concept: bool = False,
+                    inferred: bool = False, assumptions: int = 0) -> str:
+    """Niveau de preuve — toutes les preuves n'ont pas la même valeur.
+
+    🟢 forte : FK déclarée / concept validé / qualité > 98 %.
+    🟡 moyenne : relation inférée / concept suggéré / quelques NULL.
+    🔴 faible : heuristique seule / peu de données / hypothèses nombreuses.
+    """
+    if assumptions >= 3 or (quality_pct is not None and quality_pct < 70):
+        return "weak"
+    if (quality_pct is not None and quality_pct >= 98) or concept:
+        if not inferred and assumptions == 0:
+            return "strong"
+    if inferred or assumptions >= 1 or (quality_pct is not None and quality_pct < 90):
+        return "medium"
+    return "strong" if quality_pct is not None else "medium"
+
+
+def _sources(tables_used: list[str], columns_used: list[str], tscores: dict) -> list[dict]:
+    """Cite les sources de la réponse (comme un article) : table principale puis
+    tables jointes, avec leur score qualité et leur niveau de preuve."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for i, t in enumerate(tables_used or []):
+        name = t.split(".")[-1]
+        if name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        q = tscores.get(name.lower())
+        qpct = round(q * 100) if q is not None else None
+        out.append({
+            "table": name,
+            "role": "principale" if i == 0 else "jointe",
+            "quality_pct": qpct,
+            "level": _evidence_level(quality_pct=qpct),
+        })
+    return out
+
+
+def _table_proof(db: Session, conn: Connection, snapshot, gen, tscores: dict) -> dict | None:
+    """Transforme « pourquoi cette table ? » en PREUVE chiffrée et vérifiable :
+
+        - couverture : X% des colonnes nécessaires sont présentes dans la table ;
+        - qualité    : score qualité auditable de la table ;
+        - concept    : concept métier VALIDÉ (boucle humaine) rattaché à la table.
+    """
+    if snapshot is None or not gen.tables_used:
+        return None
+    from app.models.schema_catalog import DbColumn, DbTable
+    from app.models.semantic import BusinessConcept, ConceptMapping
+
+    table = gen.tables_used[0].split(".")[-1]
+
+    # Colonnes réelles du schéma (pour distinguer les vraies références des alias
+    # calculés comme « periode » ou « total »).
+    rows = db.execute(
+        select(DbTable.table_name, DbColumn.name)
+        .join(DbColumn, DbColumn.table_id == DbTable.id)
+        .where(DbTable.snapshot_id == snapshot.id)
+    ).all()
+    all_cols = {c.lower() for _, c in rows}
+    table_cols = {c.lower() for t, c in rows if t.lower() == table.lower()}
+
+    used = [c.lower() for c in (gen.columns_used or [])]
+    needed = [c for c in used if c in all_cols]          # vraies colonnes citées
+    present = [c for c in needed if c in table_cols]
+    coverage = round(len(present) / len(needed) * 100) if needed else 100
+    quality_pct = round(tscores.get(table.lower(), 0) * 100) if tscores.get(table.lower()) else None
+
+    # Concept métier VALIDÉ rattaché à cette table (mémoire entreprise).
+    concept = db.execute(
+        select(BusinessConcept.name)
+        .join(ConceptMapping, ConceptMapping.concept_id == BusinessConcept.id)
+        .where(
+            ConceptMapping.connection_id == conn.id,
+            ConceptMapping.table_name == table,
+            ConceptMapping.status.in_(("validated", "corrected")),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+
+    steps = [f"{coverage}% des colonnes nécessaires présentes"
+             + (f" ({len(present)}/{len(needed)})" if needed else "")]
+    if quality_pct is not None:
+        steps.append(f"score qualité {quality_pct}%")
+    if concept:
+        steps.append(f"concept validé : {concept}")
+    return {
+        "table": table,
+        "coverage_pct": coverage,
+        "columns_needed": len(needed),
+        "columns_present": len(present),
+        "quality_pct": quality_pct,
+        "concept": concept,
+        "level": _evidence_level(quality_pct=quality_pct, concept=bool(concept),
+                                 assumptions=len(gen.assumptions or [])),
+        "steps": steps,
+    }
+
+
+def _explanations(db: Session, snapshot, gen, guarded_sql: str, chart: dict | None) -> list[str]:
+    """Compose une justification lisible de chaque décision de l'analyse."""
+    from app.models.schema_catalog import DbRelation
+
+    out: list[str] = []
+    if gen.rationale:
+        out.append(f"Table : {gen.rationale}")
+    if gen.columns_used:
+        out.append(f"Colonnes : {', '.join(gen.columns_used)} — retenues d'après la question.")
+
+    # Jointure : si le SQL en contient une, on nomme la relation mobilisée.
+    if snapshot is not None and " join " in f" {guarded_sql.lower()} ":
+        used = {t.split('.')[-1].lower() for t in (gen.tables_used or [])}
+        rels = db.execute(
+            select(DbRelation).where(
+                DbRelation.snapshot_id == snapshot.id, DbRelation.status != "rejected"
+            )
+        ).scalars().all()
+        for r in rels:
+            if r.from_table.lower() in used and r.to_table.lower() in used:
+                tag = {"declared": "FK déclarée", "inferred": "FK inférée",
+                       "validated": "FK validée"}.get(r.kind, r.kind)
+                out.append(
+                    f"Jointure : {r.from_table}.{r.from_column} → {r.to_table}.{r.to_column} "
+                    f"({tag}) — c'est la relation qui relie ces tables."
+                )
+                break
+
+    if chart:
+        if chart.get("type") and chart["type"] != "table":
+            out.append(f"Graphique « {chart['type']} » : {chart.get('reason', '')}".strip())
+        elif chart.get("reason"):
+            out.append(f"Affichage en tableau : {chart['reason']}")
+    return out
 
 
 def _any_sampled(db: Session, connection_id: int, tables_used: list[str]) -> bool:

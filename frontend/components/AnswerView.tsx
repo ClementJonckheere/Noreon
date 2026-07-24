@@ -4,18 +4,30 @@ import { ChatResponse } from "@/lib/api";
 import ChartBlock from "@/components/ChartBlock";
 import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
+import WhyChoices from "@/components/WhyChoices";
+import ValidationPanel from "@/components/ValidationPanel";
+import MeasureChoice from "@/components/MeasureChoice";
+import SimulationView from "@/components/SimulationView";
+import EvidenceGraph from "@/components/EvidenceGraph";
+import ConfidenceBreakdown from "@/components/ConfidenceBreakdown";
 
 // Rendu d'une réponse d'analyse (partagé chat par connexion / chat d'espace).
+//
+// Divulgation progressive en 3 niveaux (anti-fatigue) :
+//   Niveau 1 — Décision   : la réponse lisible + graphique + reco (toujours vu).
+//   Niveau 2 — Comprendre : pourquoi, hypothèses, sources, confiance (déplié).
+//   Niveau 3 — Preuve     : graphe de preuve, relecture, SQL, données (déplié).
 export default function AnswerView({ r }: { r: ChatResponse }) {
   const statusColor: Record<string, string> = {
     answered: "text-emerald-700",
     clarification: "text-amber-700",
+    unanswerable: "text-slate-700",
     blocked: "text-red-600",
     error: "text-red-600",
     no_schema: "text-amber-700",
   };
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fade-in">
       {r.status !== "answered" && (
         <div className={`card p-4 text-sm ${statusColor[r.status] || ""}`}>
           <div className="font-medium capitalize mb-1">{r.status}</div>
@@ -50,9 +62,15 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
         </div>
       )}
 
+      {/* Niveau 1 — Décision : contenu principal + graphique. */}
+      {r.simulation && <SimulationView s={r.simulation} />}
       {r.investigation && <InvestigationView inv={r.investigation} />}
-
       {r.deep && <DeepReportView d={r.deep} />}
+      {r.measure_options && <MeasureChoice m={r.measure_options} />}
+
+      {r.chart && r.chart.type !== "table" && r.columns.length > 0 && (
+        <ChartBlock columns={r.columns} rows={r.rows} suggestion={r.chart} />
+      )}
 
       {r.privacy && r.privacy.values_protected > 0 && (
         <div className="text-xs text-emerald-700 bg-emerald-500/10 rounded-lg px-3 py-2">
@@ -62,50 +80,56 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
         </div>
       )}
 
-      {r.confidence && (
-        <div className="card p-4">
-          <div className="flex items-center justify-between text-sm mb-2">
-            <span className="font-medium">Indice de confiance</span>
-            <span>{r.confidence.percent}%</span>
+      {/* Niveau 2 — Comprendre (déplié à la demande). */}
+      {(r.validation || r.confidence || r.explanations?.length > 0 || r.proof || r.sources?.length > 0) && (
+        <details className="card px-4 py-3" open={r.status !== "answered"}>
+          <summary className="cursor-pointer text-sm font-medium text-slate-700">
+            🔎 Comprendre — hypothèses, pourquoi, confiance
+          </summary>
+          <div className="mt-3 space-y-3">
+            {r.validation && <ValidationPanel v={r.validation} />}
+            {(r.explanations?.length > 0 || r.proof) && (
+              <WhyChoices items={r.explanations} proof={r.proof} />
+            )}
+            {r.confidence && <ConfidenceBreakdown c={r.confidence} />}
+            {r.sources?.length > 0 && <SourcesBar sources={r.sources} />}
           </div>
-          <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
-            <div
-              className={`h-full ${
-                r.confidence.percent >= 80 ? "bg-emerald-400" : r.confidence.percent >= 60 ? "bg-amber-400" : "bg-red-400"
-              }`}
-              style={{ width: `${r.confidence.percent}%` }}
-            />
+        </details>
+      )}
+
+      {/* Niveau 3 — Preuve : graphe de preuve, données, SQL. */}
+      {(r.sql || r.columns.length > 0) && (
+        <details className="card px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-slate-700">
+            🧾 Preuve & raisonnement — graphe, données, SQL
+          </summary>
+          <div className="mt-3 space-y-3">
+            <EvidenceGraph r={r} />
+            {r.columns.length > 0 && (
+              <div className="card overflow-x-auto">
+                <div className="text-xs font-medium px-3 py-2 text-noreon-soft">
+                  Données ({r.row_count} ligne{r.row_count > 1 ? "s" : ""})
+                </div>
+                <table className="w-full text-xs">
+                  <thead className="text-noreon-soft border-b border-noreon-border">
+                    <tr>{r.columns.map((c) => <th key={c} className="text-left px-3 py-2">{c}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {r.rows.slice(0, 50).map((row, i) => (
+                      <tr key={i} className="border-b border-noreon-border/60">
+                        {row.map((v, j) => <td key={j} className="px-3 py-1.5 mono">{String(v ?? "")}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {r.sql && (
+              <pre className="mono bg-slate-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap text-xs">
+                {r.sql}
+              </pre>
+            )}
           </div>
-        </div>
-      )}
-
-      {r.chart && r.chart.type !== "table" && r.columns.length > 0 && (
-        <ChartBlock columns={r.columns} rows={r.rows} suggestion={r.chart} />
-      )}
-
-      {r.columns.length > 0 && (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="text-noreon-soft border-b border-noreon-border">
-              <tr>{r.columns.map((c) => <th key={c} className="text-left px-3 py-2">{c}</th>)}</tr>
-            </thead>
-            <tbody>
-              {r.rows.slice(0, 50).map((row, i) => (
-                <tr key={i} className="border-b border-noreon-border/60">
-                  {row.map((v, j) => <td key={j} className="px-3 py-1.5 mono">{String(v ?? "")}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {r.sql && (
-        <details className="card p-4">
-          <summary className="cursor-pointer text-sm font-medium">Transparence de l’analyse</summary>
-          <pre className="mt-3 mono bg-slate-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap text-xs">
-            {r.sql}
-          </pre>
         </details>
       )}
 
@@ -114,6 +138,26 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           <AddToReport response={r} title={r.question} />
         </div>
       )}
+    </div>
+  );
+}
+
+// Sources citées — d'où vient chaque chiffre (comme un article scientifique).
+function SourcesBar({ sources }: { sources: ChatResponse["sources"] }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap text-xs text-noreon-soft">
+      <span>📎 Sources :</span>
+      {sources.map((s) => (
+        <span
+          key={s.table}
+          className="badge bg-slate-100 text-slate-700"
+          title={s.quality_pct !== null ? `Qualité ${s.quality_pct}%` : undefined}
+        >
+          <span className="mono">{s.table}</span>
+          <span className="text-noreon-soft"> · {s.role}</span>
+          {s.quality_pct !== null && <span className="text-emerald-600"> · {s.quality_pct}%</span>}
+        </span>
+      ))}
     </div>
   );
 }

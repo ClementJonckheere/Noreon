@@ -26,15 +26,21 @@ export function authHeaders(): Record<string, string> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(),
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+        ...(init?.headers || {}),
+      },
+      cache: "no-store",
+    });
+  } catch {
+    // Erreur réseau (serveur injoignable, coupure) → message humain.
+    throw new Error("Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.");
+  }
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
       clearToken();
@@ -44,6 +50,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const body = await res.json();
       detail = body.detail || JSON.stringify(body);
     } catch {}
+    if (res.status >= 500) detail = "Une erreur est survenue côté serveur. Réessayez dans un instant.";
     throw new Error(detail);
   }
   if (res.status === 204) return undefined as T;
@@ -128,6 +135,7 @@ export interface GraphEdge {
   confidence: number;
   cardinality: string | null;
   integrity_ratio: number | null;
+  rationale?: string;
 }
 export interface Graph {
   nodes: GraphNode[];
@@ -256,6 +264,41 @@ export interface ChatResponse {
   columns_used: string[];
   assumptions: string[];
   rationale: string;
+  explanations: string[];
+  // Preuve quantifiée du choix de table (couverture / qualité / concept validé).
+  proof: {
+    table: string;
+    coverage_pct: number;
+    columns_needed: number;
+    columns_present: number;
+    quality_pct: number | null;
+    concept: string | null;
+    level: "strong" | "medium" | "weak";
+    steps: string[];
+  } | null;
+  // Validation Engine (« relecture ») : contrôles, hypothèses, fiabilité, verdict.
+  validation: ValidationReport | null;
+  // Arbitrage de mesure : plusieurs montants possibles → recommandation + pourquoi.
+  measure_options: {
+    chosen: string;
+    chosen_kind: "HT" | "TTC" | null;
+    reason: string;
+    options: { column: string; kind: "HT" | "TTC" | null; note: string; recommended: boolean; chosen: boolean }[];
+  } | null;
+  // Sources citées : tables sur lesquelles s'appuie la réponse (comme un article).
+  sources: { table: string; role: "principale" | "jointe"; quality_pct: number | null; level?: "strong" | "medium" | "weak" }[];
+  // « What if ? » : projection d'un scénario.
+  simulation: {
+    scenario: string;
+    lever: string;
+    delta_pct: number;
+    metric_label: string;
+    baseline: { count: number; total: number; avg: number };
+    projected: { before: number; after: number; delta_pct: number; delta_abs: number };
+    breakdown: { segment: string; dimension: string; share: number; gain: number }[];
+    assumptions: string[];
+    narrative: string;
+  } | null;
   columns: string[];
   rows: any[][];
   row_count: number;
@@ -276,6 +319,8 @@ export interface ChatResponse {
     queries: string[];
     trend_columns: string[];
     trend_rows: any[][];
+    journal: { t: string; phase: string; status: string; detail: string }[];
+    revisions: string[];
   } | null;
   deep: {
     subject: string;
@@ -299,7 +344,11 @@ export interface ChatResponse {
     recommendations: string[];
     queries: string[];
   } | null;
-  confidence: { percent: number; factors: string[] } | null;
+  confidence: {
+    percent: number;
+    factors: string[];
+    breakdown?: { factor: string; weight_pct: number; subscore_pct: number; contribution_pct: number }[];
+  } | null;
   table_quality: Record<string, number>;
   chart: {
     type: string;
@@ -395,23 +444,76 @@ export interface ReportFull extends ReportSummary {
 
 // ---- Découvertes (suggestions automatiques) ----
 export interface DiscoveryItem {
-  category: "anomaly" | "trend" | "suspicious_column" | "incoherent_relation";
+  category: "anomaly" | "trend" | "opportunity" | "suspicious_column" | "incoherent_relation";
   severity: "high" | "medium" | "low";
+  level: "critical" | "important" | "opportunity" | "info";
   title: string;
   detail: string;
+  narrative: string;
   table: string | null;
   column: string | null;
   suggested_question: string | null;
 }
+export interface AnalysisContext {
+  amount_basis: "TTC" | "HT" | null;
+  period_grain: "month" | "week" | "day" | "quarter" | "year" | null;
+  conventions: string[];
+}
+
+export interface ValidationReport {
+  checks: { key: string; label: string; status: "pass" | "warn" | "fail"; detail: string }[];
+  hypotheses: string[];
+  reliability_percent: number;
+  reliability_stars: number;
+  reliability_factors: { label: string; status: "ok" | "warn" | "fail" }[];
+  verdict: "cannot_conclude" | null;
+  verdict_note: string | null;
+}
+
+export interface ProductMetrics {
+  window_days: number;
+  total_analyses: number;
+  by_status: Record<string, number>;
+  quality: {
+    avg_duration_ms: number | null;
+    avg_confidence: number | null;
+    resolution_rate: number | null;
+    clarification_rate: number | null;
+    sql_validation_rate: number | null;
+  };
+  costs: {
+    llm_calls: number;
+    llm_tokens_total: number;
+    llm_ms_avg: number | null;
+    avg_sql_cost: number | null;
+    avg_sql_ms: number | null;
+    cache_hit_rate: number | null;
+    cache_hits: number;
+    cache_misses: number;
+  };
+  usage: {
+    by_event: Record<string, number>;
+    top: { key: string; count: number }[];
+  };
+}
+
+export interface DiscoveryFingerprint {
+  schema: string;
+  profiles: string;
+  quality: string;
+  combined: string;
+}
 export interface Discoveries {
   scanned: boolean;
-  counts: {
-    anomalies: number;
-    trends: number;
-    suspicious_columns: number;
-    incoherent_relations: number;
-  };
+  counts: Record<string, number>;
+  levels: { critical: number; important: number; opportunity: number; info: number };
+  headline: string[];
   items: DiscoveryItem[];
+  cached?: boolean;
+  // Versionnement par empreinte : hash(schéma)+hash(profils)+hash(qualité).
+  fingerprint?: DiscoveryFingerprint;
+  // Composants ayant changé depuis le dernier calcul (pourquoi l'insight a été refait).
+  stale_reason?: string[];
 }
 
 // ---- Endpoints ----
@@ -489,7 +591,31 @@ export const api = {
       body: JSON.stringify({ question, deep_analysis: deep }),
     }),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
-  discoveries: (id: number) => request<Discoveries>(`/connections/${id}/discoveries`),
+  discoveries: (id: number, force = false) =>
+    request<Discoveries>(`/connections/${id}/discoveries${force ? "?refresh=true" : ""}`),
+
+  // --- Contexte d'entreprise (conventions d'analyse persistantes) ---
+  getAnalysisContext: () => request<AnalysisContext>("/settings/analysis-context"),
+  updateAnalysisContext: (body: AnalysisContext) =>
+    request<AnalysisContext>("/settings/analysis-context", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  // --- Observabilité (qualité produit + coûts) ---
+  metrics: (opts?: { days?: number; connectionId?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.days) p.set("days", String(opts.days));
+    if (opts?.connectionId) p.set("connection_id", String(opts.connectionId));
+    const qs = p.toString();
+    return request<ProductMetrics>(`/metrics${qs ? `?${qs}` : ""}`);
+  },
+  // Usage produit (best-effort, silencieux) : signale ce qui sert le plus.
+  recordUsage: (event: string, label?: string) =>
+    request<{ recorded: boolean }>("/metrics/usage", {
+      method: "POST",
+      body: JSON.stringify({ event, label: label ?? null }),
+    }).catch(() => undefined),
 
   // --- Conversations serveur ---
   convList: (id: number, archived = false) =>

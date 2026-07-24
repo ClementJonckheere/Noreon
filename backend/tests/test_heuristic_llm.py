@@ -91,3 +91,65 @@ def test_synonym_matching_client_to_customers():
     p = HeuristicProvider()
     r = p.generate_sql("nombre de clients", SCHEMA)
     assert "public.customers" in r.sql
+
+
+# Schéma avec TROIS montants dans une même table (piège HT / TTC / ambigu).
+MONEY_SCHEMA = """Table public.orders (rows~3000)
+  - id integer PK
+  - customer_id integer
+  - amount numeric
+  - amount_ttc numeric
+  - net_price numeric
+"""
+
+
+def test_measure_arbitration_recommends_ttc():
+    """Mesures contradictoires : le moteur RECOMMANDE le TTC, présente les trois
+    options et documente le choix — sans fusionner en silence."""
+    p = HeuristicProvider()
+    r = p.generate_sql("Montant total des commandes", MONEY_SCHEMA)
+    assert "sum(amount_ttc)" in r.sql.lower()
+    mo = r.measure_options
+    assert mo is not None
+    assert mo["chosen"] == "amount_ttc" and mo["chosen_kind"] == "TTC"
+    cols = {o["column"]: o for o in mo["options"]}
+    assert {"amount", "amount_ttc", "net_price"} <= set(cols)
+    assert cols["amount_ttc"]["recommended"] and cols["amount_ttc"]["kind"] == "TTC"
+    assert cols["net_price"]["kind"] == "HT"
+    assert cols["amount"]["kind"] is None  # ambigu
+    assert "TTC" in mo["reason"]
+
+
+def test_measure_arbitration_respects_explicit_ht():
+    """Une demande explicite de HT est suivie, mais l'existence du TTC est signalée."""
+    p = HeuristicProvider()
+    r = p.generate_sql("Montant total HT des commandes", MONEY_SCHEMA)
+    assert "sum(net_price)" in r.sql.lower()
+    assert r.measure_options["chosen"] == "net_price"
+
+
+def test_measure_arbitration_explicit_ttc_token():
+    p = HeuristicProvider()
+    r = p.generate_sql("CA TTC des commandes", MONEY_SCHEMA)
+    assert "sum(amount_ttc)" in r.sql.lower()
+    assert r.measure_options["chosen"] == "amount_ttc"
+
+
+def test_single_measure_no_arbitration():
+    """Une seule mesure monétaire → pas d'arbitrage (rien à départager)."""
+    p = HeuristicProvider()
+    r = p.generate_sql("montant moyen des commandes", SCHEMA)  # orders n'a qu'« amount »
+    assert r.measure_options is None
+
+
+def test_company_context_amount_basis_drives_default():
+    """Contexte d'entreprise (D) : sans mention explicite, la convention « HT »
+    de l'entreprise oriente le choix par défaut (au lieu du TTC)."""
+    p = HeuristicProvider()
+    ctx_ht = MONEY_SCHEMA + "\nContexte entreprise (conventions à respecter) :\n  - Montants : HT\n"
+    r = p.generate_sql("Montant total des commandes", ctx_ht)
+    assert "sum(net_price)" in r.sql.lower()  # HT par convention d'entreprise
+    assert r.measure_options["chosen"] == "net_price"
+    # Une demande explicite de TTC prime sur la convention.
+    r2 = p.generate_sql("Montant total TTC des commandes", ctx_ht)
+    assert r2.measure_options["chosen"] == "amount_ttc"

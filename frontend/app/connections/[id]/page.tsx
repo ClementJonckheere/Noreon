@@ -9,7 +9,13 @@ import DefinitionsPanel from "@/components/DefinitionsPanel";
 import GraphPanel from "@/components/GraphPanel";
 import AddToReport from "@/components/AddToReport";
 import InvestigationView from "@/components/InvestigationView";
+import SimulationView from "@/components/SimulationView";
+import EvidenceGraph from "@/components/EvidenceGraph";
+import ConfidenceBreakdown from "@/components/ConfidenceBreakdown";
 import DiscoveriesPanel from "@/components/DiscoveriesPanel";
+import WhyChoices from "@/components/WhyChoices";
+import ValidationPanel from "@/components/ValidationPanel";
+import MeasureChoice from "@/components/MeasureChoice";
 import {
   api,
   API_BASE,
@@ -551,7 +557,7 @@ function ChatPanel({
                 ) : (
                   !t.error && (
                     <div className="text-sm text-noreon-soft flex items-center gap-2">
-                      <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                      <span className="dots"><span /><span /><span /></span>
                       {t.deep
                         ? "Analyse approfondie en cours (requêtes de suivi)…"
                         : "Analyse en cours…"}
@@ -883,12 +889,13 @@ function ChatResult({ r }: { r: ChatResponse }) {
   const statusColor: Record<string, string> = {
     answered: "text-emerald-700",
     clarification: "text-amber-700",
+    unanswerable: "text-slate-700",
     blocked: "text-red-600",
     error: "text-red-600",
     no_schema: "text-amber-700",
   };
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fade-in">
       {r.status !== "answered" && (
         <div className={`card p-4 text-sm ${statusColor[r.status] || ""}`}>
           <div className="font-medium capitalize mb-1">{r.status}</div>
@@ -929,6 +936,8 @@ function ChatResult({ r }: { r: ChatResponse }) {
         </div>
       )}
 
+      {r.simulation && <SimulationView s={r.simulation} />}
+
       {r.investigation && <InvestigationView inv={r.investigation} />}
 
       {r.deep && <DeepReport d={r.deep} />}
@@ -943,7 +952,15 @@ function ChatResult({ r }: { r: ChatResponse }) {
         </div>
       )}
 
-      {r.confidence && <ConfidenceBar c={r.confidence} />}
+      {r.measure_options && <MeasureChoice m={r.measure_options} />}
+
+      {r.validation && <ValidationPanel v={r.validation} />}
+
+      {(r.explanations?.length > 0 || r.proof) && (
+        <WhyChoices items={r.explanations} proof={r.proof} />
+      )}
+
+      {r.confidence && <ConfidenceBreakdown c={r.confidence} />}
 
       {r.chart && r.chart.type !== "table" && r.columns.length > 0 && (
         <ChartBlock columns={r.columns} rows={r.rows} suggestion={r.chart} />
@@ -951,6 +968,21 @@ function ChatResult({ r }: { r: ChatResponse }) {
 
       {r.columns.length > 0 && (
         <ResultTable columns={r.columns} rows={r.rows} truncated={r.truncated} />
+      )}
+
+      {r.status === "answered" && <EvidenceGraph r={r} />}
+
+      {r.sources?.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs text-noreon-soft">
+          <span>📎 Sources :</span>
+          {r.sources.map((s) => (
+            <span key={s.table} className="badge bg-slate-100 text-slate-700">
+              <span className="mono">{s.table}</span>
+              <span> · {s.role}</span>
+              {s.quality_pct !== null && <span className="text-emerald-600"> · {s.quality_pct}%</span>}
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Transparence : SQL, tables, colonnes, hypothèses, temps */}

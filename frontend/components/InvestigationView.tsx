@@ -53,6 +53,41 @@ export default function InvestigationView({
         ))}
       </div>
 
+      {/* « Le moteur change d'avis » — révision d'hypothèse. */}
+      {inv.revisions?.length > 0 && (
+        <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-2.5 space-y-1">
+          <div className="text-xs font-medium text-amber-800">🔄 J'ai revu mon analyse</div>
+          {inv.revisions.map((r, i) => (
+            <div key={i} className="text-xs text-amber-800">{r}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Journal de raisonnement (experts) — timeline horodatée. */}
+      {inv.journal?.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-noreon-soft">
+            🕑 Journal de raisonnement ({inv.journal.length})
+          </summary>
+          <ol className="mt-2 space-y-1 border-l border-noreon-border pl-3">
+            {inv.journal.map((j, i) => {
+              const dot =
+                j.status === "accepted" ? "text-emerald-600"
+                : j.status === "rejected" ? "text-red-500"
+                : j.phase === "revision" ? "text-amber-600"
+                : "text-slate-400";
+              return (
+                <li key={i} className="flex gap-2">
+                  <span className="mono text-[10px] text-slate-400">{j.t}</span>
+                  <span className={dot}>●</span>
+                  <span className="text-slate-600">{j.detail}</span>
+                </li>
+              );
+            })}
+          </ol>
+        </details>
+      )}
+
       {/* Synthèse */}
       <div className="space-y-1">
         <div className="text-sm font-medium text-indigo-700">Synthèse</div>

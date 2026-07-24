@@ -29,6 +29,9 @@ def run_quality(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
+    from app.services import discoveries as disc_svc
+
+    disc_svc.invalidate(conn.id)  # relations/colonnes mises à jour → Insights à recalculer
     return QualityRunOut(**summary)
 
 

@@ -61,4 +61,16 @@ class TenantSettings(Base):
         },
     )
 
+    # Contexte d'entreprise (mémoire des conventions d'analyse). Le moteur les
+    # connaît et ne les redemande plus : base monétaire (HT/TTC), granularité
+    # temporelle par défaut, et conventions libres (périmètre, exclusions…).
+    analysis_context: Mapped[dict] = mapped_column(
+        JSON,
+        default=lambda: {
+            "amount_basis": None,   # "TTC" | "HT" | None
+            "period_grain": None,   # "month"|"week"|"day"|"quarter"|"year"|None
+            "conventions": [],      # ex. ["France uniquement", "Hors magasins de test"]
+        },
+    )
+
     tenant: Mapped[Tenant] = relationship(back_populates="settings")

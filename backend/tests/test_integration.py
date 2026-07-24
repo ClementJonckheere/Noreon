@@ -104,6 +104,27 @@ def test_chat_count_end_to_end(session_with_conn):
     assert resp.confidence is not None
     assert 0 <= resp.confidence["score"] <= 1
     assert resp.confidence["factors"]  # jamais décoratif
+    # Explicabilité : chaque réponse justifie ses choix (au moins la table).
+    assert resp.explanations and any("Table" in e for e in resp.explanations)
+    # Explicabilité « preuve » : le choix de table est démontré, pas seulement
+    # affirmé — couverture des colonnes nécessaires + étapes vérifiables.
+    assert resp.proof is not None
+    assert resp.proof["table"] == "customers"
+    assert resp.proof["coverage_pct"] == 100  # comptage : aucune colonne manquante
+    assert resp.proof["steps"] and "colonnes nécessaires" in resp.proof["steps"][0]
+    # Rapport vivant (E) : la réponse cite ses sources (comme un article).
+    assert resp.sources and resp.sources[0]["table"] == "customers"
+    assert resp.sources[0]["role"] == "principale"
+    # Evidence Graph (G) : niveau de preuve sur les sources et la preuve de table.
+    assert resp.sources[0]["level"] in ("strong", "medium", "weak")
+    assert resp.proof["level"] in ("strong", "medium", "weak")
+    # Confidence breakdown (G) : décomposition pondérée cohérente avec le score.
+    bd = resp.confidence["breakdown"]
+    assert {f["factor"] for f in bd} == {
+        "qualité", "concepts", "relations", "SQL", "couverture", "hypothèses"
+    }
+    total = sum(f["contribution_pct"] for f in bd)
+    assert abs(total - resp.confidence["percent"]) <= 1  # somme ≈ score
 
 
 def test_chat_blocks_write_attempt(session_with_conn):
@@ -289,6 +310,8 @@ def test_knowledge_graph(session_with_conn):
     assert inferred["kind"] == "inferred"
     assert inferred["cardinality"] == "n-1"
     assert inferred["integrity_ratio"] is not None and inferred["integrity_ratio"] < 1.0
+    # Explicabilité : chaque relation dit EN CLAIR pourquoi elle existe.
+    assert inferred["rationale"] and "convention" in inferred["rationale"].lower()
 
     # payments.order_id : une commande a au plus un paiement dans la démo ? Non —
     # on vérifie simplement qu'une cardinalité est mesurée partout où l'intégrité l'est.
@@ -543,7 +566,7 @@ def test_space_governance_end_to_end(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_discoveries_proactive(session_with_conn):
+def test_discoveries_proactive(session_with_conn, monkeypatch):
     """À l'ouverture, l'analyste proactif remonte : colonnes suspectes (emails
     invalides), relations incohérentes (store_id orphelins), anomalie/tendance
     (chute du CA sur la période)."""
@@ -564,6 +587,293 @@ def test_discoveries_proactive(session_with_conn):
     assert c["anomalies"] + c["trends"] >= 1
     # Chaque découverte propose une question prête à creuser.
     assert any(i.get("suggested_question") for i in d.items)
+    # Hiérarchie premium (critique/important/opportunité/info) + accroche + récit.
+    assert set(d.levels) == {"critical", "important", "opportunity", "info"}
+    assert sum(d.levels.values()) == len(d.items)
+    assert d.headline and all(isinstance(h, str) for h in d.headline)
+    assert all("level" in i and i.get("narrative") for i in d.items)
+
+    # Cache (perf) : le 2e appel est servi depuis le cache, sans recalcul.
+    calls = {"n": 0}
+    real = disc_svc.run_discoveries
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    import app.services.discoveries as _mod
+    _mod.invalidate(conn.id)
+    monkeypatch.setattr(_mod, "run_discoveries", counting)
+    first = disc_svc.cached_discoveries(db, conn, cfg)
+    second = disc_svc.cached_discoveries(db, conn, cfg)
+    assert first["cached"] is False and second["cached"] is True
+    assert calls["n"] == 1  # un seul vrai calcul
+    # Le forçage recalcule.
+    disc_svc.cached_discoveries(db, conn, cfg, force=True)
+    assert calls["n"] == 2
+
+    # Versionnement par empreinte : l'insight porte son empreinte à 3 composants
+    # (schéma / profils / qualité) et une empreinte combinée déterministe.
+    fp = first["fingerprint"]
+    assert set(fp) == {"schema", "profiles", "quality", "combined"}
+    assert all(isinstance(fp[k], str) and fp[k] for k in fp)
+    # Empreinte reproductible tant que les données ne bougent pas.
+    assert disc_svc._fingerprint(db, conn, disc_svc.current_snapshot(db, conn))["combined"] == fp["combined"]
+    # Si le schéma change, l'empreinte schéma change → obsolescence explicable.
+    prev = dict(fp)
+    changed = {**fp, "schema": "deadbeef0000"}
+    assert disc_svc._stale_reason(changed, prev) == ["schéma"]
+    assert disc_svc._stale_reason({**fp, "quality": "0000deadbeef"}, prev) == ["qualité"]
+    assert disc_svc._stale_reason(None, prev) == []
+
+
+def test_sql_non_regression(session_with_conn):
+    """Jeu métier de référence (indicateur CDC « ≥ 90 % de requêtes correctes »).
+
+    Chaque question passe par le pipeline complet ; un validateur vérifie la
+    forme du SQL et/ou le résultat. On exige un taux de réussite ≥ 90 %.
+    """
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    def sql(r):
+        return (r.sql or "").lower()
+
+    CASES = [
+        ("Combien de clients ?", lambda r: r.rows[0][0] == 500 and "count(*)" in sql(r)),
+        ("Nombre de commandes", lambda r: r.rows[0][0] == 3000),
+        ("Combien de produits ?", lambda r: r.rows[0][0] == 80),
+        ("Montre les magasins", lambda r: r.row_count == 4),
+        ("Montant total des commandes", lambda r: "sum(amount_ttc)" in sql(r) and r.rows[0][0] > 0),
+        ("Quel est le montant moyen des commandes ?", lambda r: "avg(amount_ttc)" in sql(r)),
+        ("Montant total des commandes par mois",
+         lambda r: "group by" in sql(r) and r.row_count >= 12),
+        ("Nombre de commandes par magasin",
+         lambda r: "group by" in sql(r) and r.row_count >= 1),
+        ("Top 5 clients par loyalty_points",
+         lambda r: r.row_count == 5 and "order by" in sql(r) and "desc" in sql(r)),
+        ("Montant total des commandes par magasin",
+         lambda r: "sum(amount_ttc)" in sql(r) and "group by" in sql(r)),
+    ]
+
+    passed, failures = 0, []
+    for question, ok in CASES:
+        try:
+            resp = chat_svc.answer_question(db, conn, question, deep_analysis=False)
+            if resp.status == "answered" and ok(resp):
+                passed += 1
+            else:
+                failures.append(f"{question} → status={resp.status}, sql={resp.sql}")
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{question} → exception {exc}")
+
+    rate = passed / len(CASES)
+    assert rate >= 0.9, f"Taux de réussite {rate:.0%} < 90% — échecs : {failures}"
+
+
+def test_sql_non_regression_families(session_with_conn):
+    """Non-régression par FAMILLES de comportement attendu — chacune vérifie une
+    posture différente du moteur :
+
+    - simple    → SQL direct (comptage)                       → status answered
+    - métier    → concept métier (CA TTC → sum(amount_ttc))    → status answered
+    - ambigu    → plusieurs colonnes possibles (« montant »)   → status clarification
+    - impossible→ information absente (« clients heureux »)     → status unanswerable
+      avec le message « Impossible de répondre avec les données disponibles ».
+    """
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    def ask(q):
+        return chat_svc.answer_question(db, conn, q, deep_analysis=False)
+
+    # 1) SIMPLE — comptage direct.
+    r = ask("Nombre de clients")
+    assert r.status == "answered" and r.rows[0][0] == 500
+
+    # 2) MÉTIER — « CA TTC » doit viser la colonne TTC (amount_ttc), pas HT.
+    r = ask("CA TTC des commandes")
+    assert r.status == "answered"
+    assert "sum(amount_ttc)" in (r.sql or "").lower()
+
+    # 3) AMBIGU — « Montant » seul, sans sujet : le moteur NE devine PAS la table
+    #    (montant existe dans plusieurs tables) → il demande une clarification.
+    r = ask("Montant ?")
+    assert r.status == "clarification", (
+        f"attendu une demande de clarification, obtenu {r.status} / {r.sql}"
+    )
+    assert r.message  # il explique ce qu'il lui manque
+
+    # 4) IMPOSSIBLE — information absente des données → refus honnête.
+    r = ask("Combien de clients sont heureux ?")
+    assert r.status == "unanswerable", f"attendu unanswerable, obtenu {r.status}"
+    assert "impossible de répondre avec les données disponibles" in (r.message or "").lower()
+    # Aucune requête n'a été exécutée (pas de comptage silencieux des 500 clients).
+    assert not r.sql
+    assert not r.rows
+
+
+def test_product_metrics_observability(session_with_conn):
+    """Noreon mesure son propre travail : après quelques analyses, le tableau de
+    bord d'observabilité expose des KPIs qualité + coûts cohérents."""
+    from app.services import metrics as metrics_svc
+    from app.services import telemetry
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+    telemetry.reset()
+
+    chat_svc.answer_question(db, conn, "Combien de clients ?", deep_analysis=False)
+    chat_svc.answer_question(db, conn, "Nombre de commandes", deep_analysis=False)
+    chat_svc.answer_question(db, conn, "Montant ?", deep_analysis=False)  # clarification
+    chat_svc.answer_question(db, conn, "Combien de clients sont heureux ?",
+                             deep_analysis=False)  # unanswerable
+    db.flush()
+
+    m = metrics_svc.product_metrics(db, tenant_id=conn.tenant_id)
+    assert m["total_analyses"] >= 4
+    q = m["quality"]
+    # Deux réussites, une clarification, un refus.
+    assert q["resolution_rate"] is not None and 0 < q["resolution_rate"] < 1
+    assert q["clarification_rate"] and q["clarification_rate"] > 0
+    assert q["avg_duration_ms"] is not None
+    assert q["avg_confidence"] is not None
+    # Coûts : la couche LLM a été chronométrée ; provider heuristique → 0 jeton.
+    c = m["costs"]
+    assert c["llm_calls"] >= 4
+    assert c["llm_tokens_total"] == 0
+    assert c["avg_sql_ms"] is not None
+
+
+def test_whatif_simulation(session_with_conn):
+    """« What if ? » : « et si le panier moyen augmentait de 10% ? » → projection
+    du CA (hausse), répartition du gain, hypothèses affichées."""
+    from app.services import simulation as sim_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    assert sim_svc.detect("Et si le panier moyen augmentait de 10% ?") is True
+    assert sim_svc.detect("Combien de clients ?") is False
+
+    r = chat_svc.answer_question(db, conn, "Et si le panier moyen augmentait de 10% ?")
+    assert r.status == "answered"
+    s = r.simulation
+    assert s is not None
+    assert s["delta_pct"] == 10
+    # Projection cohérente : à volume constant, le CA monte de ~10%.
+    assert s["projected"]["after"] > s["projected"]["before"]
+    assert 9 <= s["projected"]["delta_pct"] <= 11
+    assert s["assumptions"]  # hypothèses affichées (projection, pas prédiction)
+
+    # Une baisse est bien projetée à la baisse.
+    r2 = chat_svc.answer_question(db, conn, "Et si les ventes baissaient de 20% ?")
+    assert r2.simulation and r2.simulation["projected"]["delta_pct"] < 0
+
+
+def test_usage_metrics_tracking():
+    """Métriques d'usage : les évènements produit sont comptés et agrégés."""
+    from app.services import telemetry
+
+    telemetry.reset()
+    assert telemetry.record_usage("chart_export", "png") is True
+    telemetry.record_usage("chart_export", "png")
+    telemetry.record_usage("insight_drill", "anomaly")
+    assert telemetry.record_usage("inconnu") is False
+    snap = telemetry.usage_snapshot()
+    assert snap["by_event"]["chart_export"] == 2
+    assert snap["by_event"]["insight_drill"] == 1
+    assert snap["top"][0]["count"] >= snap["top"][-1]["count"]
+
+
+def test_company_context_hypotheses(session_with_conn):
+    """Contexte d'entreprise (D) : les conventions (TTC, mensuel, France…) sont
+    connues du moteur et apparaissent comme hypothèses retenues — sans être
+    redemandées."""
+    from app.models.tenant import TenantSettings
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    ts = db.get(TenantSettings, conn.tenant_id)
+    ts.analysis_context = {
+        "amount_basis": "TTC", "period_grain": "month",
+        "conventions": ["France uniquement", "Hors magasins de test"],
+    }
+    db.flush()
+
+    r = chat_svc.answer_question(db, conn, "Montant total des commandes", deep_analysis=False)
+    assert r.status == "answered"
+    hyp = r.validation["hypotheses"]
+    assert "Montants en TTC" in hyp
+    assert "Analyse mensuelle" in hyp
+    assert "France uniquement" in hyp
+    assert "Hors magasins de test" in hyp
+
+
+def test_validation_engine_relecture(session_with_conn):
+    """Le Validation Engine « relit » chaque analyse : contrôles, hypothèses
+    explicites, score de fiabilité du rapport."""
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    r = chat_svc.answer_question(db, conn, "Montant total des commandes par mois",
+                                 deep_analysis=False)
+    assert r.status == "answered"
+    val = r.validation
+    assert val is not None
+    # Des contrôles ont été exécutés (mesure, dates, NULL, volume…).
+    keys = {c["key"] for c in val["checks"]}
+    assert {"measure", "row_count"} & keys
+    assert all(c["status"] in ("pass", "warn", "fail") for c in val["checks"])
+    # Hypothèses rendues explicites (au moins la mesure).
+    assert any("Mesure" in h for h in val["hypotheses"])
+    # Score de fiabilité du RAPPORT + étoiles + facteurs.
+    assert 0 <= val["reliability_percent"] <= 100
+    assert 1 <= val["reliability_stars"] <= 5
+    assert val["reliability_factors"]
+    # Une question factuelle n'est pas causale → pas de verdict « cannot_conclude ».
+    assert val["verdict"] is None
+
+
+def test_validation_cannot_conclude(session_with_conn):
+    """« Je ne peux pas conclure » — distinct de « impossible de répondre » :
+    l'analyse tourne mais aucune cause n'est établissable."""
+    from app.services import validation as validation_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    v = validation_svc.validate(
+        db, conn, question="Pourquoi le CA baisse ?", sql="SELECT 1",
+        tables_used=["orders"], columns_used=["amount_ttc"],
+        row_count=12, truncated=False, assumptions=[],
+        confidence_score=0.9, has_drivers=False, causal_hint=True,
+    )
+    assert v.verdict == "cannot_conclude"
+    assert "lien de causalité" in (v.verdict_note or "")
+    # Avec un driver identifié, plus de verdict d'impuissance.
+    v2 = validation_svc.validate(
+        db, conn, question="Pourquoi le CA baisse ?", sql="SELECT 1",
+        tables_used=["orders"], columns_used=["amount_ttc"],
+        row_count=12, truncated=False, assumptions=[],
+        confidence_score=0.9, has_drivers=True, causal_hint=True,
+    )
+    assert v2.verdict is None
 
 
 def test_agent_investigation_multi_step(session_with_conn):
@@ -588,6 +898,15 @@ def test_agent_investigation_multi_step(session_with_conn):
     assert inv["conclusion"] and inv["recommendations"]
     # Chaque étape porte SON SQL (auditable).
     assert all(s["sql"] for s in inv["steps"])
+    # Journal de raisonnement (experts) : timeline horodatée avec des analyses
+    # essayées et au moins une retenue.
+    journal = inv["journal"]
+    assert journal and all({"t", "phase", "status", "detail"} <= set(e) for e in journal)
+    assert journal[0]["phase"] == "question"
+    assert any(e["status"] == "accepted" for e in journal)
+    # « revisions » existe (peut être vide selon les données), et si l'hypothèse
+    # de départ diffère du facteur dominant, une révision est tracée.
+    assert isinstance(inv["revisions"], list)
     # Une question simple ne déclenche PAS l'agent.
     simple = chat_svc.answer_question(db, conn, "Combien de clients ?")
     assert simple.investigation is None

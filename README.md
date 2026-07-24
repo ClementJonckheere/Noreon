@@ -7,12 +7,28 @@ répond à des questions en langage naturel par des analyses **fiables,
 argumentées, auditables** — sans jamais exposer de données brutes identifiantes
 à un LLM externe.
 
-Ce dépôt contient l'implémentation conforme au cahier des charges (version 2.0).
-Périmètre livré : **V0.1 → V1.0 (multi-sources)** — de la connexion PostgreSQL
-jusqu'aux définitions métier, aux alertes et au **support multi-moteurs
-(PostgreSQL, MySQL/MariaDB, CSV, Excel)** via une couche d'abstraction des
-sources. Reste, pour compléter la V1.0 : authentification & rôles, SSO, API
-publique.
+Ce dépôt implémente **l'intégralité du cahier des charges (v2.0)** — les 11
+modules et les chapitres transverses — puis va **au-delà** pour devenir une
+plateforme d'analyse : espaces d'équipe, gouvernance des données, studio de
+rapports, **agent de raisonnement** et **analyste proactif**. Multi-moteurs
+(PostgreSQL, MySQL/MariaDB, CSV, Excel), authentification, rôles et gouvernance.
+
+> **La valeur de Noreon n'est pas de générer du SQL** — les LLM savent le faire.
+> Elle est de **comprendre les données, raisonner dessus, expliquer les
+> résultats et aider à décider**. Tout fonctionne **hors-ligne** (provider
+> heuristique) et reste **auditable** de bout en bout.
+
+### Le pipeline Noreon
+
+L'analyse autonome se déroule en cinq temps — c'est l'identité du produit :
+
+| Temps | Composant | Rôle |
+|---|---|---|
+| **Discover** | Scanner | cartographie tables, colonnes, clés (déclarées **et** inférées) |
+| **Understand** | Profiler | types réels, PII, score qualité auditable |
+| **Connect** | Knowledge Graph | relie les entités métier (relations documentées, validées) |
+| **Reason** | Planner / agent | planifie → sous-questions → SQL → synthèse |
+| **Reveal** | Insights | remonte de lui-même anomalies, tendances, opportunités |
 
 ---
 
@@ -42,8 +58,26 @@ publique.
 Multi-moteurs livrés : **PostgreSQL, MySQL/MariaDB, CSV, Excel** (l'architecture
 d'adaptateurs rend l'ajout de SQL Server / Snowflake / BigQuery / API REST
 mécanique). **Authentification, rôles, MFA et droits par source** livrés
-(Module 11). Restent pour compléter la V1.0 : **SSO SAML/OIDC** et **API
-publique**.
+(Module 11). Restent, hors périmètre CDC : **SSO SAML/OIDC** et **API publique**.
+
+---
+
+## Au-delà du cahier des charges — la plateforme
+
+Le CDC décrit un analyste sur **une** base. Noreon l'étend en une **plateforme
+d'analyse d'entreprise**, tout en restant **hors-ligne** et **auditable**.
+
+| Extension | Ce que ça apporte |
+|---|---|
+| **Univers → Espaces → BDD** | Un **univers** regroupe des **espaces** (CRM, Achats, Finance…), chacun connectant **une ou plusieurs bases**. Chaque équipe a son espace, son historique et son périmètre de données. |
+| **Gouvernance des données** | L'administrateur (DSI) crée les espaces, importe les bases, **valide/décoche tables et colonnes** exposées. Tout le **paramétrage est réservé aux ayants droit** ; le chat ne voit jamais ce qui n'est pas validé (filtrage de contexte + garde-fous en défense en profondeur). |
+| **Croisement multi-bases** | Plusieurs bases connectées à un espace se **croisent au niveau de l'analyse** (pas de fédération SQL) : on relie les résultats issus de sources distinctes. |
+| **Analyste approfondi** | Au-delà du NL→SQL : **segmentation**, croisements de dimensions, facteurs explicatifs, ruptures temporelles. Deux modes : **réponse rapide** (l'essentiel) ou **approfondie** (le détail argumenté). |
+| **Moteur de raisonnement (agent)** | Sur les questions d'investigation (« pourquoi les ventes baissent ? »), un agent enchaîne **Question → Plan → Sous-questions → SQL → Synthèse** avec drivers, conclusion et recommandations — chaque étape traçable. |
+| **Insights proactifs** | À l'ouverture d'un espace, Noreon **remonte de lui-même** anomalies, tendances et opportunités, hiérarchisées (critique / important / opportunité / info) avec un mot d'accueil. Cache TTL pour un affichage instantané. |
+| **Explicabilité** | « **Pourquoi ces choix ?** » sur chaque réponse (table, colonnes, JOIN, graphique) et « **pourquoi cette relation ?** » sur chaque arête du graphe (FK déclarée / déduite / validée, cardinalité, orphelins). |
+| **Studio de rapports** | Demander un **rapport (docs)** à l'IA sur un sujet, l'**éditer en place**, itérer avec l'IA, **ajouter n'importe quelle réponse du chat (avec graphiques)** dans un rapport, exporter en **Word (Windows/Mac)**, **PDF** et Markdown. |
+| **Historique serveur** | Conversations persistées côté serveur, **renommables**, **recherchables**, **archivables** et rangeables en **dossiers**, par espace. |
 
 ### Authentification & rôles (Module 11)
 
@@ -89,11 +123,12 @@ Noreon/
 │   │   ├── core/       config, db interne, sécurité (AES-256), logging (redaction)
 │   │   ├── models/     tenants, connexions, catalogue schéma, profils, journal
 │   │   ├── llm/        couche d'abstraction (base, heuristic, providers, factory)
-│   │   ├── services/   connections, scanner, profiler, sql_guard, executor, chat…
+│   │   ├── services/   connections, scanner, profiler, sql_guard, executor,
+│   │   │               chat, deep_analysis, agent, discoveries, reports, spaces…
 │   │   ├── worker/     file RQ (repli in-process sans Redis)
 │   │   └── api/        routes FastAPI
-│   └── tests/          43 tests (unitaires + intégration sur base réelle)
-├── frontend/           Next.js 14 + Tailwind (connexions, schéma, profils, chat)
+│   └── tests/          suite unitaire + intégration sur base réelle
+├── frontend/           Next.js 14 + Tailwind (espaces, chat, graphe, rapports, insights)
 ├── scripts/            seed_demo.sql + setup_demo.sh (base de démo + rôle read-only)
 └── docker-compose.yml  db (pgvector) + redis + backend + worker + frontend
 ```
@@ -183,10 +218,12 @@ puis poser des questions dans le **Chat**.
 
 ```bash
 source .venv/bin/activate
-cd backend && python -m pytest        # 124 tests (dont MySQL, CSV/Excel, auth)
+cd backend && python -m pytest        # 138 passés, 5 ignorés (MySQL/démo absents)
 ```
 
-Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réelle
+Les tests couvrent l'unitaire et l'intégration (chat de bout en bout,
+**non-régression SQL**, insights proactifs, agent, graphe, rapports). Les tests
+d'intégration (`test_integration.py`) s'exécutent sur la base réelle
 `noreon_demo` et sont automatiquement ignorés si elle est absente.
 
 ---
@@ -202,14 +239,18 @@ Les tests d'intégration (`test_integration.py`) s'exécutent sur la base réell
   correspondance jeton ↔ valeur ne quitte jamais le processus.
 - **Isolation tenant** sur toutes les entités.
 
-## Limites connues de la V0.1 (transparence)
+## Limites connues (transparence)
 
-- Provider LLM par défaut = **heuristique** (couvre comptage, agrégats, listes,
-  top N) ; brancher une clé OpenAI/Anthropic/Mistral pour le NL→SQL complet.
-- Authentification complète (SSO, rôles, MFA) prévue en V1.0 — le tenant est
-  résolu via l'en-tête `X-Tenant`.
-- Tunnel SSH : champ d'option présent, implémentation prévue ultérieurement
-  (SSL/TLS opérationnel).
-- L'agent Analyste fonctionne **hors-ligne** (tendances, anomalies, concentration
-  calculées) ; brancher une clé LLM enrichit l'interprétation en langage naturel.
-- Apprentissage avancé et alertes proactives : V0.4.
+- Provider LLM par défaut = **heuristique hors-ligne** (couvre comptage,
+  agrégats, listes, top N, « par X / par mois », investigations courantes) ;
+  brancher une clé OpenAI/Anthropic/Mistral enrichit le NL→SQL et
+  l'interprétation en langage naturel — tout le reste (analyse, agent, insights,
+  rapports) fonctionne **sans clé**.
+- **SSO SAML/OIDC** et **API publique** : hors périmètre CDC, non livrés
+  (auth email/mot de passe + JWT + MFA TOTP + rôles + droits par source livrés).
+- **Croisement multi-bases** au niveau de l'analyse (pas de fédération SQL entre
+  moteurs).
+- Tunnel SSH : champ d'option présent, implémentation ultérieure (SSL/TLS
+  opérationnel).
+- **Mémoire analyste** longue durée (glossaire d'entreprise apprenant au fil des
+  conversations) : prévue en V2.

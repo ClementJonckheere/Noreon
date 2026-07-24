@@ -85,7 +85,8 @@ export default function GraphPanel({ id }: { id: number }) {
                 (e.cardinality ? `<br/>Cardinalité : ${e.cardinality}` : "") +
                 (e.integrity_ratio != null
                   ? `<br/>Intégrité : ${(e.integrity_ratio * 100).toFixed(1)}%`
-                  : ""),
+                  : "") +
+                (e.rationale ? `<br/><i>${e.rationale}</i>` : ""),
             },
           };
         });
@@ -179,6 +180,9 @@ export default function GraphPanel({ id }: { id: number }) {
                   {e.integrity_ratio != null &&
                     ` · intégrité ${(e.integrity_ratio * 100).toFixed(1)}%`}
                 </span>
+                {e.rationale && (
+                  <div className="mt-1 text-[11px] text-indigo-700">🧩 {e.rationale}</div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button

@@ -220,6 +220,101 @@ Respecte la gouvernance d'espace (éléments masqués écartés).
 **Conséquence.** L'outil ouvre sur de la valeur (« 2 anomalies, 1 tendance,
 1 colonne suspecte, 2 relations incohérentes ») plutôt que sur une page blanche.
 
+### D-20 — « Insights » : hiérarchie, récit et distinction anomalie/opportunité
+**Contexte.** Retours produit sur les « Découvertes » : vocabulaire plus premium,
+cartes qui *racontent une histoire*, distinction anomalie (problème) vs
+opportunité (intéressant), et une hiérarchie de priorité.
+**Décision.** Renommage → **Insights**. Chaque trouvaille porte un **niveau**
+(🔴 critique / 🟠 important / 🟢 opportunité / ⚪ information) et un **récit**
+métier actionnable (pas un chiffre brut). Une **accroche** en tête résume « ce
+que j'ai remarqué ». Les hausses deviennent des **opportunités** (catégorie
+distincte des anomalies). Tri par niveau.
+**Conséquence.** Lecture immédiate de ce qui mérite l'attention ; l'outil ouvre
+sur une histoire, pas une page blanche. (Le passage à un raisonnement
+**adaptatif** et l'**Analyst Memory** restent des chantiers identifiés — priorité
+donnée d'abord au polissage UX/explicabilité, cf. retour « stop aux grosses
+fonctionnalités ».)
+
+### D-21 — Sprint polish V1 : explicabilité, accueil, doc
+**Contexte.** Retour produit : « la valeur = comprendre, raisonner, **expliquer** ;
+stop aux grosses fonctionnalités, place à l'UX/explicabilité/tests/doc ».
+**Décision.** (a) **« Pourquoi ces choix ? »** sur chaque réponse : justification
+de la **table**, des **colonnes**, de la **jointure** (relation nommée détectée
+dans le SQL) et du **graphique** (nature des données). (b) **Accueil
+personnalisé** dans les Insights (« Bonjour {nom} — voici ce que j'ai
+remarqué »). (c) Doc de statut/handoff rafraîchie.
+**Conséquence.** L'explicabilité passe au premier plan (« presque une preuve »),
+sans nouvelle grosse fonctionnalité — conforme au retour. Chantiers gardés pour
+la suite : raisonnement adaptatif, Analyst Memory (V2), analyse quotidienne.
+
+---
+
+### D-22 — Sprint « aller plus loin » : preuve, refus, observabilité, identité
+**Contexte.** Retour produit approfondi : versionner les insights par empreinte,
+enrichir la non-régression SQL (familles simple/métier/ambigu/impossible),
+transformer la justification en **preuve**, mesurer le produit lui-même, et lui
+donner une **identité**.
+**Décision.**
+- **Insights versionnés par empreinte** : cache clé = `hash(schéma) +
+  hash(profils) + hash(qualité)`. Tant que l'empreinte combinée est stable,
+  l'insight reste valide (TTL = simple garde-fou). En cas de recalcul, la réponse
+  porte `fingerprint` + `stale_reason` (composant modifié) → obsolescence
+  **explicable**.
+- **Refus honnête (`unanswerable`)** : un filtre portant sur une information
+  absente (« clients heureux ») déclenche « Impossible de répondre avec les
+  données disponibles » **sans exécuter de SQL**, plutôt qu'un comptage
+  silencieux. Détection conservatrice (refus seulement si **tout** le prédicat
+  est étranger au schéma). Non-régression organisée en 4 familles.
+- **Explicabilité = preuve** : le choix de table est **démontré** (couverture des
+  colonnes nécessaires réellement citées, score qualité, concept métier validé)
+  — champ `proof`, chaîne de preuve dans « Pourquoi ces choix ? ».
+- **Observabilité** : Noreon mesure son propre travail. `telemetry` (compteurs
+  LLM/cache en mémoire) + `metrics` (agrégats du journal d'audit) → page
+  `/metrics` : **qualité** (temps, confiance, % résolues, % clarifications,
+  % SQL validés) et **coûts** (appels/jetons LLM, temps LLM & SQL, cache). Les
+  clarifications sont désormais journalisées pour être mesurables.
+- **Identité du pipeline** : Discover (Scanner) → Understand (Profiler) →
+  Connect (Knowledge Graph) → Reason (Planner/agent) → Reveal (Insights),
+  exposée dans l'UI (ruban) et le README.
+**Conséquence.** Le produit gagne en **traçabilité** (empreintes), en
+**honnêteté** (refus explicite), en **preuve** (explicabilité chiffrée) et en
+**auto-mesure** — le tout hors-ligne et sans migration de schéma (compteurs en
+mémoire). Le provider heuristique reporte 0 jeton : quand une clé LLM est
+branchée, tokens & coût se remplissent sans changement d'API.
+
+---
+
+### D-23 — Sprint « analyste de confiance » (A→F)
+**Contexte.** Vision produit : Noreon doit se relire, douter, se corriger, se
+justifier, connaître l'entreprise et savoir simuler.
+**Décision.**
+- **A — Validation Engine** (`validation.py`) : « relecture » systématique de
+  chaque analyse (mesure HT/TTC, cohérence des dates, NULL, duplication de
+  jointure, plausibilité du volume) ; **hypothèses retenues** explicites ;
+  **score de fiabilité du rapport** (étoiles + facteurs) ; verdict **« je ne
+  peux pas conclure »** (causalité non établie, distinct de « impossible de
+  répondre »).
+- **B — Le moteur change d'avis** (`agent.py`) : hypothèse de départ confrontée
+  au facteur dominant → **auto-révision** ; **journal de raisonnement** horodaté
+  (analyses essayées / rejetées / retenues).
+- **C — Mesures contradictoires** (`heuristic.py`) : plusieurs montants →
+  recommandation **TTC** argumentée, HT explicite respecté ; jamais de fusion
+  silencieuse.
+- **D — Contexte d'entreprise** (`company_context.py`, migration
+  `e5f6a7b8c9d0`) : conventions (TTC, mensuel, périmètre) connues, injectées au
+  moteur et affichées en hypothèses — **jamais redemandées**. Priorité :
+  question explicite > convention entreprise > défaut TTC.
+- **E — Rapport vivant + sources** : la réponse **cite ses sources** (table
+  principale/jointe + qualité) et devient consultable couche par couche.
+- **F — What if ?** (`simulation.py`) : projection d'un scénario (« panier moyen
+  +10% ») avec répartition du gain et **hypothèses affichées** (projection, pas
+  prédiction) ; + **métriques d'usage** (`telemetry`, `/metrics/usage`) : quels
+  insights/graphiques/concepts/simulations servent le plus.
+**Conséquence.** Noreon passe d'« il répond » à « il se relit, doute, se
+corrige, se justifie et projette » — tout hors-ligne et auditable. Coût : une
+migration légère (contexte entreprise) ; le reste sans schéma (compteurs en
+mémoire, calculs à la volée).
+
 ---
 
 ## Dettes / limites connues (à traiter)
@@ -231,5 +326,9 @@ Respecte la gouvernance d'espace (éléments masqués écartés).
 - **Tunnel SSH** : champ d'option présent, implémentation à faire (SSL/TLS OK).
 - **pgvector/embeddings** : appariement sémantique encore lexical + contenu ;
   gain attendu avec des embeddings.
-- **Non-régression SQL** : mettre en place un jeu métier de référence pour
-  mesurer l'indicateur « ≥ 90 % de requêtes correctes ».
+- **Non-régression SQL** : jeu métier de référence en place (≥ 90 %) + 4 familles
+  (simple/métier/ambigu/impossible). Reste à élargir la couverture au fil des
+  nouveaux patterns rencontrés en production.
+- **Coûts LLM** : jetons/coût réels à 0 tant que le provider heuristique
+  hors-ligne est utilisé ; le remplissage devient effectif dès qu'une clé
+  OpenAI/Anthropic/Mistral est branchée (l'instrumentation est déjà en place).

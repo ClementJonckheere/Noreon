@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, Connection, CreateResult } from "@/lib/api";
+import PipelineRibbon from "@/components/PipelineRibbon";
 
 const ENGINES = [
   { id: "postgresql", label: "PostgreSQL", kind: "db", port: 5432 },
@@ -80,7 +81,9 @@ export default function Home() {
   }
 
   return (
-    <div className="grid gap-8 md:grid-cols-5">
+    <div className="space-y-8">
+      <PipelineRibbon />
+      <div className="grid gap-8 md:grid-cols-5">
       <section className="md:col-span-3 space-y-4">
         <h1 className="text-2xl font-semibold">Connexions</h1>
         <p className="text-sm text-noreon-soft">
@@ -207,6 +210,7 @@ export default function Home() {
           )}
         </div>
       </section>
+      </div>
     </div>
   );
 }

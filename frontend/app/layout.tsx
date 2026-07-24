@@ -31,6 +31,12 @@ export default function RootLayout({
               <Link href="/reports" className="text-sm text-noreon-soft hover:text-slate-900">
                 Rapports
               </Link>
+              <Link href="/metrics" className="text-sm text-noreon-soft hover:text-slate-900">
+                Métriques
+              </Link>
+              <Link href="/settings" className="text-sm text-noreon-soft hover:text-slate-900">
+                Contexte
+              </Link>
               <SessionBar />
               <span className="badge bg-noreon-accent/15 text-noreon-accent">V1.0</span>
             </div>
