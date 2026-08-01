@@ -10,6 +10,7 @@ import MeasureChoice from "@/components/MeasureChoice";
 import SimulationView from "@/components/SimulationView";
 import EvidenceGraph from "@/components/EvidenceGraph";
 import ConfidenceBreakdown from "@/components/ConfidenceBreakdown";
+import DecisionView from "@/components/DecisionView";
 
 // Rendu d'une réponse d'analyse (partagé chat par connexion / chat d'espace).
 //
@@ -69,6 +70,7 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
         </div>
       )}
 
+      {r.decisions && <DecisionView d={r.decisions} />}
       {r.simulation && <SimulationView s={r.simulation} />}
       {r.investigation && <InvestigationView inv={r.investigation} />}
       {r.deep && <DeepReportView d={r.deep} />}

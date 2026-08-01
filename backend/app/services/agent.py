@@ -101,6 +101,9 @@ class Investigation:
     plan: list[dict] = field(default_factory=list)          # {title, rationale}
     steps: list[dict] = field(default_factory=list)
     key_drivers: list[str] = field(default_factory=list)
+    # Facteurs dominants structurés (pour le Decision Engine) :
+    # {dimension, segment, share}.
+    drivers_struct: list[dict] = field(default_factory=list)
     conclusion: str = ""
     recommendations: list[str] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
@@ -329,6 +332,9 @@ def run_investigation(
         total = sum((g.total if seg.metric_is_measure else g.n) or 0 for g in seg.groups)
         share = (((top.total if seg.metric_is_measure else top.n) or 0) / total * 100) if total else 0
         inv.key_drivers.append(f"{seg.dim.label} — « {top.label} » ({share:.0f}%)")
+        inv.drivers_struct.append({
+            "dimension": seg.dim.label, "segment": top.label, "share": round(share, 1),
+        })
 
     parts = []
     if trend_dir == "baisse":

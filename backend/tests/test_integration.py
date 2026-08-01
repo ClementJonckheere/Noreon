@@ -962,6 +962,13 @@ def test_agent_investigation_multi_step(session_with_conn):
     # « revisions » existe (peut être vide selon les données), et si l'hypothèse
     # de départ diffère du facteur dominant, une révision est tracée.
     assert isinstance(inv["revisions"], list)
+    # Objectif détecté (K) : question causale → diagnostic.
+    assert resp.intent == "diagnostic"
+    # Decision Engine (K) : facteurs → décisions adaptées au rôle.
+    if resp.decisions is not None:
+        assert resp.decisions["decisions"]
+        assert all({"role", "priority", "recommendation"} <= set(x)
+                   for x in resp.decisions["decisions"])
     # Une question simple ne déclenche PAS l'agent.
     simple = chat_svc.answer_question(db, conn, "Combien de clients ?")
     assert simple.investigation is None

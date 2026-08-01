@@ -169,13 +169,14 @@ function DiscoveryCard({
         {it.score != null && (
           <span
             className={`badge shrink-0 ${
-              it.score >= 80 ? "bg-indigo-500/15 text-indigo-700"
-              : it.score >= 60 ? "bg-amber-500/15 text-amber-700"
+              it.score >= 85 ? "bg-indigo-500/15 text-indigo-700"
+              : it.score >= 70 ? "bg-amber-500/15 text-amber-700"
               : "bg-slate-200 text-slate-600"
             }`}
-            title={`Impact ${it.score_parts?.impact}% · Nouveauté ${it.score_parts?.novelty}% · Confiance ${it.score_parts?.confidence}% · Intérêt métier ${it.score_parts?.business}%`}
+            title={`Score ${it.score}/100 — Impact ${it.score_parts?.impact}% · Nouveauté ${it.score_parts?.novelty}% · Confiance ${it.score_parts?.confidence}% · Intérêt métier ${it.score_parts?.business}%`}
           >
-            {it.score}/100
+            {it.score_label || `${it.score}/100`}
+            <span className="ml-1 opacity-60">{it.score}</span>
           </span>
         )}
       </div>

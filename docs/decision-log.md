@@ -378,6 +378,29 @@ donnée brute. Le chemin chat commit la transaction ; en test, flush + rollback.
 
 ---
 
+### D-27 — Rythme narratif, score en mots, intention & Decision Engine (K)
+**Contexte.** Retours : raconter le RYTHME (pas juste le fait), traduire le
+score en mots, identifier l'objectif de la question, et surtout **adapter les
+décisions au rôle**.
+**Décision.**
+- **Rythme** (`chronicle.py`) : détecte la phase stable initiale et
+  l'accélération/ralentissement terminal → « Après une stabilité jusqu'en mars,
+  le CA recule progressivement pendant 4 mois, avec une accélération en juillet. »
+- **Score en mots** (`discoveries.py`) : `score_label` (Priorité maximale /
+  Prioritaire / À surveiller / Mineur) affiché avant le nombre.
+- **Objectif** (`decision_engine.detect_intent`) : diagnostic / comparaison /
+  reporting / suivi / exploration, exposé sur chaque réponse.
+- **Decision Engine** (`decision_engine.py`) : à partir des facteurs dominants
+  RÉELS de l'investigation (`Investigation.drivers_struct`), produit des décisions
+  **par rôle** — mêmes données, priorités différentes : Finance (marge/coûts),
+  CRM (réactivation des segments clients), Réseau (audit local des magasins),
+  Produit (assortiment). Le rôle est déduit du vocabulaire de l'axe dominant.
+**Conséquence.** Noreon passe de l'analyse à la **décision** : il ne dit plus
+seulement « ce qui se passe » mais « que faire, selon qui je suis » — déterministe,
+dérivé des données réelles, rangé au Niveau 1 (décision).
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est

@@ -59,6 +59,10 @@ class ChatResponse:
     self_critique: list[str] = field(default_factory=list)
     # Chronologie narrée d'une tendance (« dure depuis N mois »).
     chronicle: dict | None = None
+    # Objectif détecté derrière la question (diagnostic, reporting, comparaison…).
+    intent: str | None = None
+    # Decision Engine : décisions adaptées au rôle (finance / CRM / réseau…).
+    decisions: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -241,6 +245,15 @@ def answer_question(
                     assumptions=[], company_conventions=None,
                     measure_options=None, sampled=False, truncated=False,
                 )
+                # Decision Engine : mêmes données, décisions selon le rôle.
+                from app.services import decision_engine as decision_svc
+
+                decisions = decision_svc.decide(
+                    question=question, metric_label=inv.metric_label,
+                    trend_direction=inv_chron.direction if inv_chron else None,
+                    trend_pct=inv_chron.total_pct if inv_chron else None,
+                    drivers=inv.drivers_struct,
+                )
                 return ChatResponse(
                     status="answered", question=question,
                     message=agent_svc.summary_message(inv),
@@ -252,6 +265,8 @@ def answer_question(
                     sources=_sources([inv.subject], inv.trend_columns, {}),
                     self_critique=inv_critique,
                     chronicle=inv_chron.as_dict() if inv_chron is not None else None,
+                    intent=decision_svc.detect_intent(question),
+                    decisions=decisions.as_dict() if decisions is not None else None,
                     chart=chart.as_dict() if chart else None,
                 )
 
@@ -449,6 +464,7 @@ def answer_question(
         proof=proof, validation=validation, measure_options=gen.measure_options,
         sources=_sources(gen.tables_used, gen.columns_used, tscores),
         self_critique=self_critique, chronicle=chronicle,
+        intent=_detect_intent(question),
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
@@ -473,6 +489,11 @@ def _evidence_level(*, quality_pct: int | None = None, concept: bool = False,
     if inferred or assumptions >= 1 or (quality_pct is not None and quality_pct < 90):
         return "medium"
     return "strong" if quality_pct is not None else "medium"
+
+
+def _detect_intent(question: str) -> str:
+    from app.services.decision_engine import detect_intent
+    return detect_intent(question)
 
 
 def _sources(tables_used: list[str], columns_used: list[str], tscores: dict) -> list[dict]:

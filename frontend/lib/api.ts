@@ -296,7 +296,17 @@ export interface ChatResponse {
     direction: "hausse" | "baisse" | "stable";
     streak: number;
     total_pct: number;
+    stable_prefix: string | null;
+    tempo: "accélération" | "ralentissement" | null;
     narrative: string;
+  } | null;
+  // Objectif détecté derrière la question.
+  intent: string | null;
+  // Decision Engine : décisions adaptées au rôle.
+  decisions: {
+    intent: string;
+    intent_label: string;
+    decisions: { role: string; priority: string; recommendation: string }[];
   } | null;
   // « What if ? » : projection d'un scénario.
   simulation: {
@@ -466,6 +476,7 @@ export interface DiscoveryItem {
   suggested_question: string | null;
   key: string;
   score: number;  // Insight Score /100
+  score_label: string;  // « Prioritaire », « À surveiller »…
   score_parts: { impact: number; novelty: number; confidence: number; business: number };
 }
 export interface DiscoveryComparison {

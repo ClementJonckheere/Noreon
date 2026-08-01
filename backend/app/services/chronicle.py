@@ -24,6 +24,8 @@ class Chronicle:
     direction: str = "stable"       # hausse | baisse | stable
     streak: int = 0                 # nb de périodes consécutives dans le même sens (fin de série)
     total_pct: float = 0.0          # variation début → fin
+    stable_prefix: str | None = None      # période de fin de la phase stable initiale
+    tempo: str | None = None              # accélération | ralentissement | None
     narrative: str = ""
 
     def as_dict(self) -> dict:
@@ -64,7 +66,12 @@ def build(columns: list[str], rows: list[list], *, metric_label: str = "la mesur
             return -1
         return 0
 
+    # Variations pas à pas (en %), pour lire le rythme (accélération, stabilité).
+    deltas = [((values[i] - values[i - 1]) / values[i - 1] * 100) if values[i - 1] else 0.0
+              for i in range(1, len(values))]
     signs = [sign(values[i - 1], values[i]) for i in range(1, len(values))]
+
+    # Streak terminal : nb de pas consécutifs de même sens, en partant de la fin.
     streak = 0
     last_dir = 0
     for s in reversed(signs):
@@ -78,6 +85,31 @@ def build(columns: list[str], rows: list[list], *, metric_label: str = "la mesur
         else:
             break
 
+    # Phase stable initiale : préfixe de périodes quasi plates (|Δ| < 2%).
+    stable_prefix = None
+    stable_len = 0
+    for d in deltas:
+        if abs(d) < 2.0:
+            stable_len += 1
+        else:
+            break
+    if stable_len >= 1 and stable_len < len(deltas):
+        stable_prefix = periods[stable_len]  # période où la phase stable se termine
+
+    # Rythme : la dernière variation du streak est-elle plus forte (accélération)
+    # ou plus faible (ralentissement) que le reste du mouvement ?
+    tempo = None
+    if streak >= 2:
+        streak_deltas = [abs(x) for x in deltas[-streak:]]
+        last_mag = streak_deltas[-1]
+        earlier = streak_deltas[:-1]
+        mean_earlier = sum(earlier) / len(earlier) if earlier else last_mag
+        if mean_earlier > 0:
+            if last_mag >= 1.3 * mean_earlier:
+                tempo = "accélération"
+            elif last_mag <= 0.7 * mean_earlier:
+                tempo = "ralentissement"
+
     first, last = values[0], values[-1]
     total_pct = ((last - first) / first * 100) if first else 0.0
     direction = "hausse" if last_dir > 0 else "baisse" if last_dir < 0 else "stable"
@@ -85,19 +117,30 @@ def build(columns: list[str], rows: list[list], *, metric_label: str = "la mesur
     ch = Chronicle(
         periods=periods, values=[round(v, 2) for v in values],
         direction=direction, streak=streak, total_pct=round(total_pct, 1),
+        stable_prefix=stable_prefix, tempo=tempo,
     )
     ch.narrative = _narrate(ch, metric_label)
     return ch
 
 
 def _narrate(ch: Chronicle, metric_label: str) -> str:
+    """Raconte le RYTHME, pas seulement le fait : phase initiale → mouvement →
+    accélération / ralentissement."""
     if ch.streak >= 2:
-        sens = "recule" if ch.direction == "baisse" else "progresse"
-        lead = (f"Cette tendance dure depuis {ch.streak} période(s) consécutive(s) : "
-                f"{metric_label} {sens} de {ch.periods[-ch.streak - 1]} à {ch.periods[-1]}")
-        if ch.total_pct:
-            lead += f" ({ch.total_pct:+.0f}% sur l'ensemble de la période)"
-        return lead + "."
+        verb = "recule" if ch.direction == "baisse" else "progresse"
+        noun = "baisse" if ch.direction == "baisse" else "hausse"
+        lead = ""
+        if ch.stable_prefix:
+            lead = f"Après une stabilité jusqu'en {ch.stable_prefix}, "
+        story = (f"{metric_label} {verb} progressivement pendant "
+                 f"{ch.streak} période(s) consécutive(s)")
+        if ch.tempo == "accélération":
+            story += f", avec une accélération de la {noun} en {ch.periods[-1]}"
+        elif ch.tempo == "ralentissement":
+            story += f", avec un ralentissement en {ch.periods[-1]}"
+        tail = f" ({ch.total_pct:+.0f}% au total)."
+        text = (lead + story + tail) if lead else (story[0].upper() + story[1:] + tail)
+        return text[0].upper() + text[1:]
     if ch.direction == "stable":
         return f"{metric_label} est globalement stable sur la période observée."
     sens = "en baisse" if ch.direction == "baisse" else "en hausse"

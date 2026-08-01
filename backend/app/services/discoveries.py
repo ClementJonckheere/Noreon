@@ -60,6 +60,7 @@ class Finding:
     key: str = ""
     # Insight Score /100 = nouveauté + impact + confiance + intérêt métier.
     score: int = 0
+    score_label: str = ""   # traduction en mots (les mots parlent à tout le monde)
     score_parts: dict = field(default_factory=dict)
 
 
@@ -85,6 +86,17 @@ _CAT_CONFIDENCE = {"incoherent_relation": 0.9, "suspicious_column": 0.85,
                    "anomaly": 0.75, "trend": 0.7, "opportunity": 0.7}
 _CAT_BUSINESS = {"trend": 0.9, "opportunity": 0.9, "anomaly": 0.85,
                  "incoherent_relation": 0.7, "suspicious_column": 0.5}
+
+
+def _score_label(score: int) -> str:
+    """Traduit le score en mots — « les mots parlent à tout le monde »."""
+    if score >= 85:
+        return "Priorité maximale"
+    if score >= 70:
+        return "Prioritaire"
+    if score >= 55:
+        return "À surveiller"
+    return "Mineur"
 
 
 def _finding_key(f: Finding) -> str:
@@ -209,6 +221,7 @@ def run_discoveries(
     for f in findings:
         f.key = _finding_key(f)
         f.score, f.score_parts = _score_finding(f)
+        f.score_label = _score_label(f.score)
     findings.sort(key=lambda f: (_LEVEL_RANK.get(f.level, 3), -f.score,
                                  _SEV_RANK.get(f.severity, 3)))
     findings = findings[:max_items]
