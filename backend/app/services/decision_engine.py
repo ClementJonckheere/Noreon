@@ -54,6 +54,9 @@ class Decision:
     role: str            # libellé du rôle
     priority: str        # phrase de priorité
     recommendation: str  # action concrète
+    justification: str = ""          # « pourquoi cette recommandation ? » (Decision Journal)
+    impact: str | None = None        # fourchette d'impact estimé (ex. « +4 à +7 % »)
+    impact_confidence: str | None = None  # Faible | Moyenne | Élevée
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -63,10 +66,51 @@ class Decision:
 class DecisionSet:
     intent: str = "exploration"
     intent_label: str = ""
+    restated: str = ""               # objectif reformulé (« Diagnostiquer une baisse des ventes »)
     decisions: list[dict] = field(default_factory=list)
+    inaction: str | None = None      # « et si je ne fais rien ? » (projection prudente)
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+def restate_intent(question: str, *, intent: str | None = None,
+                   metric_label: str | None = None, trend_direction: str | None = None,
+                   top_dimension: str | None = None) -> str:
+    """Reformule l'objectif réel — pas seulement la catégorie.
+
+    « diagnostic » → « Diagnostiquer une baisse des ventes ». Le moteur montre
+    qu'il a compris la demande."""
+    intent = intent or detect_intent(question)
+    metric = _clean_metric(metric_label)
+    dim = _clean_dimension(top_dimension)
+    if intent == "diagnostic":
+        if trend_direction == "baisse":
+            return f"Diagnostiquer une baisse de {metric}"
+        if trend_direction == "hausse":
+            return f"Comprendre une hausse de {metric}"
+        return f"Diagnostiquer l'évolution de {metric}"
+    if intent == "comparaison":
+        return f"Comparer les performances par {dim}" if dim else f"Comparer {metric}"
+    if intent == "reporting":
+        return f"Préparer un rapport sur {metric}"
+    if intent == "suivi":
+        return f"Suivre l'évolution de {metric}"
+    return f"Explorer {metric}"
+
+
+def _clean_metric(label: str | None) -> str:
+    if not label:
+        return "l'indicateur"
+    m = re.sub(r"^(total de|effectif de)\s*", "", label).strip()
+    m = re.sub(r"\s*\(nombre de lignes\)", "", m)
+    return m or "l'indicateur"
+
+
+def _clean_dimension(label: str | None) -> str:
+    if not label:
+        return ""
+    return re.sub(r"\s*\([^)]*\)", "", label).strip()
 
 
 def _role_of(dimension: str) -> str | None:
@@ -77,14 +121,51 @@ def _role_of(dimension: str) -> str | None:
     return None
 
 
+_ROLE_ACTIONS = {
+    "reseau": ("Directeur réseau",
+               "Auditer localement « {seg} » : conditions du point de vente, "
+               "concurrence, exécution terrain.",
+               "{share:.0f}% de la variation provient de « {seg} » ({dim})."),
+    "crm": ("Responsable CRM",
+            "Lancer une campagne de réactivation ciblée sur « {seg} » ; "
+            "mesurer l'effet sur la fréquence d'achat.",
+            "le segment client « {seg} » porte {share:.0f}% de la variation ({dim})."),
+    "produit": ("Directeur produit",
+                "Revoir l'assortiment et le prix de la gamme « {seg} » ; vérifier les ruptures.",
+                "la gamme « {seg} » pèse {share:.0f}% de la variation ({dim})."),
+    "canal": ("Responsable des opérations",
+              "Analyser le parcours sur le canal « {seg} » (friction, coût, conversion).",
+              "le canal « {seg} » explique {share:.0f}% de la variation ({dim})."),
+}
+
+
+def _estimate_impact(share: float, trend_pct: float | None) -> tuple[str | None, str | None]:
+    """Fourchette d'impact récupérable estimée + confiance, à partir de la part
+    du facteur dans la variation. Volontairement prudente (jamais une promesse)."""
+    if not trend_pct:
+        return None, None
+    addressable = share / 100.0 * abs(trend_pct)   # part de la variation portée par ce facteur
+    low, high = addressable * 0.3, addressable * 0.6  # récupération partielle réaliste
+    if high < 0.5:
+        return None, None
+    conf = "Moyenne" if share >= 45 else "Faible"
+    return f"+{low:.0f} à +{high:.0f} %", conf
+
+
 def decide(*, question: str, metric_label: str, trend_direction: str | None,
-           trend_pct: float | None, drivers: list[dict]) -> DecisionSet | None:
+           trend_pct: float | None, drivers: list[dict],
+           recent_rate: float | None = None) -> DecisionSet | None:
     """Produit des décisions adaptées au rôle à partir des facteurs dominants.
 
     `drivers` : [{dimension, segment, share}] issus du Reasoning Engine.
     """
     intent = detect_intent(question)
-    ds = DecisionSet(intent=intent, intent_label=INTENT_LABEL.get(intent, intent))
+    top_dim = drivers[0].get("dimension") if drivers else None
+    ds = DecisionSet(
+        intent=intent, intent_label=INTENT_LABEL.get(intent, intent),
+        restated=restate_intent(question, intent=intent, metric_label=metric_label,
+                                trend_direction=trend_direction, top_dimension=top_dim),
+    )
 
     down = trend_direction == "baisse"
     pct_txt = f" ({trend_pct:+.0f}%)" if trend_pct else ""
@@ -92,12 +173,16 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
 
     # Finance : présent quelle que soit l'analyse d'une mesure monétaire.
     if trend_direction in ("baisse", "hausse"):
+        just = (f"parce que {metric_label} évolue de {trend_pct:+.0f}%, "
+                "ce qui pèse directement sur la marge." if trend_pct
+                else f"parce que {metric_label} est orienté à la {sens}.")
         if down:
             ds.decisions.append(Decision(
                 role="Directeur financier",
                 priority=f"{metric_label} en {sens}{pct_txt} — préserver la marge et cadrer les coûts.",
                 recommendation="Sécuriser la trésorerie, arbitrer les dépenses non essentielles, "
                                "réviser les prévisions.",
+                justification=just,
             ).as_dict())
         else:
             ds.decisions.append(Decision(
@@ -105,43 +190,40 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
                 priority=f"{metric_label} en {sens}{pct_txt} — sécuriser et rentabiliser la dynamique.",
                 recommendation="Vérifier que la hausse ne dégrade pas la marge ; réinvestir là où le "
                                "retour est prouvé.",
+                justification=just,
             ).as_dict())
 
-    # Rôles métier selon le facteur dominant.
+    # Rôles métier selon le facteur dominant (avec impact estimé + justification).
     seen_roles: set[str] = set()
     for d in drivers[:3]:
         role = _role_of(d.get("dimension", ""))
-        if role is None or role in seen_roles:
+        if role is None or role in seen_roles or role not in _ROLE_ACTIONS:
             continue
         seen_roles.add(role)
-        seg, share, dim = d.get("segment"), d.get("share", 0), d.get("dimension")
-        if role == "reseau":
-            ds.decisions.append(Decision(
-                role="Directeur réseau",
-                priority=f"« {seg} » concentre {share:.0f}% de la variation ({dim}).",
-                recommendation=f"Auditer localement « {seg} » : conditions du point de vente, "
-                               "concurrence, exécution terrain.",
-            ).as_dict())
-        elif role == "crm":
-            ds.decisions.append(Decision(
-                role="Responsable CRM",
-                priority=f"Le segment client « {seg} » porte {share:.0f}% de la variation ({dim}).",
-                recommendation=("Lancer une campagne de réactivation ciblée sur ce segment ; "
-                                "mesurer l'effet sur la fréquence d'achat."),
-            ).as_dict())
-        elif role == "produit":
-            ds.decisions.append(Decision(
-                role="Directeur produit",
-                priority=f"La gamme « {seg} » pèse {share:.0f}% de la variation ({dim}).",
-                recommendation="Revoir l'assortiment et le prix de cette gamme ; vérifier les ruptures.",
-            ).as_dict())
-        elif role == "canal":
-            ds.decisions.append(Decision(
-                role="Responsable des opérations",
-                priority=f"Le canal « {seg} » explique {share:.0f}% de la variation ({dim}).",
-                recommendation="Analyser le parcours sur ce canal (friction, coût, conversion).",
-            ).as_dict())
+        seg, share, dim = d.get("segment"), d.get("share", 0), _clean_dimension(d.get("dimension"))
+        role_label, action_tpl, just_tpl = _ROLE_ACTIONS[role]
+        impact, conf = _estimate_impact(share, trend_pct)
+        ds.decisions.append(Decision(
+            role=role_label,
+            priority=f"« {seg} » concentre {share:.0f}% de la variation ({dim}).",
+            recommendation=action_tpl.format(seg=seg, dim=dim),
+            justification="parce que " + just_tpl.format(seg=seg, dim=dim, share=share),
+            impact=impact, impact_confidence=conf,
+        ).as_dict())
 
     if not ds.decisions:
         return None
+
+    # « Et si je ne fais rien ? » — projection PRUDENTE si la baisse se poursuit.
+    if down and recent_rate and recent_rate < -0.5:
+        horizon = 3
+        factor = (1 + recent_rate / 100.0) ** horizon
+        add_decline = (1 - factor) * 100
+        if add_decline >= 1:
+            ds.inaction = (
+                "Si la tendance observée se maintient et qu'aucun changement majeur n'intervient, "
+                f"{metric_label} pourrait reculer d'environ {add_decline:.0f}% supplémentaires "
+                f"sur les {horizon} prochaines périodes. Il s'agit d'une projection sous hypothèses, "
+                "pas d'une prédiction."
+            )
     return ds

@@ -401,6 +401,26 @@ dérivé des données réelles, rangé au Niveau 1 (décision).
 
 ---
 
+### D-28 — Decision Engine approfondi : objectif reformulé, impact, journal, inaction (L)
+**Contexte.** Retours : reformuler l'objectif, estimer l'impact des actions,
+justifier chaque reco, et projeter l'inaction — sans jamais prétendre prédire.
+**Décision.**
+- **Objectif reformulé** (`restate_intent`) : « diagnostic » → « Diagnostiquer une
+  baisse de {mesure} », « comparaison » → « Comparer les performances par {axe} ».
+- **Impact estimé** (`_estimate_impact`) : fourchette récupérable = part du facteur
+  × |variation| × [0,3 ; 0,6], + niveau de confiance ; toujours étiquetée
+  « estimation basée sur la structure historique des données ».
+- **Decision Journal** : chaque décision porte sa **justification** (« parce que
+  65% de la variation provient de « Store 3 » »).
+- **« Et si je ne fais rien ? »** : projection prudente à partir de la cadence
+  récente (`chronicle.recent_rate`) sur 3 périodes, **formulée sans certitude**
+  (« si la tendance se maintient et qu'aucun changement majeur n'intervient… une
+  projection sous hypothèses, pas une prédiction »).
+**Conséquence.** La décision devient priorisable (impact), défendable (journal) et
+lucide sur le coût de l'inaction — tout en restant rigoureux sur l'incertitude.
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est

@@ -26,6 +26,7 @@ class Chronicle:
     total_pct: float = 0.0          # variation début → fin
     stable_prefix: str | None = None      # période de fin de la phase stable initiale
     tempo: str | None = None              # accélération | ralentissement | None
+    recent_rate: float = 0.0              # variation moyenne par période sur le streak (%)
     narrative: str = ""
 
     def as_dict(self) -> dict:
@@ -114,10 +115,15 @@ def build(columns: list[str], rows: list[list], *, metric_label: str = "la mesur
     total_pct = ((last - first) / first * 100) if first else 0.0
     direction = "hausse" if last_dir > 0 else "baisse" if last_dir < 0 else "stable"
 
+    # Cadence récente : variation moyenne par période sur le streak (pour projeter
+    # une éventuelle poursuite de la tendance, avec prudence).
+    recent = deltas[-streak:] if streak >= 1 else deltas[-1:]
+    recent_rate = sum(recent) / len(recent) if recent else 0.0
+
     ch = Chronicle(
         periods=periods, values=[round(v, 2) for v in values],
         direction=direction, streak=streak, total_pct=round(total_pct, 1),
-        stable_prefix=stable_prefix, tempo=tempo,
+        stable_prefix=stable_prefix, tempo=tempo, recent_rate=round(recent_rate, 2),
     )
     ch.narrative = _narrate(ch, metric_label)
     return ch

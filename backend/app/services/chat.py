@@ -61,6 +61,8 @@ class ChatResponse:
     chronicle: dict | None = None
     # Objectif détecté derrière la question (diagnostic, reporting, comparaison…).
     intent: str | None = None
+    # Objectif reformulé en langage naturel (« Diagnostiquer une baisse des ventes »).
+    intent_restated: str | None = None
     # Decision Engine : décisions adaptées au rôle (finance / CRM / réseau…).
     decisions: dict | None = None
     columns: list[str] = field(default_factory=list)
@@ -253,6 +255,7 @@ def answer_question(
                     trend_direction=inv_chron.direction if inv_chron else None,
                     trend_pct=inv_chron.total_pct if inv_chron else None,
                     drivers=inv.drivers_struct,
+                    recent_rate=inv_chron.recent_rate if inv_chron else None,
                 )
                 return ChatResponse(
                     status="answered", question=question,
@@ -266,6 +269,10 @@ def answer_question(
                     self_critique=inv_critique,
                     chronicle=inv_chron.as_dict() if inv_chron is not None else None,
                     intent=decision_svc.detect_intent(question),
+                    intent_restated=(decisions.restated if decisions is not None
+                                     else decision_svc.restate_intent(
+                                         question, metric_label=inv.metric_label,
+                                         trend_direction=inv_chron.direction if inv_chron else None)),
                     decisions=decisions.as_dict() if decisions is not None else None,
                     chart=chart.as_dict() if chart else None,
                 )
@@ -465,6 +472,8 @@ def answer_question(
         sources=_sources(gen.tables_used, gen.columns_used, tscores),
         self_critique=self_critique, chronicle=chronicle,
         intent=_detect_intent(question),
+        intent_restated=_restate_intent(question, metric_label=metric_label,
+                                        trend_direction=chron.direction if chron else None),
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
@@ -494,6 +503,11 @@ def _evidence_level(*, quality_pct: int | None = None, concept: bool = False,
 def _detect_intent(question: str) -> str:
     from app.services.decision_engine import detect_intent
     return detect_intent(question)
+
+
+def _restate_intent(question: str, **kw) -> str:
+    from app.services.decision_engine import restate_intent
+    return restate_intent(question, **kw)
 
 
 def _sources(tables_used: list[str], columns_used: list[str], tscores: dict) -> list[dict]:

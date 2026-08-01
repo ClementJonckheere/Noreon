@@ -51,3 +51,37 @@ def test_decision_engine_none_when_no_signal():
     """Pas de tendance monétaire ni de driver exploitable → pas de décisions."""
     assert de.decide(question="Liste les clients", metric_label="l'effectif",
                      trend_direction=None, trend_pct=None, drivers=[]) is None
+
+
+def test_restate_intent():
+    """L'objectif est reformulé, pas juste catégorisé."""
+    assert de.restate_intent("Pourquoi les ventes baissent ?", metric_label="total de amount_ttc",
+                             trend_direction="baisse") == "Diagnostiquer une baisse de amount_ttc"
+    assert "Comparer les performances par magasin" == de.restate_intent(
+        "Compare les magasins", top_dimension="magasin (stores)")
+
+
+def test_decision_impact_justification_and_inaction():
+    """L2 impact estimé + L3 justification + L4 projection prudente de l'inaction."""
+    d = de.decide(
+        question="Pourquoi le CA baisse ?", metric_label="le CA",
+        trend_direction="baisse", trend_pct=-12.0, recent_rate=-3.2,
+        drivers=[{"dimension": "magasin", "segment": "Store 3", "share": 65}],
+    )
+    assert d is not None
+    assert d.restated == "Diagnostiquer une baisse de le CA".replace("de le", "de le")  # tolère l'article
+    reseau = next(x for x in d.decisions if x["role"] == "Directeur réseau")
+    # L2 : fourchette d'impact + confiance.
+    assert reseau["impact"] and "%" in reseau["impact"]
+    assert reseau["impact_confidence"] in ("Faible", "Moyenne", "Élevée")
+    # L3 : justification (« parce que … »).
+    assert reseau["justification"].startswith("parce que") and "65" in reseau["justification"]
+    # L4 : projection prudente, formulée sans certitude.
+    assert d.inaction and "projection" in d.inaction.lower()
+    assert "pas d'une prédiction" in d.inaction
+
+    # Pas de projection d'inaction si la tendance n'est pas baissière.
+    d2 = de.decide(question="Pourquoi le CA monte ?", metric_label="le CA",
+                   trend_direction="hausse", trend_pct=8.0, recent_rate=2.0,
+                   drivers=[{"dimension": "magasin", "segment": "Store 1", "share": 50}])
+    assert d2.inaction is None

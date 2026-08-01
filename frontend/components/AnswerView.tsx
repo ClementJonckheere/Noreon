@@ -64,6 +64,10 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
       )}
 
       {/* Niveau 1 — Décision : contenu principal + graphique. */}
+      {!r.decisions && r.intent_restated && r.status === "answered" && (
+        <div className="text-xs text-noreon-soft">🎯 Objectif compris : {r.intent_restated}</div>
+      )}
+
       {r.chronicle && r.chronicle.streak >= 2 && (
         <div className="text-sm rounded-lg bg-sky-500/10 border border-sky-500/25 px-3 py-2 text-sky-800">
           📅 {r.chronicle.narrative}

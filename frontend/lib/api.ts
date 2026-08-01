@@ -302,11 +302,22 @@ export interface ChatResponse {
   } | null;
   // Objectif détecté derrière la question.
   intent: string | null;
+  // Objectif reformulé en langage naturel.
+  intent_restated: string | null;
   // Decision Engine : décisions adaptées au rôle.
   decisions: {
     intent: string;
     intent_label: string;
-    decisions: { role: string; priority: string; recommendation: string }[];
+    restated: string;
+    inaction: string | null;
+    decisions: {
+      role: string;
+      priority: string;
+      recommendation: string;
+      justification: string;
+      impact: string | null;
+      impact_confidence: string | null;
+    }[];
   } | null;
   // « What if ? » : projection d'un scénario.
   simulation: {
