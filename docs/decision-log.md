@@ -362,6 +362,22 @@ sans LLM, déterministe ; une seule ligne persistée par connexion.
 
 ---
 
+### D-26 — Mémoire du Reasoning Engine (J)
+**Contexte.** Chaque investigation repartait de zéro ; le moteur ne capitalisait
+pas sur les stratégies qui marchent.
+**Décision.** `ReasoningMemory` (migration `a7b8c9d0e1f2`) mémorise, par
+(connexion, sujet, dimension), une **efficacité** = moyenne mobile exponentielle
+(α=0,4) du « power » observé lors des segmentations. Avant d'analyser, l'agent
+**réordonne** les dimensions candidates par efficacité éprouvée (`memory.rank`)
+et teste les meilleures d'abord (utile quand le nombre d'étapes est plafonné) ;
+après, il **enregistre** le signal observé (`memory.record`). La priorisation est
+tracée dans le **journal de raisonnement**.
+**Conséquence.** Le moteur apprend quelles chaînes de jointures / dimensions
+portent le signal et les teste en priorité — déterministe, borné au tenant, sans
+donnée brute. Le chemin chat commit la transaction ; en test, flush + rollback.
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est

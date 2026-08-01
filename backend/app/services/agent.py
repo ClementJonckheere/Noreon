@@ -246,18 +246,34 @@ def run_investigation(
         inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
                             "detail": f"Tendance temporelle établie ({trend_dir})."})
 
+    # Mémoire du moteur (J) : on teste EN PRIORITÉ les stratégies qui se sont
+    # révélées efficaces par le passé pour ce sujet (chaînes de jointures utiles).
+    from app.services import reasoning_memory as memory
+
+    dims, prioritized = memory.rank(dims, db, conn.id, fact.name)
+    if prioritized:
+        inv.journal.append({"t": _now(), "phase": "plan", "status": "info",
+                            "detail": "Mémoire du moteur : stratégie(s) priorisée(s) car "
+                                      f"efficace(s) par le passé — {', '.join(prioritized)}."})
+
     # --- Étapes par dimension : plan puis exécution ---
     segmentations = []
+    observed: list[tuple[str, float]] = []
     for dim in dims[:_MAX_DIM_STEPS]:
         seg = _run_segmentation(adapter, conn.id, guard_args, fact, dim, measure_sql)
         if seg is not None:
             segmentations.append(seg)
+            observed.append((dim.label, seg.power))
             inv.journal.append({"t": _now(), "phase": "analysis", "status": "info",
                                 "detail": f"Analyse « {dim.label} » : signal mesuré (force {seg.power:.2f})."})
         else:
+            observed.append((dim.label, 0.0))
             inv.journal.append({"t": _now(), "phase": "analysis", "status": "rejected",
                                 "detail": f"Analyse « {dim.label} » écartée : aucun signal exploitable."})
     segmentations.sort(key=lambda s: s.power, reverse=True)
+
+    # Apprentissage : on mémorise l'efficacité observée (le caller valide).
+    memory.record(db, conn.id, fact.name, observed)
 
     # Ce que disent réellement les données : le facteur dominant.
     if segmentations:

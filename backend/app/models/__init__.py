@@ -12,6 +12,7 @@ from app.models.conversation import (
 from app.models.definitions import BusinessDefinition
 from app.models.insight import InsightBaseline
 from app.models.profile import ColumnProfile, ProfilingJob
+from app.models.reasoning import ReasoningMemory
 from app.models.quality import QualityScore
 from app.models.query_log import QueryLog
 from app.models.schema_catalog import (
@@ -45,6 +46,7 @@ __all__ = [
     "QualityScore",
     "QueryLog",
     "InsightBaseline",
+    "ReasoningMemory",
     "BusinessConcept",
     "ConceptMapping",
     "BusinessDefinition",

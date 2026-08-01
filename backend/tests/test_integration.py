@@ -967,6 +967,45 @@ def test_agent_investigation_multi_step(session_with_conn):
     assert simple.investigation is None
 
 
+def test_reasoning_memory_learns(session_with_conn):
+    """Mémoire du moteur : après une investigation, l'agent retient l'efficacité
+    des dimensions et priorise les plus fortes la fois suivante."""
+    from app.models.reasoning import ReasoningMemory
+    from app.services import agent as agent_svc
+    from app.services import reasoning_memory as memory
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    guard = {"row_limit": 10000, "timeout_seconds": 30, "max_cost": 1e9, "max_concurrent": 1}
+    inv = agent_svc.run_investigation(db, conn, cfg, "Pourquoi les ventes baissent ?",
+                                      guard_args=guard)
+    assert inv is not None
+    # Des efficacités ont été mémorisées pour le sujet (orders).
+    rows = db.execute(
+        select(ReasoningMemory).where(ReasoningMemory.connection_id == conn.id)
+    ).scalars().all()
+    assert rows, "la mémoire devrait contenir des dimensions évaluées"
+    assert all(r.observations >= 1 for r in rows)
+
+    # rank() priorise les dimensions à forte efficacité éprouvée.
+    eff = memory.effectiveness_map(db, conn.id, "orders")
+    assert eff
+
+    class _D:
+        def __init__(self, label):
+            self.label = label
+
+    strong = max(eff, key=eff.get)
+    dims = [_D("axe inconnu"), _D(strong)]
+    ordered, prioritized = memory.rank(dims, db, conn.id, "orders")
+    if eff[strong] > 0:
+        assert ordered[0].label == strong
+        assert strong in prioritized
+
+
 def test_space_conversations_history(session_with_conn, monkeypatch):
     """Historique de chat rattaché à l'espace : conversation + tour (source
     choisie, gouvernance appliquée), rejouable à l'identique."""
