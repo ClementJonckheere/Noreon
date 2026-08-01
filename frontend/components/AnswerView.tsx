@@ -129,6 +129,57 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
                 {r.sql}
               </pre>
             )}
+
+            {/* Métadonnées d'exécution : tables + qualité, colonnes, hypothèses,
+                temps, coût, avertissements. */}
+            <div className="space-y-3 text-xs">
+              {r.tables_used?.length > 0 && (
+                <div>
+                  <div className="text-noreon-soft mb-1">Tables utilisées</div>
+                  <div className="flex flex-wrap gap-1">
+                    {r.tables_used.map((t) => (
+                      <span key={t} className="badge bg-slate-100 mono">
+                        {t}
+                        {r.table_quality?.[t] != null && (
+                          <span
+                            className={`ml-1 ${
+                              r.table_quality[t] >= 90
+                                ? "text-emerald-700"
+                                : r.table_quality[t] >= 70
+                                ? "text-amber-700"
+                                : "text-red-600"
+                            }`}
+                          >
+                            · qualité {r.table_quality[t]}%
+                          </span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {r.columns_used?.length > 0 && (
+                <MetaList label="Colonnes utilisées" items={r.columns_used} />
+              )}
+              {r.assumptions?.length > 0 && (
+                <div>
+                  <div className="text-noreon-soft mb-1">Hypothèses retenues</div>
+                  <ul className="list-disc pl-4 text-amber-700">
+                    {r.assumptions.map((a, i) => <li key={i}>{a}</li>)}
+                  </ul>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-4 text-noreon-soft">
+                {r.duration_ms != null && <span>⏱ {r.duration_ms} ms</span>}
+                {r.estimated_cost != null && (
+                  <span>coût estimé {Math.round(r.estimated_cost).toLocaleString()}</span>
+                )}
+                <span>{r.row_count} ligne(s)</span>
+              </div>
+              {r.warnings?.length > 0 && (
+                <div className="text-amber-700">{r.warnings.join(" · ")}</div>
+              )}
+            </div>
           </div>
         </details>
       )}
@@ -138,6 +189,20 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           <AddToReport response={r} title={r.question} />
         </div>
       )}
+    </div>
+  );
+}
+
+function MetaList({ label, items }: { label: string; items: string[] }) {
+  if (!items?.length) return null;
+  return (
+    <div>
+      <div className="text-noreon-soft mb-1">{label}</div>
+      <div className="flex flex-wrap gap-1">
+        {items.map((i) => (
+          <span key={i} className="badge bg-slate-100 mono">{i}</span>
+        ))}
+      </div>
     </div>
   );
 }
