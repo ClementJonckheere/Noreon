@@ -317,6 +317,33 @@ mémoire, calculs à la volée).
 
 ---
 
+### D-24 — Evidence Graph, divulgation progressive, auto-critique & chronologie (G→H)
+**Contexte.** Retour produit : réunir Pourquoi/Preuve/SQL/Sources en un graphe,
+nuancer les preuves, décomposer la confiance — et surtout NE PAS tout afficher en
+permanence (risque de fatigue).
+**Décision.**
+- **G — Evidence Graph** : chaîne logique unique (Question → Hypothèses → Tables
+  → Jointures → Preuve → SQL → Résultat → Conclusion) colorée par **niveau de
+  preuve** (🟢 forte / 🟡 moyenne / 🔴 faible). **Confidence breakdown** : l'indice
+  devient une **somme pondérée** décomposée (qualité 35 / concepts 25 / relations
+  18 / SQL 12 / couverture 6 / hypothèses 4). **UI 3 niveaux** (Décision /
+  Comprendre / Preuve) pour la divulgation progressive.
+- **Unification UX** : la page connexion (rendu plat historique) et le chat
+  d'espace partagent désormais le même `AnswerView` à 3 niveaux (fin de la
+  duplication).
+- **H — Auto-critique** (`self_critique.py`) : section « ce qui pourrait remettre
+  en question cette conclusion » fondée sur des signaux RÉELS (colonne de statut
+  non filtrée → commandes annulées ; entités de test ; promotion exceptionnelle
+  sur une série de revenu ; base HT/TTC ; récence de période ; échantillon /
+  troncature). **Chronologie narrée** (`chronicle.py`) : « cette tendance dure
+  depuis N périodes » calculée sur la série réelle (streak terminal).
+**Conséquence.** Le raisonnement est visualisable et gradué, la confiance est
+lisible, et Noreon **affiche ses propres angles morts** — le tout hors-ligne,
+sans migration (calculs à la volée), et rangé derrière une divulgation
+progressive pour rester lisible.
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est

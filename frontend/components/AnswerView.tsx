@@ -63,6 +63,12 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
       )}
 
       {/* Niveau 1 — Décision : contenu principal + graphique. */}
+      {r.chronicle && r.chronicle.streak >= 2 && (
+        <div className="text-sm rounded-lg bg-sky-500/10 border border-sky-500/25 px-3 py-2 text-sky-800">
+          📅 {r.chronicle.narrative}
+        </div>
+      )}
+
       {r.simulation && <SimulationView s={r.simulation} />}
       {r.investigation && <InvestigationView inv={r.investigation} />}
       {r.deep && <DeepReportView d={r.deep} />}
@@ -81,7 +87,8 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
       )}
 
       {/* Niveau 2 — Comprendre (déplié à la demande). */}
-      {(r.validation || r.confidence || r.explanations?.length > 0 || r.proof || r.sources?.length > 0) && (
+      {(r.validation || r.confidence || r.explanations?.length > 0 || r.proof ||
+        r.sources?.length > 0 || r.self_critique?.length > 0) && (
         <details className="card px-4 py-3" open={r.status !== "answered"}>
           <summary className="cursor-pointer text-sm font-medium text-slate-700">
             🔎 Comprendre — hypothèses, pourquoi, confiance
@@ -93,6 +100,18 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
             )}
             {r.confidence && <ConfidenceBreakdown c={r.confidence} />}
             {r.sources?.length > 0 && <SourcesBar sources={r.sources} />}
+            {r.self_critique?.length > 0 && (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+                <div className="text-xs font-medium text-amber-800">
+                  ⚖️ Ce qui pourrait remettre en question cette conclusion
+                </div>
+                <ul className="mt-1 text-xs text-slate-600 space-y-0.5">
+                  {r.self_critique.map((c, i) => (
+                    <li key={i}>• Cette analyse {c}.</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </details>
       )}

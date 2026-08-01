@@ -794,6 +794,32 @@ def test_usage_metrics_tracking():
     assert snap["top"][0]["count"] >= snap["top"][-1]["count"]
 
 
+def test_self_critique_and_chronicle(session_with_conn):
+    """Auto-critique (« ce qui pourrait remettre en question ») + chronologie
+    narrée d'une tendance temporelle."""
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    r = chat_svc.answer_question(db, conn, "Montant total des commandes par mois",
+                                 deep_analysis=False)
+    assert r.status == "answered"
+    # Chronologie : série mensuelle → narration présente et cohérente.
+    assert r.chronicle is not None
+    assert r.chronicle["direction"] in ("hausse", "baisse", "stable")
+    assert r.chronicle["narrative"]
+    assert len(r.chronicle["periods"]) >= 3
+    # Auto-critique : au moins une limite honnête, dont la récence de la période.
+    assert r.self_critique
+    joined = " ".join(r.self_critique).lower()
+    assert "période la plus récente" in joined or "promotion" in joined
+
+    # Chronologie ignorée sur une question non temporelle.
+    r2 = chat_svc.answer_question(db, conn, "Combien de clients ?", deep_analysis=False)
+    assert r2.chronicle is None
+
+
 def test_company_context_hypotheses(session_with_conn):
     """Contexte d'entreprise (D) : les conventions (TTC, mensuel, France…) sont
     connues du moteur et apparaissent comme hypothèses retenues — sans être

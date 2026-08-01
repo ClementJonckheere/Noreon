@@ -55,6 +55,10 @@ class ChatResponse:
     sources: list[dict] = field(default_factory=list)
     # « What if ? » : projection d'un scénario (« et si le panier moyen +10% ? »).
     simulation: dict | None = None
+    # Auto-critique : « ce qui pourrait remettre en question cette conclusion ».
+    self_critique: list[str] = field(default_factory=list)
+    # Chronologie narrée d'une tendance (« dure depuis N mois »).
+    chronicle: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -226,6 +230,17 @@ def answer_question(
                     confidence_score=conf.score, has_drivers=bool(inv.key_drivers),
                     causal_hint=True,
                 ).as_dict()
+                from app.services import chronicle as chronicle_svc
+                from app.services import self_critique as critique_svc
+
+                inv_chron = chronicle_svc.build(
+                    inv.trend_columns, inv.trend_rows, metric_label=inv.metric_label)
+                inv_critique = critique_svc.build(
+                    db, conn, question=question, sql="",
+                    tables_used=[inv.subject], has_time_series=inv_chron is not None,
+                    assumptions=[], company_conventions=None,
+                    measure_options=None, sampled=False, truncated=False,
+                )
                 return ChatResponse(
                     status="answered", question=question,
                     message=agent_svc.summary_message(inv),
@@ -235,6 +250,8 @@ def answer_question(
                     investigation=inv.as_dict(), confidence=conf.as_dict(),
                     validation=inv_validation,
                     sources=_sources([inv.subject], inv.trend_columns, {}),
+                    self_critique=inv_critique,
+                    chronicle=inv_chron.as_dict() if inv_chron is not None else None,
                     chart=chart.as_dict() if chart else None,
                 )
 
@@ -408,12 +425,30 @@ def answer_question(
         has_drivers=has_drivers, context_hypotheses=company_hypotheses,
     ).as_dict()
 
+    # Chronologie narrée (H) : si le résultat est une série temporelle, on la raconte.
+    from app.services import chronicle as chronicle_svc
+
+    metric_label = gen.columns_used[0] if gen.columns_used else "la mesure"
+    chron = chronicle_svc.build(result.columns, result.rows, metric_label=metric_label)
+    chronicle = chron.as_dict() if chron is not None else None
+
+    # Auto-critique (H) : ce qui pourrait remettre en question la conclusion.
+    from app.services import self_critique as critique_svc
+
+    self_critique = critique_svc.build(
+        db, conn, question=question, sql=result.guarded_sql,
+        tables_used=gen.tables_used, has_time_series=chron is not None,
+        assumptions=gen.assumptions, company_conventions=company.get("conventions"),
+        measure_options=gen.measure_options, sampled=sampled, truncated=result.truncated,
+    )
+
     return ChatResponse(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
         assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
         proof=proof, validation=validation, measure_options=gen.measure_options,
         sources=_sources(gen.tables_used, gen.columns_used, tscores),
+        self_critique=self_critique, chronicle=chronicle,
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,

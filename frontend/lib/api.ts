@@ -287,6 +287,17 @@ export interface ChatResponse {
   } | null;
   // Sources citées : tables sur lesquelles s'appuie la réponse (comme un article).
   sources: { table: string; role: "principale" | "jointe"; quality_pct: number | null; level?: "strong" | "medium" | "weak" }[];
+  // Auto-critique : ce qui pourrait remettre en question la conclusion.
+  self_critique: string[];
+  // Chronologie narrée d'une tendance.
+  chronicle: {
+    periods: string[];
+    values: number[];
+    direction: "hausse" | "baisse" | "stable";
+    streak: number;
+    total_pct: number;
+    narrative: string;
+  } | null;
   // « What if ? » : projection d'un scénario.
   simulation: {
     scenario: string;
