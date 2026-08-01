@@ -627,6 +627,35 @@ def test_discoveries_proactive(session_with_conn, monkeypatch):
     assert disc_svc._stale_reason(None, prev) == []
 
 
+def test_insight_score_and_comparison(session_with_conn):
+    """Insight Score /100 (nouveauté+impact+confiance+intérêt) + rapports
+    comparables (nouvelles / corrigées / confirmées d'un relevé à l'autre)."""
+    from app.services import discoveries as disc_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    d = disc_svc.run_discoveries(db, conn, cfg)
+    assert d.items
+    # Chaque insight porte un score /100 (avec ses 4 composantes) et une clé stable.
+    for it in d.items:
+        assert 0 <= it["score"] <= 100
+        assert set(it["score_parts"]) == {"impact", "novelty", "confidence", "business"}
+        assert it["key"]
+    # Les insights sont classés par niveau puis par score décroissant.
+    crit = [it for it in d.items if it["level"] == "critical"]
+    assert crit == sorted(crit, key=lambda it: -it["score"])
+
+    # Rapports comparables : diff vs le relevé précédent.
+    c1 = disc_svc.compare_and_update_baseline(db, conn.id, ["a", "b"])
+    assert c1["first_run"] is True and c1["new"] == 2
+    c2 = disc_svc.compare_and_update_baseline(db, conn.id, ["b", "c"])
+    assert c2["first_run"] is False
+    assert c2["new"] == 1 and c2["resolved"] == 1 and c2["confirmed"] == 1
+
+
 def test_sql_non_regression(session_with_conn):
     """Jeu métier de référence (indicateur CDC « ≥ 90 % de requêtes correctes »).
 

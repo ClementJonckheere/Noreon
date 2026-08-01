@@ -10,6 +10,7 @@ from app.models.conversation import (
     ConversationTurn,
 )
 from app.models.definitions import BusinessDefinition
+from app.models.insight import InsightBaseline
 from app.models.profile import ColumnProfile, ProfilingJob
 from app.models.quality import QualityScore
 from app.models.query_log import QueryLog
@@ -43,6 +44,7 @@ __all__ = [
     "ProfilingJob",
     "QualityScore",
     "QueryLog",
+    "InsightBaseline",
     "BusinessConcept",
     "ConceptMapping",
     "BusinessDefinition",

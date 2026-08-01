@@ -43,7 +43,9 @@ def discoveries(
     from app.services.connections import get_source_adapter
 
     adapter = get_source_adapter(conn)
-    return disc_svc.cached_discoveries(db, conn, adapter, force=refresh)
+    out = disc_svc.cached_discoveries(db, conn, adapter, force=refresh)
+    db.commit()  # persiste le relevé de référence (rapports comparables)
+    return out
 
 
 @router.get("/queries")

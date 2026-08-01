@@ -344,6 +344,24 @@ progressive pour rester lisible.
 
 ---
 
+### D-25 — Insight Score + rapports comparables (I)
+**Contexte.** Toutes les découvertes se ressemblaient ; rien ne disait ce qui
+avait changé depuis la dernière fois.
+**Décision.**
+- **Insight Score /100** (`discoveries.py`) = 0.30·impact + 0.25·nouveauté +
+  0.25·confiance + 0.20·intérêt métier (impact adossé au niveau + magnitude ;
+  confiance/nouveauté/intérêt par catégorie). Les insights sont classés par
+  niveau puis par score → **les plus intéressants remontent**.
+- **Rapports comparables** (`InsightBaseline`, migration `f6a7b8c9d0e1`) :
+  chaque insight a une **clé stable** (catégorie|table|colonne|période) ; à
+  chaque relevé, on compare à la référence précédente → **nouvelles / corrigées
+  / confirmées** (par catégorie), puis on met à jour la référence. « Depuis le
+  dernier relevé : 2 nouvelles, 1 corrigée, 3 confirmées. »
+**Conséquence.** Les Insights deviennent priorisés et suivis dans le temps —
+sans LLM, déterministe ; une seule ligne persistée par connexion.
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est

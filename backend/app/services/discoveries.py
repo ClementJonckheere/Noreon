@@ -14,6 +14,7 @@ Tout est calculé HORS-LIGNE à partir de signaux déjà produits :
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -23,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.models.insight import InsightBaseline
 from app.models.profile import ColumnProfile
 from app.models.quality import QualityScore
 from app.models.schema_catalog import DbRelation, SchemaSnapshot
@@ -54,6 +56,11 @@ class Finding:
     column: str | None = None
     # Question prête à l'emploi pour creuser (déclenche l'agent / le chat).
     suggested_question: str | None = None
+    # Identité stable de l'insight (pour comparer d'un relevé à l'autre).
+    key: str = ""
+    # Insight Score /100 = nouveauté + impact + confiance + intérêt métier.
+    score: int = 0
+    score_parts: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -63,9 +70,57 @@ class Discoveries:
     levels: dict = field(default_factory=dict)          # par niveau de hiérarchie
     headline: list = field(default_factory=list)        # accroche « depuis votre dernière visite »
     items: list[dict] = field(default_factory=list)
+    # Comparaison vs le relevé précédent (nouvelles / corrigées / confirmées).
+    comparison: dict | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+# --- Insight Score : composantes (chacune 0..1), pondérées. ---
+_LEVEL_IMPACT = {"critical": 1.0, "important": 0.7, "opportunity": 0.55, "info": 0.35}
+_CAT_NOVELTY = {"anomaly": 0.9, "opportunity": 0.8, "trend": 0.7,
+                "incoherent_relation": 0.5, "suspicious_column": 0.5}
+_CAT_CONFIDENCE = {"incoherent_relation": 0.9, "suspicious_column": 0.85,
+                   "anomaly": 0.75, "trend": 0.7, "opportunity": 0.7}
+_CAT_BUSINESS = {"trend": 0.9, "opportunity": 0.9, "anomaly": 0.85,
+                 "incoherent_relation": 0.7, "suspicious_column": 0.5}
+
+
+def _finding_key(f: Finding) -> str:
+    """Identité stable d'un insight, robuste aux variations de magnitude."""
+    base = f"{f.category}|{(f.table or '').lower()}|{(f.column or '').lower()}"
+    if f.category == "anomaly":
+        m = re.search(r"\d{4}[-/]\w+", f.title)  # période (ex. 2025-07) → identité
+        if m:
+            base += "|" + m.group(0)
+    return base
+
+
+def _pct_in(text: str) -> float:
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*%", text or "")
+    return float(m.group(1).replace(",", ".")) if m else 0.0
+
+
+def _score_finding(f: Finding) -> tuple[int, dict]:
+    impact = _LEVEL_IMPACT.get(f.level, 0.4)
+    # Bonus de magnitude : un écart marqué (%) renforce l'impact.
+    mag = max(_pct_in(f.detail), _pct_in(f.title))
+    if mag >= 50:
+        impact = min(1.0, impact + 0.15)
+    elif mag >= 30:
+        impact = min(1.0, impact + 0.08)
+    novelty = _CAT_NOVELTY.get(f.category, 0.6)
+    confidence = _CAT_CONFIDENCE.get(f.category, 0.7)
+    business = _CAT_BUSINESS.get(f.category, 0.6)
+    score = 100 * (0.30 * impact + 0.25 * novelty + 0.25 * confidence + 0.20 * business)
+    parts = {
+        "impact": round(impact * 100),
+        "novelty": round(novelty * 100),
+        "confidence": round(confidence * 100),
+        "business": round(business * 100),
+    }
+    return round(score), parts
 
 
 _SEV_RANK = {"high": 0, "medium": 1, "low": 2}
@@ -149,8 +204,13 @@ def run_discoveries(
     # --- Anomalies & tendance sur la mesure clé ---
     _temporal_findings(db, conn, adapter, findings, hidden_tables, hidden_columns)
 
-    # Tri par niveau de hiérarchie (critique d'abord), plafonnement.
-    findings.sort(key=lambda f: (_LEVEL_RANK.get(f.level, 3), _SEV_RANK.get(f.severity, 3)))
+    # Insight Score + identité stable, puis tri : les plus intéressants remontent
+    # (score décroissant), le niveau de hiérarchie restant prioritaire.
+    for f in findings:
+        f.key = _finding_key(f)
+        f.score, f.score_parts = _score_finding(f)
+    findings.sort(key=lambda f: (_LEVEL_RANK.get(f.level, 3), -f.score,
+                                 _SEV_RANK.get(f.severity, 3)))
     findings = findings[:max_items]
 
     counts = {
@@ -166,6 +226,44 @@ def run_discoveries(
         scanned=True, counts=counts, levels=levels,
         headline=_headline(findings), items=[asdict(f) for f in findings],
     )
+
+
+def compare_and_update_baseline(db: Session, connection_id: int, keys: list[str]) -> dict:
+    """Compare le relevé courant au précédent (nouvelles / corrigées / confirmées)
+    puis met à jour le relevé de référence. Le caller valide la transaction.
+
+    « Depuis le dernier relevé : 2 nouvelles anomalies, 1 corrigée, 3 confirmées. »
+    """
+    baseline = db.get(InsightBaseline, connection_id)
+    prev = set(baseline.keys or []) if baseline is not None else None
+    cur = set(keys)
+
+    def by_cat(ks: set[str]) -> dict:
+        out: dict[str, int] = {}
+        for k in ks:
+            cat = k.split("|", 1)[0]
+            out[cat] = out.get(cat, 0) + 1
+        return out
+
+    if prev is None:
+        comparison = {"first_run": True, "new": len(cur), "resolved": 0,
+                      "confirmed": 0, "new_by_category": by_cat(cur),
+                      "resolved_by_category": {}, "confirmed_by_category": {}}
+    else:
+        new, resolved, confirmed = cur - prev, prev - cur, cur & prev
+        comparison = {
+            "first_run": False, "new": len(new), "resolved": len(resolved),
+            "confirmed": len(confirmed), "new_by_category": by_cat(new),
+            "resolved_by_category": by_cat(resolved),
+            "confirmed_by_category": by_cat(confirmed),
+        }
+
+    if baseline is None:
+        db.add(InsightBaseline(connection_id=connection_id, keys=sorted(cur)))
+    else:
+        baseline.keys = sorted(cur)
+    db.flush()
+    return comparison
 
 
 def _headline(findings: list[Finding]) -> list[str]:
@@ -406,10 +504,19 @@ def cached_discoveries(db: Session, conn, adapter, *, force: bool = False,
         previous = _LAST_FP.get(conn.id)
     reasons = _stale_reason(previous, fp)
 
-    value = run_discoveries(db, conn, adapter).as_dict()
+    disc = run_discoveries(db, conn, adapter)
+    value = disc.as_dict()
     value["cached"] = False
     value["fingerprint"] = fp
     value["stale_reason"] = reasons
+    # Rapports comparables : diff vs le dernier relevé (nouvelles/corrigées/confirmées).
+    if disc.scanned:
+        try:
+            value["comparison"] = compare_and_update_baseline(
+                db, conn.id, [it["key"] for it in value["items"]]
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort, jamais bloquant
+            log.info("Comparaison d'insights ignorée : %s", exc)
     with _CACHE_LOCK:
         _CACHE[key] = (now, value)
         _LAST_FP[conn.id] = fp

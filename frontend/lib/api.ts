@@ -464,6 +464,18 @@ export interface DiscoveryItem {
   table: string | null;
   column: string | null;
   suggested_question: string | null;
+  key: string;
+  score: number;  // Insight Score /100
+  score_parts: { impact: number; novelty: number; confidence: number; business: number };
+}
+export interface DiscoveryComparison {
+  first_run: boolean;
+  new: number;
+  resolved: number;
+  confirmed: number;
+  new_by_category: Record<string, number>;
+  resolved_by_category: Record<string, number>;
+  confirmed_by_category: Record<string, number>;
 }
 export interface AnalysisContext {
   amount_basis: "TTC" | "HT" | null;
@@ -525,6 +537,8 @@ export interface Discoveries {
   fingerprint?: DiscoveryFingerprint;
   // Composants ayant changé depuis le dernier calcul (pourquoi l'insight a été refait).
   stale_reason?: string[];
+  // Rapports comparables : diff vs le relevé précédent.
+  comparison?: DiscoveryComparison | null;
 }
 
 // ---- Endpoints ----
