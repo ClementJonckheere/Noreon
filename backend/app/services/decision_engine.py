@@ -13,6 +13,7 @@ Tout est déterministe, dérivé des facteurs dominants réels de l'analyse.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
 # Vocabulaire d'un axe d'analyse → rôle le plus concerné.
@@ -57,6 +58,10 @@ class Decision:
     justification: str = ""          # « pourquoi cette recommandation ? » (Decision Journal)
     impact: str | None = None        # fourchette d'impact estimé (ex. « +4 à +7 % »)
     impact_confidence: str | None = None  # Faible | Moyenne | Élevée
+    effort: str = "Moyen"            # Faible | Moyen | Élevé
+    impact_level: str = "Moyen"      # Faible | Moyen | Élevé (pour la matrice)
+    stars: int = 3                   # priorité rapport effort/impact (1..5)
+    history: str | None = None       # mémoire métier (« déjà appliquée avec succès… »)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -121,43 +126,60 @@ def _role_of(dimension: str) -> str | None:
     return None
 
 
+# role → (libellé, action, justification, effort typique de l'action)
 _ROLE_ACTIONS = {
-    "reseau": ("Directeur réseau",
-               "Auditer localement « {seg} » : conditions du point de vente, "
-               "concurrence, exécution terrain.",
-               "{share:.0f}% de la variation provient de « {seg} » ({dim})."),
     "crm": ("Responsable CRM",
             "Lancer une campagne de réactivation ciblée sur « {seg} » ; "
             "mesurer l'effet sur la fréquence d'achat.",
-            "le segment client « {seg} » porte {share:.0f}% de la variation ({dim})."),
+            "le segment client « {seg} » porte {share:.0f}% de la variation ({dim}).",
+            "Faible"),
+    "reseau": ("Directeur réseau",
+               "Auditer localement « {seg} » : conditions du point de vente, "
+               "concurrence, exécution terrain.",
+               "{share:.0f}% de la variation provient de « {seg} » ({dim}).",
+               "Moyen"),
     "produit": ("Directeur produit",
                 "Revoir l'assortiment et le prix de la gamme « {seg} » ; vérifier les ruptures.",
-                "la gamme « {seg} » pèse {share:.0f}% de la variation ({dim})."),
+                "la gamme « {seg} » pèse {share:.0f}% de la variation ({dim}).",
+                "Élevé"),
     "canal": ("Responsable des opérations",
               "Analyser le parcours sur le canal « {seg} » (friction, coût, conversion).",
-              "le canal « {seg} » explique {share:.0f}% de la variation ({dim})."),
+              "le canal « {seg} » explique {share:.0f}% de la variation ({dim}).",
+              "Moyen"),
 }
 
+_EFFORT_RANK = {"Faible": 1, "Moyen": 2, "Élevé": 3}
+_IMPACT_RANK = {"Faible": 1, "Moyen": 2, "Élevé": 3}
 
-def _estimate_impact(share: float, trend_pct: float | None) -> tuple[str | None, str | None]:
-    """Fourchette d'impact récupérable estimée + confiance, à partir de la part
-    du facteur dans la variation. Volontairement prudente (jamais une promesse)."""
+
+def _estimate_impact(share: float, trend_pct: float | None) -> tuple[str | None, str | None, str]:
+    """Fourchette d'impact récupérable estimée + confiance + niveau, à partir de la
+    part du facteur dans la variation. Volontairement prudente (jamais une promesse)."""
     if not trend_pct:
-        return None, None
+        return None, None, "Faible"
     addressable = share / 100.0 * abs(trend_pct)   # part de la variation portée par ce facteur
     low, high = addressable * 0.3, addressable * 0.6  # récupération partielle réaliste
+    level = "Élevé" if addressable >= 6 else "Moyen" if addressable >= 3 else "Faible"
     if high < 0.5:
-        return None, None
+        return None, None, level
     conf = "Moyenne" if share >= 45 else "Faible"
-    return f"+{low:.0f} à +{high:.0f} %", conf
+    return f"+{low:.0f} à +{high:.0f} %", conf, level
+
+
+def _stars(impact_level: str, effort: str) -> int:
+    """Priorité selon le rapport effort/impact (fort impact + faible effort = 5)."""
+    return max(1, min(5, 3 + _IMPACT_RANK.get(impact_level, 2) - _EFFORT_RANK.get(effort, 2)))
 
 
 def decide(*, question: str, metric_label: str, trend_direction: str | None,
            trend_pct: float | None, drivers: list[dict],
-           recent_rate: float | None = None) -> DecisionSet | None:
+           recent_rate: float | None = None,
+           history: Callable[[str, str], str | None] | None = None) -> DecisionSet | None:
     """Produit des décisions adaptées au rôle à partir des facteurs dominants.
 
     `drivers` : [{dimension, segment, share}] issus du Reasoning Engine.
+    `history(role, recommendation) -> str | None` : annotation de mémoire métier
+    (« déjà appliquée avec succès… ») si une reco proche a déjà été qualifiée.
     """
     intent = detect_intent(question)
     top_dim = drivers[0].get("dimension") if drivers else None
@@ -176,13 +198,15 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
         just = (f"parce que {metric_label} évolue de {trend_pct:+.0f}%, "
                 "ce qui pèse directement sur la marge." if trend_pct
                 else f"parce que {metric_label} est orienté à la {sens}.")
+        fin_impact = "Élevé" if trend_pct and abs(trend_pct) >= 10 else "Moyen"
         if down:
             ds.decisions.append(Decision(
                 role="Directeur financier",
                 priority=f"{metric_label} en {sens}{pct_txt} — préserver la marge et cadrer les coûts.",
                 recommendation="Sécuriser la trésorerie, arbitrer les dépenses non essentielles, "
                                "réviser les prévisions.",
-                justification=just,
+                justification=just, effort="Moyen", impact_level=fin_impact,
+                stars=_stars(fin_impact, "Moyen"),
             ).as_dict())
         else:
             ds.decisions.append(Decision(
@@ -190,10 +214,11 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
                 priority=f"{metric_label} en {sens}{pct_txt} — sécuriser et rentabiliser la dynamique.",
                 recommendation="Vérifier que la hausse ne dégrade pas la marge ; réinvestir là où le "
                                "retour est prouvé.",
-                justification=just,
+                justification=just, effort="Moyen", impact_level=fin_impact,
+                stars=_stars(fin_impact, "Moyen"),
             ).as_dict())
 
-    # Rôles métier selon le facteur dominant (avec impact estimé + justification).
+    # Rôles métier selon le facteur dominant (impact + justification + priorité).
     seen_roles: set[str] = set()
     for d in drivers[:3]:
         role = _role_of(d.get("dimension", ""))
@@ -201,15 +226,24 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
             continue
         seen_roles.add(role)
         seg, share, dim = d.get("segment"), d.get("share", 0), _clean_dimension(d.get("dimension"))
-        role_label, action_tpl, just_tpl = _ROLE_ACTIONS[role]
-        impact, conf = _estimate_impact(share, trend_pct)
+        role_label, action_tpl, just_tpl, effort = _ROLE_ACTIONS[role]
+        impact, conf, impact_level = _estimate_impact(share, trend_pct)
         ds.decisions.append(Decision(
             role=role_label,
             priority=f"« {seg} » concentre {share:.0f}% de la variation ({dim}).",
             recommendation=action_tpl.format(seg=seg, dim=dim),
             justification="parce que " + just_tpl.format(seg=seg, dim=dim, share=share),
             impact=impact, impact_confidence=conf,
+            effort=effort, impact_level=impact_level, stars=_stars(impact_level, effort),
         ).as_dict())
+
+    # Mémoire métier : annoter les recommandations déjà retenues / éprouvées.
+    if history is not None:
+        for dec in ds.decisions:
+            dec["history"] = history(dec.get("role", ""), dec.get("recommendation", ""))
+
+    # Priorité rapport effort/impact d'abord : le décideur choisit selon le coût/bénéfice.
+    ds.decisions.sort(key=lambda x: -x.get("stars", 3))
 
     if not ds.decisions:
         return None

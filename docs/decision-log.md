@@ -419,6 +419,31 @@ justifier chaque reco, et projeter l'inaction — sans jamais prétendre prédir
 **Conséquence.** La décision devient priorisable (impact), défendable (journal) et
 lucide sur le coût de l'inaction — tout en restant rigoureux sur l'incertitude.
 
+### D-29 — Sérendipité, matrice effort/impact, mémoire métier & ton mesuré (M)
+**Contexte.** Le moteur devrait parfois **surprendre** (découverte adjacente plus
+importante que la demande), **prioriser** les recommandations par rapport
+effort/impact, **apprendre** des décisions prises, et garder un **ton mesuré**
+(« les données suggèrent que… » plutôt que « je pense que… »).
+**Décision.**
+- **Sérendipité** (`discoveries.top_side_finding`) : la découverte la plus notable
+  **sur une autre table** que le sujet analysé (score ≥ 55), calculée sans requête
+  source (relations + profils). Rendue « 🔭 Découverte inattendue — les données ont
+  aussi révélé… », jamais une certitude.
+- **Matrice effort/impact** : chaque décision porte `effort`, `impact_level` et un
+  rang d'**étoiles** `_stars = clamp(3 + impact − effort, 1, 5)` ; la liste est
+  triée par priorité décroissante (fort impact + faible effort d'abord).
+- **Mémoire métier** (`DecisionRecord` + `decision_memory`) : l'humain qualifie une
+  reco (retenue / mise en œuvre / réussie / abandonnée) via
+  `POST /connections/{id}/decisions/feedback` (réservé analyste). Une reco proche
+  (recouvrement lexical ≥ 40 % sur le même rôle) est ensuite annotée « déjà
+  appliquée avec succès dans un contexte similaire » — boucle d'amélioration
+  continue. Aucune donnée métier brute stockée (axe d'analyse + rôle + texte).
+- **Ton mesuré** : formulations ancrées sur le fait constaté, sans « je pense » ni
+  promesse — cohérent avec l'architecture déterministe autour du LLM.
+**Conséquence.** Le moteur devient proactif (il signale l'important ailleurs),
+actionnable (priorité coût/bénéfice) et cumulatif (il capitalise sur les décisions
+passées) — sans jamais imiter une confiance humaine qu'il n'a pas.
+
 ---
 
 ## Dettes / limites connues (à traiter)

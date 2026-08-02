@@ -545,7 +545,7 @@ function ChatPanel({
                   <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{t.error}</div>
                 )}
                 {t.response ? (
-                  <ChatResult r={t.response} />
+                  <ChatResult r={t.response} connectionId={id} />
                 ) : (
                   !t.error && (
                     <div className="text-sm text-noreon-soft flex items-center gap-2">
@@ -879,8 +879,8 @@ function Composer({
 
 // La page connexion réutilise le rendu partagé AnswerView (divulgation
 // progressive en 3 niveaux : Décision / Comprendre / Preuve).
-function ChatResult({ r }: { r: ChatResponse }) {
-  return <AnswerView r={r} />;
+function ChatResult({ r, connectionId }: { r: ChatResponse; connectionId?: number }) {
+  return <AnswerView r={r} connectionId={connectionId} />;
 }
 
 /* ------------------------------ SCHEMA --------------------------------- */

@@ -65,6 +65,8 @@ class ChatResponse:
     intent_restated: str | None = None
     # Decision Engine : décisions adaptées au rôle (finance / CRM / réseau…).
     decisions: dict | None = None
+    # Sérendipité : découverte adjacente inattendue, sur une autre table.
+    serendipity: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -249,13 +251,19 @@ def answer_question(
                 )
                 # Decision Engine : mêmes données, décisions selon le rôle.
                 from app.services import decision_engine as decision_svc
+                from app.services import decision_memory as dmem_svc
+                from app.services import discoveries as disc_svc
 
+                # Mémoire métier : recommandations déjà retenues / éprouvées.
+                _dmem_records = dmem_svc.history_for(db, conn.id, inv.subject)
                 decisions = decision_svc.decide(
                     question=question, metric_label=inv.metric_label,
                     trend_direction=inv_chron.direction if inv_chron else None,
                     trend_pct=inv_chron.total_pct if inv_chron else None,
                     drivers=inv.drivers_struct,
                     recent_rate=inv_chron.recent_rate if inv_chron else None,
+                    history=(lambda role, reco: dmem_svc.annotate(_dmem_records, role, reco))
+                    if _dmem_records else None,
                 )
                 return ChatResponse(
                     status="answered", question=question,
@@ -274,6 +282,9 @@ def answer_question(
                                          question, metric_label=inv.metric_label,
                                          trend_direction=inv_chron.direction if inv_chron else None)),
                     decisions=decisions.as_dict() if decisions is not None else None,
+                    serendipity=disc_svc.top_side_finding(
+                        db, conn, exclude_table=inv.subject,
+                        hidden_tables=hidden_tables, hidden_columns=hidden_columns),
                     chart=chart.as_dict() if chart else None,
                 )
 

@@ -317,7 +317,19 @@ export interface ChatResponse {
       justification: string;
       impact: string | null;
       impact_confidence: string | null;
+      effort: string;         // Faible | Moyen | Élevé
+      impact_level: string;   // Faible | Moyen | Élevé
+      stars: number;          // priorité effort/impact (1..5)
+      history: string | null; // mémoire métier (« déjà appliquée avec succès… »)
     }[];
+  } | null;
+  // Sérendipité : découverte adjacente parfois plus importante que la demande.
+  serendipity: {
+    title: string;
+    detail: string;
+    table: string;
+    score: number;
+    score_label: string;
   } | null;
   // « What if ? » : projection d'un scénario.
   simulation: {
@@ -637,6 +649,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question, deep_analysis: deep }),
     }),
+  // Mémoire métier : retour d'un décideur sur une recommandation.
+  decisionFeedback: (
+    id: number,
+    body: { subject: string; role: string; recommendation: string; status: string; note?: string },
+  ) =>
+    request<{ id: number; status: string; subject: string }>(
+      `/connections/${id}/decisions/feedback`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
   discoveries: (id: number, force = false) =>
     request<Discoveries>(`/connections/${id}/discoveries${force ? "?refresh=true" : ""}`),

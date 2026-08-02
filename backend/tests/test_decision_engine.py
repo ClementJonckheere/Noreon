@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.services import chronicle
 from app.services import decision_engine as de
+from app.services import decision_memory as dm
 
 
 def test_chronicle_rhythm_narration():
@@ -85,3 +86,75 @@ def test_decision_impact_justification_and_inaction():
                    trend_direction="hausse", trend_pct=8.0, recent_rate=2.0,
                    drivers=[{"dimension": "magasin", "segment": "Store 1", "share": 50}])
     assert d2.inaction is None
+
+
+def test_decision_effort_impact_matrix():
+    """M2 : chaque décision porte effort, impact_level et un rang d'étoiles,
+    et la liste est triée par priorité (étoiles) décroissante."""
+    d = de.decide(
+        question="Pourquoi le CA baisse ?", metric_label="le CA",
+        trend_direction="baisse", trend_pct=-15.0,
+        drivers=[
+            {"dimension": "magasin", "segment": "Store 3", "share": 70},
+            {"dimension": "loyalty (customers)", "segment": "fidèles", "share": 25},
+        ],
+    )
+    assert d is not None
+    for x in d.decisions:
+        assert x["effort"] in ("Faible", "Moyen", "Élevé")
+        assert x["impact_level"] in ("Faible", "Moyen", "Élevé")
+        assert 1 <= x["stars"] <= 5
+    # Tri par priorité décroissante (rapport effort/impact).
+    stars = [x["stars"] for x in d.decisions]
+    assert stars == sorted(stars, reverse=True)
+    # CRM (effort Faible) doit être bien classé grâce au faible effort.
+    crm = next(x for x in d.decisions if x["role"] == "Responsable CRM")
+    assert crm["effort"] == "Faible"
+
+
+def test_decision_history_annotation():
+    """M3 : une reco proche d'une décision déjà qualifiée est annotée."""
+    called = {}
+
+    def history(role, reco):
+        called[role] = reco
+        return "Déjà appliquée avec succès dans un contexte similaire." \
+            if role == "Directeur réseau" else None
+
+    d = de.decide(
+        question="Pourquoi le CA baisse ?", metric_label="le CA",
+        trend_direction="baisse", trend_pct=-12.0,
+        drivers=[{"dimension": "magasin", "segment": "Store 3", "share": 65}],
+        history=history,
+    )
+    assert d is not None
+    reseau = next(x for x in d.decisions if x["role"] == "Directeur réseau")
+    assert reseau["history"] == "Déjà appliquée avec succès dans un contexte similaire."
+    fin = next(x for x in d.decisions if x["role"] == "Directeur financier")
+    assert fin["history"] is None
+
+
+def test_decision_memory_annotate():
+    """La mémoire rapproche deux formulations proches et privilégie le succès."""
+    class Rec:
+        def __init__(self, role, reco, status):
+            self.role, self.recommendation, self.status = role, reco, status
+
+    records = [
+        Rec("Directeur réseau",
+            "Auditer localement « Lyon » : conditions du point de vente, "
+            "concurrence, exécution terrain.", "successful"),
+        Rec("Directeur réseau",
+            "Auditer localement « Lyon » : conditions du point de vente, "
+            "concurrence, exécution terrain.", "retained"),
+    ]
+    # Une reco proche (autre segment) sur le même rôle → annotée « succès ».
+    txt = dm.annotate(
+        records, "Directeur réseau",
+        "Auditer localement « Paris » : conditions du point de vente, "
+        "concurrence, exécution terrain.")
+    assert txt == "Déjà appliquée avec succès dans un contexte similaire."
+    # Rôle différent → pas d'annotation.
+    assert dm.annotate(records, "Responsable CRM", "Lancer une campagne ciblée.") is None
+    # Recouvrement lexical insuffisant → pas d'annotation.
+    assert dm.annotate(records, "Directeur réseau", "Revoir les prix produits.") is None

@@ -517,6 +517,38 @@ def test_conversations_folders_and_archive(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_decision_feedback_builds_business_memory(session_with_conn, monkeypatch):
+    """M3 : le retour d'un décideur est journalisé (mémoire métier) et sert à
+    annoter une recommandation proche lors d'une analyse ultérieure."""
+    from app.services import decision_memory as dmem
+
+    db, conn, _ = session_with_conn
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    reco = ("Auditer localement « Lyon » : conditions du point de vente, "
+            "concurrence, exécution terrain.")
+    try:
+        r = client.post(
+            f"/connections/{conn.id}/decisions/feedback",
+            json={"subject": "orders", "role": "Directeur réseau",
+                  "recommendation": reco, "status": "successful"},
+            headers=H,
+        )
+        assert r.status_code == 200 and r.json()["status"] == "successful"
+
+        records = dmem.history_for(db, conn.id, "orders")
+        assert len(records) == 1 and records[0].role == "Directeur réseau"
+        # Une reco proche (autre magasin) est annotée « déjà appliquée avec succès ».
+        annotated = dmem.annotate(
+            records, "Directeur réseau",
+            "Auditer localement « Paris » : conditions du point de vente, "
+            "concurrence, exécution terrain.")
+        assert annotated == "Déjà appliquée avec succès dans un contexte similaire."
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
 def test_space_governance_end_to_end(session_with_conn, monkeypatch):
     """Espace CRM : rattacher une BDD, gouverner les tables/colonnes, et vérifier
     que le chat de l'espace respecte la gouvernance (table masquée → inaccessible)."""

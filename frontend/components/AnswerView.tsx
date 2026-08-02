@@ -18,7 +18,8 @@ import DecisionView from "@/components/DecisionView";
 //   Niveau 1 — Décision   : la réponse lisible + graphique + reco (toujours vu).
 //   Niveau 2 — Comprendre : pourquoi, hypothèses, sources, confiance (déplié).
 //   Niveau 3 — Preuve     : graphe de preuve, relecture, SQL, données (déplié).
-export default function AnswerView({ r }: { r: ChatResponse }) {
+export default function AnswerView({ r, connectionId }: { r: ChatResponse; connectionId?: number }) {
+  const subject = r.investigation?.subject ?? r.tables_used?.[0];
   const statusColor: Record<string, string> = {
     answered: "text-emerald-700",
     clarification: "text-amber-700",
@@ -74,7 +75,11 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
         </div>
       )}
 
-      {r.decisions && <DecisionView d={r.decisions} />}
+      {r.decisions && <DecisionView d={r.decisions} connectionId={connectionId} subject={subject} />}
+
+      {/* Sérendipité : une découverte adjacente, parfois plus importante. */}
+      {r.serendipity && <SerendipityCard s={r.serendipity} />}
+
       {r.simulation && <SimulationView s={r.simulation} />}
       {r.investigation && <InvestigationView inv={r.investigation} />}
       {r.deep && <DeepReportView d={r.deep} />}
@@ -214,6 +219,28 @@ export default function AnswerView({ r }: { r: ChatResponse }) {
           <AddToReport response={r} title={r.question} />
         </div>
       )}
+    </div>
+  );
+}
+
+// Sérendipité — le moteur signale spontanément une découverte adjacente, sur
+// une autre table que le sujet, parfois plus importante que la demande initiale.
+// Ton mesuré : « les données montrent aussi… », jamais une certitude.
+function SerendipityCard({ s }: { s: NonNullable<ChatResponse["serendipity"]> }) {
+  return (
+    <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 text-xs space-y-1">
+      <div className="font-medium text-fuchsia-700 flex items-center gap-1.5">
+        🔭 Découverte inattendue
+        {s.score_label && (
+          <span className="badge bg-fuchsia-500/15 text-fuchsia-700">{s.score_label}</span>
+        )}
+      </div>
+      <div className="text-slate-700">
+        En analysant votre question, les données ont aussi révélé, sur{" "}
+        <span className="mono">{s.table}</span>, un point qui pourrait mériter votre attention :
+      </div>
+      <div className="font-medium text-slate-800">{s.title}</div>
+      <div className="text-noreon-soft">{s.detail}</div>
     </div>
   );
 }

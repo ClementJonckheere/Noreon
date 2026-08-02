@@ -139,26 +139,11 @@ _SEV_RANK = {"high": 0, "medium": 1, "low": 2}
 _LEVEL_RANK = {"critical": 0, "important": 1, "opportunity": 2, "info": 3}
 
 
-def run_discoveries(
-    db: Session, conn, adapter, *,
-    hidden_tables: set[str] | None = None,
-    hidden_columns: set[tuple[str, str]] | None = None,
-    max_items: int = 12,
-) -> Discoveries:
-    hidden_tables = {t.lower() for t in (hidden_tables or set())}
-    hidden_columns = {(t.lower(), c.lower()) for t, c in (hidden_columns or set())}
-
-    snapshot = db.execute(
-        select(SchemaSnapshot).where(
-            SchemaSnapshot.connection_id == conn.id, SchemaSnapshot.is_current.is_(True)
-        )
-    ).scalar_one_or_none()
-    if snapshot is None:
-        return Discoveries(scanned=False)
-
+def _static_findings(db, conn, snapshot, hidden_tables, hidden_columns) -> list[Finding]:
+    """Découvertes calculées SANS requête sur la source : relations incohérentes
+    (orphelins) et colonnes suspectes (profils). Rapides et réutilisables."""
     findings: list[Finding] = []
 
-    # --- Relations incohérentes (orphelins) ---
     relations = db.execute(
         select(DbRelation).where(
             DbRelation.snapshot_id == snapshot.id, DbRelation.status != "rejected"
@@ -182,7 +167,6 @@ def run_discoveries(
                 suggested_question=f"Combien de {r.from_table} par {r.from_column} ?",
             ))
 
-    # --- Colonnes suspectes (profils) ---
     profiles = db.execute(
         select(ColumnProfile).where(ColumnProfile.connection_id == conn.id)
     ).scalars().all()
@@ -212,6 +196,52 @@ def run_discoveries(
                            "qui la mobilisent porteront sur une population partielle."),
                 table=p.table_name, column=p.column_name,
             ))
+    return findings
+
+
+def top_side_finding(db, conn, *, exclude_table: str,
+                     hidden_tables: set[str] | None = None,
+                     hidden_columns: set[tuple[str, str]] | None = None) -> dict | None:
+    """Sérendipité : la découverte la plus marquante SUR UNE AUTRE table que le
+    sujet analysé — « j'ai aussi remarqué quelque chose d'important ailleurs ».
+    Calculée sans requête source (relations + profils)."""
+    snapshot = current_snapshot(db, conn)
+    if snapshot is None:
+        return None
+    hidden_tables = {t.lower() for t in (hidden_tables or set())}
+    hidden_columns = {(t.lower(), c.lower()) for t, c in (hidden_columns or set())}
+    findings = _static_findings(db, conn, snapshot, hidden_tables, hidden_columns)
+    ex = (exclude_table or "").lower()
+    side = [f for f in findings if (f.table or "").lower() != ex]
+    if not side:
+        return None
+    for f in side:
+        f.score, f.score_parts = _score_finding(f)
+    best = max(side, key=lambda f: f.score)
+    if best.score < 55:  # on ne surprend que si c'est réellement notable
+        return None
+    best.score_label = _score_label(best.score)
+    return asdict(best)
+
+
+def run_discoveries(
+    db: Session, conn, adapter, *,
+    hidden_tables: set[str] | None = None,
+    hidden_columns: set[tuple[str, str]] | None = None,
+    max_items: int = 12,
+) -> Discoveries:
+    hidden_tables = {t.lower() for t in (hidden_tables or set())}
+    hidden_columns = {(t.lower(), c.lower()) for t, c in (hidden_columns or set())}
+
+    snapshot = db.execute(
+        select(SchemaSnapshot).where(
+            SchemaSnapshot.connection_id == conn.id, SchemaSnapshot.is_current.is_(True)
+        )
+    ).scalar_one_or_none()
+    if snapshot is None:
+        return Discoveries(scanned=False)
+
+    findings = _static_findings(db, conn, snapshot, hidden_tables, hidden_columns)
 
     # --- Anomalies & tendance sur la mesure clé ---
     _temporal_findings(db, conn, adapter, findings, hidden_tables, hidden_columns)

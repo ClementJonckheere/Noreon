@@ -9,6 +9,7 @@ from app.models.conversation import (
     ConversationFolder,
     ConversationTurn,
 )
+from app.models.decision import DecisionRecord
 from app.models.definitions import BusinessDefinition
 from app.models.insight import InsightBaseline
 from app.models.profile import ColumnProfile, ProfilingJob
@@ -50,6 +51,7 @@ __all__ = [
     "BusinessConcept",
     "ConceptMapping",
     "BusinessDefinition",
+    "DecisionRecord",
     "Alert",
     "AlertEvent",
     "Conversation",

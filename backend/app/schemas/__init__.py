@@ -366,6 +366,16 @@ class ChatRequest(BaseModel):
     deep_analysis: bool = True
 
 
+class DecisionFeedback(BaseModel):
+    """Retour d'un décideur sur une recommandation (mémoire métier)."""
+
+    subject: str = Field(..., min_length=1, max_length=255)   # table de faits analysée
+    role: str = Field(..., min_length=1, max_length=128)
+    recommendation: str = Field(..., min_length=1)
+    status: str = Field("retained")   # retained | implemented | successful | abandoned
+    note: str | None = None
+
+
 # ---- Historique de conversations (côté serveur) ----
 class FolderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
