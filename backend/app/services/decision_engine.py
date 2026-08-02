@@ -22,7 +22,7 @@ _ROLE_HINTS = {
     "supply": r"fournisseur|supplier|entrep|warehouse|appro|logisti|transport|livraison|rupture",
     "rh": r"departement|département|employ|salari|effectif|motif|poste|turnover|équipe|equipe|manager|démission|demission",
     "reseau": r"magasin|store|shop|boutique|ville|city|region|région|zone|secteur|territoire",
-    "crm": r"client|customer|fidel|fidél|loyal|age\b|âge|genre|segment|acheteur|acquisition|canal d",
+    "crm": r"client|customer|fidel|fidél|loyal|age\b|âge|genre|segment|acheteur",
     "produit": r"produit|product|categor|catégor|gamme|article|référence|ligne_produit|ligne de produit|sku",
     "canal": r"paiement|payment|canal|channel|method|mode",
 }

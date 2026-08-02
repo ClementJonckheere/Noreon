@@ -19,7 +19,7 @@ dans cet ordre :
    graphiques → recommandations → projection → Decision Engine → rapport. **✅ livré.**
 2. **5 scénarios métier vérifiés** — Retail, CRM, Finance, Supply Chain, RH. **✅ livrés.**
 3. **Framework de non-régression** — `Gold Standard → Noreon → écart → score`,
-   pour tester chaque évolution du moteur. *(feuille de route — prochaine étape)*
+   pour tester chaque évolution du moteur. **✅ livré** (voir plus bas).
 
 | Domaine       | Dossier         | Question                                   | Cause plantée (trouvée par Noreon) | État |
 |---------------|-----------------|--------------------------------------------|---|------|
@@ -84,5 +84,28 @@ cd backend && python ../demo/verify.py retail
 répond à la question — et imprime la chronologie, l'attribution de la baisse, les
 décisions par rôle, la projection d'inaction et la confiance. À comparer au
 `gold_standard.md`.
+
+## Framework de non-régression (le benchmark)
+
+Chaque scénario porte un `expected.json` — la **projection machine-vérifiable** de
+son Gold Standard (intention, sens de la variation, axe causal, segment,
+contribution minimale, bon décideur). `benchmark.py` rejoue le moteur et **note
+l'écart** sur 100 :
+
+```bash
+cd backend && python ../demo/benchmark.py               # bulletin des 5 scénarios
+cd backend && python ../demo/benchmark.py retail        # un seul
+cd backend && python ../demo/benchmark.py --threshold 90
+```
+
+Barème (100 pts) : intention (10) · sens de la variation (15) · **bon axe causal
+(25)** · **bon segment (25)** · contribution suffisante (15) · bon décideur ★≥4 (10).
+
+État actuel : **5 / 5 PASS · moyenne 100 / 100** (seuil 80).
+
+Le benchmark tourne aussi en **CI** via `backend/tests/test_benchmark.py` (ignoré
+scénario par scénario si la base n'est pas chargée). Si une évolution du moteur
+dégrade une démonstration, le test tombe : c'est le filet de sécurité qui protège
+la qualité, exactement comme un Gold Standard le doit.
 
 > Données 100 % synthétiques. Aucune donnée réelle, aucune donnée personnelle.

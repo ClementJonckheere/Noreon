@@ -1,0 +1,7 @@
+{
+  "question": "Pourquoi les départs augmentent-ils ?",
+  "intent": "diagnostic",
+  "trend_direction": "hausse",
+  "attribution": { "dimension_contains": "departement", "segment_contains": "Ingénierie", "min_contribution_pct": 90 },
+  "lead_role": "Directeur des ressources humaines"
+}

@@ -501,6 +501,26 @@ vérification end-to-end a fait apparaître trois corrections.
 avec le bon décideur et un impact crédible. La méthode Gold Standard a directement
 produit quatre améliorations du moteur.
 
+### D-32 — Framework de non-régression Gold Standard (Étape 3)
+**Contexte.** Formaliser `Gold Standard → Noreon → écart → score` pour que chaque
+évolution du moteur soit testée contre les scénarios — sans relecture manuelle.
+**Décision.**
+- **`expected.json` par scénario** : projection machine-vérifiable du Gold Standard
+  (intention, sens de la variation, axe causal, segment, contribution minimale,
+  décideur attendu).
+- **`demo/benchmark.py`** : rejoue le moteur (pipeline partagé `demo/_runner.py`,
+  factorisé avec `verify.py`) et note l'écart sur 100 via un barème pondéré (axe
+  causal + segment = 50 pts, le cœur du diagnostic). Bulletin par scénario +
+  moyenne ; sortie non nulle sous le seuil (CI-friendly).
+- **`backend/tests/test_benchmark.py`** : intègre le benchmark à la suite pytest,
+  ignoré scénario par scénario si la base source est absente.
+- **Réglage révélé** : l'axe « canal d'acquisition » d'un churn était routé vers le
+  rôle CRM (« campagne de réactivation sur un canal » — incohérent) ; recentré sur
+  le rôle « opérations / canal » (« analyser le parcours sur le canal »).
+**Conséquence.** 5/5 PASS, moyenne 100/100. Le Gold Standard n'est plus un document
+mais un **test exécutable** : toute régression de qualité d'analyse est détectée
+automatiquement. Les trois étapes de la bibliothèque de démonstration sont livrées.
+
 ---
 
 ## Dettes / limites connues (à traiter)
