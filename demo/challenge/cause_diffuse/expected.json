@@ -6,5 +6,5 @@
   "difficulty": "La baisse est diffuse (systémique), aucune cause localisée.",
   "ideal": "Reconnaître que la baisse est GÉNÉRALISÉE (aucun segment ne porte plus de ~40 %) et orienter vers une cause transverse (prix, macro, saison) plutôt qu'un magasin/une région.",
   "expects_no_dominant_cause": true,
-  "known_limitation": "Le moteur cherche une cause ≥ 55 % ; faute d'en trouver, il retombe sur la structure du total (tautologie) au lieu de conclure « baisse généralisée »."
+  "resolved_by": "Lift causal (ADR D-33) : un segment n'est une cause que si sa part dans la variation dépasse sa part dans la base."
 }

@@ -547,6 +547,33 @@ scénarios restent à 100/100 (lift = garde-fou, pas régression). C'est la bouc
 scientifique en marche : *on code parce que le benchmark dit que le moteur s'est
 trompé.*
 
+### D-34 — Robustesse aux colonnes opaques : comprendre les données, pas le schéma
+**Contexte.** Le test décisif de la promesse fondatrice : si on renomme toutes les
+colonnes en identifiants opaques (`col_003`, `a3`…), Noreon trouve-t-il encore ?
+Sinon, il est « adapté aux jeux de données », pas intelligent.
+**Décision (détection PAR LES DONNÉES, `deep_analysis`).**
+- **`_Col.is_identifier`** : une colonne est un identifiant si elle est clé, **FK**
+  (marquée depuis les relations dans `_load_schema`), nommée `xxx_id`, **ou un
+  entier quasi-unique** (`distinct_ratio ≥ 0.98`) — robuste aux noms opaques. Un
+  identifiant n'est jamais une mesure ni un axe.
+- **Détection de la mesure en deux temps** (`_pick_measure`) : (1) indice de nom
+  (rapide quand le nom parle) ; (2) à défaut, **la variable numérique la plus
+  continue** (le plus de valeurs distinctes), ni identifiant ni catégorie. →
+  `col_003` reconnu comme le montant sans aucun indice de nom.
+- **Axes** : `_candidate_dimensions` s'appuie sur `is_identifier` (données) plutôt
+  que sur le nom, et la cause est attribuée **par la valeur du segment**
+  (« Provence-Alpes-Côte d'Azur »), pas par le nom de l'axe.
+- **Challenge `colonnes_opaques_n1`** + robustness dans le benchmark
+  (`--challenge`) : mesure trouvée ✓, cause par la valeur ✓ (97 %).
+**Limite connue.** Le routage vers un rôle métier dépend encore du **nom** de
+l'axe : sur colonnes opaques, la décision reste générique. Pistes : dictionnaire
+métier + inférence du type d'axe par les valeurs ; et N2 = FK non déclarées
+inférées par recouvrement de valeurs.
+**Conséquence.** Même scénario que retail, tous les noms opacifiés : Noreon
+retrouve la mesure et la cause. Preuve tangible qu'il reconstruit la **sémantique à
+partir des données**, pas du vocabulaire du schéma. Les 5 scénarios nommés restent
+à 100/100 (l'indice de nom reste prioritaire quand il existe).
+
 ---
 
 ## Dettes / limites connues (à traiter)

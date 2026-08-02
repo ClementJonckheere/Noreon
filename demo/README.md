@@ -121,11 +121,16 @@ c'est que le moteur **apprenne**.
 cd backend && python ../demo/benchmark.py --challenge
 ```
 
-Premier challenge livré : **`cause_diffuse`** — une baisse systémique sans coupable
-localisé. Le moteur répondait « la baisse est portée à 93 % par le plus gros
-segment » (tautologie) ; il répond désormais « la baisse est **généralisée** ».
-La correction (notion de **lift** — sur-représentation dans la variation) est une
-amélioration réelle du moteur dictée par un échec mesuré (ADR D-33). Voir
-`demo/challenge/README.md`.
+Challenges livrés :
+
+- **`cause_diffuse`** — baisse systémique sans coupable localisé. Le moteur
+  répondait « portée à 93 % par le plus gros segment » (tautologie) ; il répond
+  désormais « baisse **généralisée** ». Correction = notion de **lift** (ADR D-33).
+- **`colonnes_opaques_n1`** — toutes les colonnes rendues opaques (`col_003`, `a3`…).
+  Noreon retrouve quand même la **mesure** (par le profil) et la **cause** (« Provence-
+  Alpes-Côte d'Azur », par la valeur). Preuve qu'il comprend les **données**, pas le
+  schéma. Correction = détection par les données (ADR D-34).
+
+Voir `demo/challenge/README.md`.
 
 > Données 100 % synthétiques. Aucune donnée réelle, aucune donnée personnelle.

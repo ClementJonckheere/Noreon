@@ -137,21 +137,37 @@ def run_challenge(sc: str) -> None:
         return
     r, _ = analyze(sc, exp["question"])
     inv = r.investigation or {}
-    # Le challenge « cause diffuse » : le moteur doit reconnaître qu'AUCUN segment
-    # ne se détache (pas de tautologie).
+    attr = inv.get("attribution") or {}
     learned = None
+    notes: list[str] = []
+
     if exp.get("expects_no_dominant_cause"):
-        broad = bool(inv.get("broad_based")) and inv.get("attribution") is None \
+        # Cause diffuse : reconnaître qu'AUCUN segment ne se détache (pas de tautologie).
+        learned = bool(inv.get("broad_based")) and inv.get("attribution") is None \
             and not inv.get("drivers_struct")
-        learned = broad
+    elif "robustness" in exp:
+        # Colonnes opaques : retrouver la mesure PAR LES DONNÉES et la cause PAR LA VALEUR.
+        rob = exp["robustness"]
+        measure_ok = "effectif" not in _norm(inv.get("metric_label"))
+        seg_ok = _norm(rob.get("segment_contains", "")) in _norm(attr.get("segment"))
+        contrib_ok = isinstance(attr.get("contribution_pct"), (int, float)) \
+            and attr["contribution_pct"] >= rob.get("min_contribution_pct", 0)
+        learned = measure_ok and seg_ok and contrib_ok
+        notes.append(f"mesure trouvée par les données : {'✓' if measure_ok else '✗'} "
+                     f"({inv.get('metric_label', '—')})")
+        notes.append(f"cause trouvée par la valeur : {'✓' if seg_ok else '✗'} "
+                     f"({attr.get('segment', '—')} · {attr.get('contribution_pct', '—')}%)")
+
     verdict = "APPRIS ✅" if learned else ("À CORRIGER ❌" if learned is False else "—")
-    print(f"\n▹ {name:<18} {verdict}")
+    print(f"\n▹ {name:<26} {verdict}")
     print(f"    difficulté : {exp.get('difficulty', '—')}")
     print(f"    idéal      : {exp.get('ideal', '—')}")
+    for nt in notes:
+        print(f"    · {nt}")
     concl = (inv.get("conclusion") or r.message or "").replace("Conclusion : ", "")
     print(f"    Noreon dit : {concl[:150]}")
-    if learned is False:
-        print(f"    ⚠ limite   : {exp.get('known_limitation', '')}")
+    if exp.get("known_limitation"):
+        print(f"    ⚠ limite   : {exp['known_limitation']}")
 
 
 def run(scenarios: list[str], threshold: int) -> int:

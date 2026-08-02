@@ -50,3 +50,21 @@ def test_challenge_cause_diffuse_is_learned():
     assert inv.get("broad_based") is True
     assert inv.get("attribution") is None
     assert not inv.get("drivers_struct")  # aucune cause tautologique émise
+
+
+def test_challenge_opaque_columns_is_robust():
+    """Challenge « colonnes opaques » : la mesure est retrouvée PAR LES DONNÉES
+    (pas par le nom) et la cause PAR LA VALEUR du segment — preuve que Noreon
+    comprend les données, pas seulement le schéma."""
+    sc = "challenge/colonnes_opaques_n1"
+    if not _runner.db_available(sc):
+        pytest.skip("base du challenge injoignable")
+    exp = json.loads((ROOT / "demo" / sc / "expected.json").read_text(encoding="utf-8"))
+    r, _ = _runner.analyze(sc, exp["question"])
+    inv = r.investigation or {}
+    attr = inv.get("attribution") or {}
+    # Mesure trouvée sans indice de nom (colonnes opaques col_003).
+    assert "effectif" not in (inv.get("metric_label") or "").lower()
+    # Cause identifiée par la VALEUR du segment, pas par le nom de l'axe.
+    assert "provence" in (attr.get("segment") or "").lower()
+    assert attr.get("contribution_pct", 0) >= 85

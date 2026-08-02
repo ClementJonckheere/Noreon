@@ -27,14 +27,24 @@ Challenge → Le moteur se trompe → On corrige → Le challenge passe → Nouv
 | Challenge | Piège | État |
 |---|---|---|
 | `cause_diffuse/` | Baisse **systémique** (aucun coupable localisé) — le moteur retombait sur une tautologie (« le plus gros segment »). | **APPRIS ✅** (lift ≥ 1.5 + « baisse généralisée », ADR D-33) |
+| `colonnes_opaques_n1/` | **Toutes les colonnes opaques** (`col_003`, `a3`…) — le moteur ne peut plus lire les noms. | **APPRIS ✅** (mesure + identifiant détectés PAR LES DONNÉES ; cause trouvée par la VALEUR, ADR D-34) |
+
+> **Colonnes opaques — la preuve la plus forte.** Même scénario que retail (PACA
+> 97 %), tous les noms rendus opaques. Noreon retrouve la mesure (`col_003`) par son
+> profil et la cause (« Provence-Alpes-Côte d'Azur ») par la valeur du segment — il
+> comprend donc les **données**, pas seulement le schéma. Limite restante : le
+> routage vers un rôle métier dépend encore du nom de l'axe.
 
 ## Prochains challenges (feuille de route)
 
+- **Colonnes opaques N2** : FK **non déclarées** → inférer la relation par
+  recouvrement de valeurs (la vraie robustesse « données, pas schéma »).
+- **Colonnes opaques N3** : valeurs bruitées + synonymes métier (client → adhérent).
 - **Causes multiples** (40/35/25 %) : nommer les trois, pas une seule.
 - **Deux causes simultanées** (fermeture magasin + changement de prix).
-- **Saisonnalité + promotion** : distinguer l'effet calendaire de l'effet réel.
-- **Colonnes opaques** (`t1`, `c3`…) : robustesse quand le nommage ne guide plus.
-- **Causalité inversée** / faux positifs / qualité de données catastrophique.
+- **Saisonnalité + promotion** : « la baisse dépasse la saisonnalité habituelle ».
+- **Qualité catastrophique** : savoir dire « je ne peux pas conclure ».
+- **Causalité inversée** (promotions ↑ *parce que* ventes ↓) — à garder pour plus tard.
 
 > Chaque challenge résolu laisse derrière lui une **amélioration réelle du moteur**
 > — pas une fonctionnalité ajoutée « au cas où », mais une correction dictée par un
