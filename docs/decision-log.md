@@ -521,6 +521,32 @@ produit quatre améliorations du moteur.
 mais un **test exécutable** : toute régression de qualité d'analyse est détectée
 automatiquement. Les trois étapes de la bibliothèque de démonstration sont livrées.
 
+### D-33 — Noreon Challenge + lift causal + benchmark vivant
+**Contexte.** Un benchmark à 100/100 sur des cas simples ne fait pas progresser le
+moteur. On introduit des scénarios **adversariaux** (`demo/challenge/`) conçus pour
+le casser, et on mesure la **démarche**, pas seulement la réponse.
+**Décision.**
+- **Challenge « cause diffuse »** : baisse **systémique** (panier −15 % partout,
+  aucun coupable localisé). Le moteur retombait sur une **tautologie** — « la baisse
+  est portée à 93 % par le plus gros segment ».
+- **Lift causal** (`agent._attribute_variation`) : un segment n'est une cause que si
+  sa part dans la variation dépasse sa part dans la base (**lift ≥ 1.5**). Une baisse
+  uniforme a des lifts ≈ 1 → aucune cause → **`broad_based`** : « baisse
+  généralisée, cause probablement transverse (prix, saison, macro) ». Le lift est un
+  **garde-fou** ; le classement reste piloté par la contribution (pour ne pas
+  confondre cause et conséquence — ex. le *canal* d'un churn plutôt que le *plan*).
+- **Suppression de la tautologie** : plus de « plus gros segment » émis quand la
+  variation est diffuse.
+- **Benchmark vivant** (`demo/benchmark.py`) : scorecard du **raisonnement** (Plan ·
+  Dimensions · Mesure · Explication · Décision · Efficacité) + section
+  **`--challenge`** non notée qui affiche `APPRIS ✅` / `À CORRIGER ❌` avec la limite
+  connue.
+**Conséquence.** Le premier challenge, en cassant le moteur, a produit une vraie
+amélioration (distinguer une cause concentrée d'un simple gros segment). Les 5
+scénarios restent à 100/100 (lift = garde-fou, pas régression). C'est la boucle
+scientifique en marche : *on code parce que le benchmark dit que le moteur s'est
+trompé.*
+
 ---
 
 ## Dettes / limites connues (à traiter)

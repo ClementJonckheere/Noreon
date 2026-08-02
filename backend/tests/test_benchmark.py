@@ -36,3 +36,17 @@ def test_scenario_meets_gold_standard(scenario):
     assert score >= benchmark.PASS_THRESHOLD, (
         f"{scenario} : {score}/100 (seuil {benchmark.PASS_THRESHOLD}) — échecs : {failed}"
     )
+
+
+def test_challenge_cause_diffuse_is_learned():
+    """Challenge « cause diffuse » : le moteur doit reconnaître une baisse
+    généralisée (aucun segment disproportionné) et ne PAS produire de tautologie."""
+    sc = "challenge/cause_diffuse"
+    if not _runner.db_available(sc):
+        pytest.skip("base du challenge injoignable")
+    exp = json.loads((ROOT / "demo" / sc / "expected.json").read_text(encoding="utf-8"))
+    r, _ = _runner.analyze(sc, exp["question"])
+    inv = r.investigation or {}
+    assert inv.get("broad_based") is True
+    assert inv.get("attribution") is None
+    assert not inv.get("drivers_struct")  # aucune cause tautologique émise

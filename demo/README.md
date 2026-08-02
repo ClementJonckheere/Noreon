@@ -108,4 +108,24 @@ scénario par scénario si la base n'est pas chargée). Si une évolution du mot
 dégrade une démonstration, le test tombe : c'est le filet de sécurité qui protège
 la qualité, exactement comme un Gold Standard le doit.
 
+Le bulletin note aussi la **démarche** (pas seulement la réponse) — Plan · Choix
+des dimensions · Mesure · Explication · Décision · Efficacité — afin de voir *où* le
+raisonnement se dégrade si on modifie le moteur.
+
+## Noreon Challenge — casser le moteur pour le faire progresser
+
+`demo/challenge/` contient des scénarios **adversariaux** : le but n'est pas 100,
+c'est que le moteur **apprenne**.
+
+```bash
+cd backend && python ../demo/benchmark.py --challenge
+```
+
+Premier challenge livré : **`cause_diffuse`** — une baisse systémique sans coupable
+localisé. Le moteur répondait « la baisse est portée à 93 % par le plus gros
+segment » (tautologie) ; il répond désormais « la baisse est **généralisée** ».
+La correction (notion de **lift** — sur-représentation dans la variation) est une
+amélioration réelle du moteur dictée par un échec mesuré (ADR D-33). Voir
+`demo/challenge/README.md`.
+
 > Données 100 % synthétiques. Aucune donnée réelle, aucune donnée personnelle.

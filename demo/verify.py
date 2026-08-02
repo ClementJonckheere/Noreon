@@ -9,11 +9,24 @@ ce que le moteur PRODUIT RÉELLEMENT, à comparer au Gold Standard écrit à la 
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 from _runner import SCENARIO_QUESTIONS, analyze  # noqa: E402
+
+
+def _question(scenario: str) -> str | None:
+    """Question du scénario : map des scénarios de base, sinon expected.json
+    (scénarios imbriqués comme challenge/xxx)."""
+    if scenario in SCENARIO_QUESTIONS:
+        return SCENARIO_QUESTIONS[scenario]
+    exp = HERE / scenario / "expected.json"
+    if exp.exists():
+        return json.loads(exp.read_text(encoding="utf-8")).get("question")
+    return None
 
 
 def _bar(title: str) -> None:
@@ -21,10 +34,11 @@ def _bar(title: str) -> None:
 
 
 def main(scenario: str) -> None:
-    if scenario not in SCENARIO_QUESTIONS:
-        print(f"Scénario inconnu : {scenario}. Connus : {', '.join(SCENARIO_QUESTIONS)}")
+    question = _question(scenario)
+    if question is None:
+        print(f"Scénario inconnu : {scenario}. Connus : {', '.join(SCENARIO_QUESTIONS)} "
+              f"(+ challenge/<nom>).")
         sys.exit(1)
-    question = SCENARIO_QUESTIONS[scenario]
     r, meta = analyze(scenario, question)
 
     _bar(f"DISCOVER / UNDERSTAND — noreon_demo_{scenario}")

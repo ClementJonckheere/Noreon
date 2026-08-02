@@ -24,11 +24,16 @@ SCENARIO_QUESTIONS = {
 }
 
 
+def db_name(scenario: str) -> str:
+    """Nom de base source. Les scénarios imbriqués (challenge/xxx) → underscores."""
+    return "noreon_demo_" + scenario.replace("/", "_")
+
+
 def db_available(scenario: str) -> bool:
     """La base source du scénario est-elle joignable (lecture seule) ?"""
     import psycopg
 
-    dsn = (f"host=localhost port=5432 dbname=noreon_demo_{scenario} "
+    dsn = (f"host=localhost port=5432 dbname={db_name(scenario)} "
            "user=noreon_ro password=readonly")
     try:
         with psycopg.connect(dsn, connect_timeout=3) as c:
@@ -52,15 +57,16 @@ def analyze(scenario: str, question: str | None = None):
     from sqlalchemy import select
 
     question = question or SCENARIO_QUESTIONS[scenario]
+    slug = scenario.replace("/", "-")
     db = SessionLocal()
     try:
-        tenant = Tenant(slug=f"demo-{scenario}", name=f"Demo {scenario}")
+        tenant = Tenant(slug=f"demo-{slug}", name=f"Demo {scenario}")
         tenant.settings = TenantSettings(tenant=tenant)
         db.add(tenant)
         db.flush()
         conn, probe = conn_svc.create_connection(
-            db, tenant_id=tenant.id, name=f"demo-{scenario}", host="localhost", port=5432,
-            database=f"noreon_demo_{scenario}", username="noreon_ro", password="readonly",
+            db, tenant_id=tenant.id, name=f"demo-{slug}", host="localhost", port=5432,
+            database=db_name(scenario), username="noreon_ro", password="readonly",
         )
         db.flush()
         adapter = conn_svc.get_source_adapter(conn)

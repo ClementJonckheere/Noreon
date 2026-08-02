@@ -79,6 +79,81 @@ def _role_ok(decisions: list, expected_role: str) -> tuple[bool, str]:
     return False, f"attendu « {expected_role} » ; en tête : {top}"
 
 
+# --- Scorecard du RAISONNEMENT (pas seulement la réponse) --------------------
+# Note la DÉMARCHE : si demain le moteur de raisonnement change, on voit OÙ il se
+# dégrade. Proxies déterministes, volontairement simples et transparents.
+def _stars(n: int) -> str:
+    n = max(1, min(5, n))
+    return "★" * n + "☆" * (5 - n)
+
+
+def reasoning_scorecard(r) -> list[tuple[str, int, str]]:
+    inv = r.investigation or {}
+    steps = inv.get("steps", [])
+    analyses = len(steps)
+    has_trend = any("Tendance" in s.get("title", "") for s in steps)
+    has_attr = any("Attribution" in s.get("title", "") for s in steps)
+    measure_ok = "effectif" not in _norm(inv.get("metric_label"))
+    decided = (r.decisions or {}).get("decisions", [])
+    justified = any(d.get("justification") for d in decided)
+    explained = bool(r.self_critique) and bool(inv.get("conclusion"))
+    # Efficacité : trouver la réponse en peu d'analyses (proxy : nb d'étapes).
+    eff = 5 if analyses <= 6 else 4 if analyses <= 8 else 3
+
+    return [
+        ("Plan", 5 if (has_trend and has_attr) else 3,
+         f"tendance+attribution" if has_trend and has_attr else "incomplet"),
+        ("Choix des dimensions", 5 if analyses >= 3 else max(2, analyses),
+         f"{analyses} axes explorés"),
+        ("Mesure retenue", 5 if measure_ok else 3, inv.get("metric_label", "—")),
+        ("Explication", 5 if explained else 3,
+         "conclusion + auto-critique" if explained else "partielle"),
+        ("Décision", 5 if justified else 3,
+         "justifiée" if justified else "sans justification"),
+        ("Efficacité", eff, f"{analyses} analyses"),
+    ]
+
+
+def _print_reasoning(r) -> None:
+    print("    · Raisonnement :")
+    for label, stars, detail in reasoning_scorecard(r):
+        print(f"        {_stars(stars)}  {label:<22} {detail}")
+
+
+# --- Section CHALLENGE : cas conçus pour CASSER le moteur --------------------
+def discover_challenges() -> list[str]:
+    root = HERE / "challenge"
+    if not root.is_dir():
+        return []
+    return sorted(f"challenge/{p.name}" for p in root.iterdir()
+                  if (p / "expected.json").exists())
+
+
+def run_challenge(sc: str) -> None:
+    exp = json.loads((HERE / sc / "expected.json").read_text(encoding="utf-8"))
+    name = sc.split("/", 1)[1]
+    if not db_available(sc):
+        print(f"\n▹ {name:<18} SKIP — base injoignable (setup_scenario.sh {sc}).")
+        return
+    r, _ = analyze(sc, exp["question"])
+    inv = r.investigation or {}
+    # Le challenge « cause diffuse » : le moteur doit reconnaître qu'AUCUN segment
+    # ne se détache (pas de tautologie).
+    learned = None
+    if exp.get("expects_no_dominant_cause"):
+        broad = bool(inv.get("broad_based")) and inv.get("attribution") is None \
+            and not inv.get("drivers_struct")
+        learned = broad
+    verdict = "APPRIS ✅" if learned else ("À CORRIGER ❌" if learned is False else "—")
+    print(f"\n▹ {name:<18} {verdict}")
+    print(f"    difficulté : {exp.get('difficulty', '—')}")
+    print(f"    idéal      : {exp.get('ideal', '—')}")
+    concl = (inv.get("conclusion") or r.message or "").replace("Conclusion : ", "")
+    print(f"    Noreon dit : {concl[:150]}")
+    if learned is False:
+        print(f"    ⚠ limite   : {exp.get('known_limitation', '')}")
+
+
 def run(scenarios: list[str], threshold: int) -> int:
     print("\n" + "═" * 78)
     print(" BENCHMARK — Gold Standard ⇄ Noreon")
@@ -102,6 +177,7 @@ def run(scenarios: list[str], threshold: int) -> int:
         for _, lbl, w, ok, detail in rows:
             mark = "✓" if ok else "✗"
             print(f"    {mark} {lbl:<28} {w:>2} pts   {detail}")
+        _print_reasoning(r)
 
     if counted:
         avg = total / counted
@@ -117,21 +193,48 @@ def run(scenarios: list[str], threshold: int) -> int:
 
 def main(argv: list[str]) -> int:
     threshold = PASS_THRESHOLD
-    args = []
+    args, only_challenge = [], False
     i = 0
     while i < len(argv):
         if argv[i] == "--threshold":
             threshold = int(argv[i + 1])
             i += 2
+        elif argv[i] == "--challenge":
+            only_challenge = True
+            i += 1
         else:
             args.append(argv[i])
             i += 1
+
+    challenges = discover_challenges()
+    if only_challenge:
+        _print_challenge_header()
+        for sc in challenges:
+            run_challenge(sc)
+        print("\nLes challenges ne sont pas notés : le but n'est pas d'avoir 100, "
+              "c'est que le moteur apprenne.")
+        return 0
+
     scenarios = args or list(SCENARIO_QUESTIONS)
     unknown = [s for s in scenarios if s not in SCENARIO_QUESTIONS]
     if unknown:
         print(f"Scénario(s) inconnu(s) : {', '.join(unknown)}")
         return 2
-    return run(scenarios, threshold)
+    code = run(scenarios, threshold)
+
+    # Section challenge (non bloquante) : cas conçus pour casser le moteur.
+    if not args and challenges:
+        _print_challenge_header()
+        for sc in challenges:
+            run_challenge(sc)
+        print("\nLes challenges ne sont pas notés (le but est d'APPRENDRE, pas d'avoir 100).")
+    return code
+
+
+def _print_challenge_header() -> None:
+    print("\n" + "═" * 78)
+    print(" NOREON CHALLENGE — scénarios conçus pour casser le moteur")
+    print("═" * 78)
 
 
 if __name__ == "__main__":

@@ -105,8 +105,11 @@ class Investigation:
     # {dimension, segment, share}.
     drivers_struct: list[dict] = field(default_factory=list)
     # Attribution de la VARIATION (contribution à la baisse/hausse, pas part du
-    # total) : {dimension, segment, contribution_pct, recent, prior, window}.
+    # total) : {dimension, segment, contribution_pct, lift, recent, prior, window}.
     attribution: dict | None = None
+    # Variation GÉNÉRALISÉE : tendance nette mais aucun segment disproportionné
+    # (cause transverse probable — prix, saison, macro).
+    broad_based: bool = False
     conclusion: str = ""
     recommendations: list[str] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
@@ -220,21 +223,33 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
         if not same:
             continue
         gross = sum(abs(d) for _, d, _, _ in same)
+        total_prior = sum(max(pri, 0) for _, _, _, pri in deltas)
         if gross < 1e-9:
             continue
         lbl, d, rec, pri = max(same, key=lambda x: abs(x[1]))
         share = abs(d) / gross * 100.0
         if share < 50:  # on ne retient que les axes où la variation est concentrée
             continue
+        # LIFT = sur-représentation dans la variation vs. dans la base. Un segment
+        # n'est une CAUSE que s'il varie PLUS que sa taille ne le voudrait. Une
+        # baisse uniforme touche mécaniquement le plus gros segment (tautologie) :
+        # son lift ≈ 1 → écarté. Une vraie cause locale a un lift nettement > 1.
+        base_share = (max(pri, 0) / total_prior) if total_prior > 1e-9 else 0.0
+        lift = (share / 100.0) / base_share if base_share > 1e-9 else 99.0
         ranked.append({"dimension": dim.label, "segment": lbl,
-                       "contribution_pct": round(share, 1), "recent": rec, "prior": pri,
+                       "contribution_pct": round(share, 1), "lift": round(lift, 2),
+                       "recent": rec, "prior": pri,
                        "sql": res.guarded_sql, "window": len(recent_labels)})
 
-    ranked.sort(key=lambda c: c["contribution_pct"], reverse=True)
-    # On n'affirme une cause dominante que si la meilleure est réellement concentrée.
-    if not ranked or ranked[0]["contribution_pct"] < 55:
+    # Une cause = concentrée (≥ 55 %) ET disproportionnée (lift ≥ 1.5). Sinon, la
+    # variation est GÉNÉRALISÉE (aucun coupable localisé).
+    causal = [c for c in ranked if c["contribution_pct"] >= 55 and c["lift"] >= 1.5]
+    # Le lift est un GARDE-FOU (rejette les tautologies) ; le classement reste piloté
+    # par la contribution — la concentration du changement prime.
+    causal.sort(key=lambda c: (c["contribution_pct"], c["lift"]), reverse=True)
+    if not causal:
         return None
-    return {"best": ranked[0], "ranked": ranked}
+    return {"best": causal[0], "ranked": causal}
 
 
 def run_investigation(
@@ -402,6 +417,25 @@ def run_investigation(
                                 "detail": f"Attribution de la variation : « {attribution['segment']} » "
                                           f"({attribution['dimension']}) porte "
                                           f"{attribution['contribution_pct']:.0f}% de la {sens}."})
+        else:
+            # Tendance nette mais aucun segment disproportionné → GÉNÉRALISÉE.
+            inv.broad_based = True
+            sens = "baisse" if trend_dir == "baisse" else "hausse"
+            inv.plan.append({"title": "Attribution de la variation",
+                             "rationale": "Chercher un segment qui porte le changement — s'il existe."})
+            inv.steps.append(asdict(Step(
+                title="Attribution de la variation",
+                question=f"D'où vient la {sens} de {metric} ?",
+                rationale="On compare la fenêtre récente à la précédente, axe par axe.",
+                sql="-- aucun segment disproportionné (lift ≈ 1 partout) --",
+                finding=(f"Aucun segment ne se détache : la {sens} est GÉNÉRALISÉE. "
+                         "Chaque axe recule à peu près en proportion de sa taille — la "
+                         "cause est probablement transverse (prix, saison, effet macro), "
+                         "pas un magasin ni une région en particulier."),
+                figures=[],
+            )))
+            inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
+                                "detail": f"Aucune cause localisée : {sens} généralisée (lift ≈ 1)."})
 
     # Ce que disent réellement les données : le facteur dominant.
     if segmentations:
@@ -421,7 +455,8 @@ def run_investigation(
             inv.revisions.append(revision)
             inv.journal.append({"t": _now(), "phase": "revision", "status": "info",
                                 "detail": revision})
-        elif inv.attribution is None and initial is not None and initial.label != winner.label:
+        elif (inv.attribution is None and not inv.broad_based
+              and initial is not None and initial.label != winner.label):
             revision = (f"Je pensais que « {initial.label} » portait la variation ; "
                         f"finalement ce sont les écarts de « {winner.label} » qui structurent le plus {noun}.")
             inv.revisions.append(revision)
@@ -482,8 +517,10 @@ def run_investigation(
         seen_dims.add(a["dimension"])
 
     # Sans attribution de variation exploitable, on se rabat sur la structure du
-    # total (part du plus gros segment) — utile en exploration, à défaut de mieux.
-    for seg in segmentations[:3] if not inv.drivers_struct else []:
+    # total — MAIS PAS si la variation est généralisée : émettre un « plus gros
+    # segment » y serait une tautologie trompeuse (c'est justement le piège).
+    _fallback = segmentations[:3] if (not inv.drivers_struct and not inv.broad_based) else []
+    for seg in _fallback:
         if seg.dim.label in seen_dims:
             continue
         top = seg.groups[0]
@@ -501,12 +538,17 @@ def run_investigation(
         parts.append(f"{metric} est orienté à la hausse")
     elif trend_dir == "stable":
         parts.append(f"{metric} est globalement stable")
+    sens = "baisse" if trend_dir == "baisse" else "hausse"
     if inv.attribution is not None:
         a = inv.attribution
-        sens = "baisse" if trend_dir == "baisse" else "hausse"
         parts.append(
             f"la {sens} est portée à {a['contribution_pct']:.0f}% par « {a['segment']} » "
             f"({a['dimension']})"
+        )
+    elif inv.broad_based:
+        parts.append(
+            f"la {sens} est GÉNÉRALISÉE : aucun segment ne se détache "
+            "(cause probablement transverse — prix, saison, effet macro)"
         )
     elif segmentations:
         d0 = segmentations[0]
@@ -522,6 +564,11 @@ def run_investigation(
         inv.recommendations.append(
             f"Concentrer l'action sur « {a['segment']} » ({a['dimension']}) — "
             f"qui porte l'essentiel de la variation — et suivre son redressement."
+        )
+    elif inv.broad_based:
+        inv.recommendations.append(
+            "Chercher une cause TRANSVERSE (politique de prix, saisonnalité, "
+            "contexte macro) plutôt qu'un magasin ou un segment : la baisse est diffuse."
         )
     elif segmentations:
         d0 = segmentations[0]

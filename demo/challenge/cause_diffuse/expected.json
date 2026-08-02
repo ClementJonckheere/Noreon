@@ -1,0 +1,10 @@
+{
+  "mode": "challenge",
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "intent": "diagnostic",
+  "trend_direction": "baisse",
+  "difficulty": "La baisse est diffuse (systémique), aucune cause localisée.",
+  "ideal": "Reconnaître que la baisse est GÉNÉRALISÉE (aucun segment ne porte plus de ~40 %) et orienter vers une cause transverse (prix, macro, saison) plutôt qu'un magasin/une région.",
+  "expects_no_dominant_cause": true,
+  "known_limitation": "Le moteur cherche une cause ≥ 55 % ; faute d'en trouver, il retombe sur la structure du total (tautologie) au lieu de conclure « baisse généralisée »."
+}

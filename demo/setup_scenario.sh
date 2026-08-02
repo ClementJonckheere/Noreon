@@ -7,10 +7,11 @@
 #          (le nom du scénario = sous-dossier de demo/ contenant seed.sql)
 set -euo pipefail
 
-SCENARIO="${1:?Usage: setup_scenario.sh <scenario>  (ex. retail)}"
+SCENARIO="${1:?Usage: setup_scenario.sh <scenario>  (ex. retail, challenge/cause_diffuse)}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SEED="$HERE/$SCENARIO/seed.sql"
-DB="noreon_demo_${SCENARIO}"
+# Les scénarios imbriqués (challenge/xxx) → base noreon_demo_challenge_xxx.
+DB="noreon_demo_${SCENARIO//\//_}"
 PSQL="${PSQL:-psql}"
 
 [ -f "$SEED" ] || { echo "!! Introuvable : $SEED" >&2; exit 1; }

@@ -101,6 +101,24 @@ def test_attribution_prefers_concentrated_region():
     assert all("tranche de" not in c["dimension"] for c in out["ranked"])
 
 
+def test_attribution_rejects_proportional_tautology():
+    """Baisse UNIFORME : le plus gros segment porte mécaniquement le plus de la
+    baisse (contribution élevée) mais en proportion de sa taille (lift ≈ 1). Ce
+    n'est PAS une cause → l'attribution doit renvoyer None (baisse généralisée)."""
+    by_expr = {
+        # (segment, recent, prior) — chacun recule d'environ -28 % (uniforme).
+        "f.segment": [("Particulier", 720, 1000), ("Pro", 216, 300), ("VIP", 72, 100)],
+    }
+    dims = [_Dim(label="segment", expr="f.segment")]
+    out = agent._attribute_variation(
+        _FakeAdapter(by_expr), conn_id=1, guard_args={}, fact=_Fact(), dims=dims,
+        measure_sql="f.amount_ttc", date_col=_Col(),
+        recent_labels=["2025-05", "2025-06"], prior_labels=["2025-03", "2025-04"],
+        trend_dir="baisse",
+    )
+    assert out is None  # concentration réelle mais lift ≈ 1 → pas une cause
+
+
 def test_attribution_none_when_diffuse():
     """Aucune cause dominante (baisse répartie) → pas d'attribution."""
     by_expr = {"f.gender": [("F", 41000, 45000), ("M", 40000, 44000)]}
