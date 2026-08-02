@@ -236,9 +236,11 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
         # son lift ≈ 1 → écarté. Une vraie cause locale a un lift nettement > 1.
         base_share = (max(pri, 0) / total_prior) if total_prior > 1e-9 else 0.0
         lift = (share / 100.0) / base_share if base_share > 1e-9 else 99.0
+        # Échantillon de valeurs de l'axe → permet au Responsibility Engine de
+        # reconnaître le CONCEPT (géographie, fournisseur…) même si le nom est opaque.
         ranked.append({"dimension": dim.label, "segment": lbl,
                        "contribution_pct": round(share, 1), "lift": round(lift, 2),
-                       "recent": rec, "prior": pri,
+                       "recent": rec, "prior": pri, "samples": [g[0] for g in groups][:12],
                        "sql": res.guarded_sql, "window": len(recent_labels)})
 
     # Une cause = concentrée (≥ 55 %) ET disproportionnée (lift ≥ 1.5). Sinon, la
@@ -512,7 +514,7 @@ def run_investigation(
             f"{a['dimension']} — « {a['segment']} » ({a['contribution_pct']:.0f}% de la variation)")
         inv.drivers_struct.append({
             "dimension": a["dimension"], "segment": a["segment"],
-            "share": a["contribution_pct"],
+            "share": a["contribution_pct"], "samples": a.get("samples", []),
         })
         seen_dims.add(a["dimension"])
 

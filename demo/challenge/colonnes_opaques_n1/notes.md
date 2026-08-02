@@ -41,11 +41,19 @@ Détection **par les données** (et non par le nom) :
 · cause trouvée par la valeur : ✓ (Provence-Alpes-Côte d'Azur · 97.1%)
 ```
 
-## Limite connue (prochaine étape)
-Le **routage vers un rôle métier** (« Directeur réseau ») dépend encore du **nom**
-de l'axe. Sur colonnes opaques, la décision reste **générique** (Directeur
-financier). Piste : dictionnaire métier + inférence du type d'axe par les valeurs
-(un segment « Provence-Alpes-Côte d'Azur » est une région → réseau).
+## Limite levée (Responsibility Engine — ADR D-35)
+Le **routage vers un rôle métier** ne dépend plus du **nom** de l'axe. Le
+**Responsibility Engine** détecte le concept par les **valeurs** : `a3` a pour
+valeurs des régions → concept « zone géographique » → **Directeur réseau**.
+
+```
+· mesure trouvée par les données : ✓ (total de col_003)
+· cause trouvée par la valeur : ✓ (Provence-Alpes-Côte d'Azur · 97,1 %)
+· décideur par le concept : ✓ (Directeur réseau, 5★)
+```
+
+Ce challenge valide les propriétés **P-01** (indépendance au nom de schéma) et
+**P-02** (responsabilité fondée sur le concept) — cf. `demo/PROPERTIES.md`.
 
 ## Niveaux suivants (feuille de route)
 - **N2** : FK **non déclarées** → inférer la relation par **recouvrement de

@@ -574,6 +574,28 @@ retrouve la mesure et la cause. Preuve tangible qu'il reconstruit la **sémantiq
 partir des données**, pas du vocabulaire du schéma. Les 5 scénarios nommés restent
 à 100/100 (l'indice de nom reste prioritaire quand il existe).
 
+### D-35 — Responsibility Engine : du concept au décideur (P-02)
+**Contexte.** Limite laissée par D-34 : le routage vers un rôle métier dépendait
+encore du **nom** de l'axe (`if "store" in name → Directeur réseau`). Sur colonnes
+opaques, la décision retombait sur un rôle générique.
+**Décision.**
+- Nouveau composant **`services/responsibility.py`** : `valeurs → concept →
+  responsabilité`. Pipeline explicite `Reasoning Engine → Concepts →
+  Responsibility Engine → Decision Engine`.
+- **Détection du concept par les VALEURS d'abord** (régions/villes françaises,
+  tokens de fournisseur/canal, ensembles département/segment/produit), **nom de
+  l'axe en repli**. Concepts : geo, store, supplier, channel, employee,
+  customer_segment, product, time.
+- **`decide()`** appelle `responsibility.resolve(dimension, segment, samples)` au
+  lieu de `_role_of(nom)` ; l'agent fournit un **échantillon de valeurs** de l'axe
+  (`samples`) dans `drivers_struct`. Le texte de décision affiche le **concept**
+  (« zone géographique ») plutôt que le nom d'axe brut.
+- `_ROLE_HINTS` / `_role_of` retirés du Decision Engine (logique déplacée dans le
+  Responsibility Engine, enrichie des valeurs).
+**Conséquence.** Le challenge `colonnes_opaques_n1` route désormais l'axe opaque
+`a3` vers **Directeur réseau** (ses valeurs sont des régions) — limite de D-34
+levée. Propriété **P-02** validée. Les 5 scénarios nommés restent à 100/100.
+
 ---
 
 ## Dettes / limites connues (à traiter)

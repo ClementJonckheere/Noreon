@@ -157,6 +157,11 @@ def run_challenge(sc: str) -> None:
                      f"({inv.get('metric_label', '—')})")
         notes.append(f"cause trouvée par la valeur : {'✓' if seg_ok else '✗'} "
                      f"({attr.get('segment', '—')} · {attr.get('contribution_pct', '—')}%)")
+        if rob.get("expected_role"):
+            role_ok, role_detail = _role_ok((r.decisions or {}).get("decisions", []),
+                                             rob["expected_role"])
+            learned = learned and role_ok
+            notes.append(f"décideur par le concept : {'✓' if role_ok else '✗'} ({role_detail})")
 
     verdict = "APPRIS ✅" if learned else ("À CORRIGER ❌" if learned is False else "—")
     print(f"\n▹ {name:<26} {verdict}")

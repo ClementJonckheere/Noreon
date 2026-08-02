@@ -127,10 +127,23 @@ Challenges livrés :
   répondait « portée à 93 % par le plus gros segment » (tautologie) ; il répond
   désormais « baisse **généralisée** ». Correction = notion de **lift** (ADR D-33).
 - **`colonnes_opaques_n1`** — toutes les colonnes rendues opaques (`col_003`, `a3`…).
-  Noreon retrouve quand même la **mesure** (par le profil) et la **cause** (« Provence-
-  Alpes-Côte d'Azur », par la valeur). Preuve qu'il comprend les **données**, pas le
-  schéma. Correction = détection par les données (ADR D-34).
+  Noreon retrouve la **mesure** (par le profil), la **cause** (« Provence-Alpes-Côte
+  d'Azur », par la valeur) **et le décideur** (Directeur réseau, par le **concept** :
+  valeurs = régions → zone géographique). Corrections = détection par les données
+  (ADR D-34) + **Responsibility Engine** (ADR D-35).
 
-Voir `demo/challenge/README.md`.
+Voir `demo/challenge/README.md` et `demo/PROPERTIES.md` (propriétés P-01…P-04).
+
+## Pipeline de raisonnement
+
+```
+Question → Reasoning Engine → Concepts → Responsibility Engine → Decision Engine
+```
+
+Le **Responsibility Engine** (`backend/app/services/responsibility.py`) traduit un
+axe en **concept métier** à partir de ses **valeurs** (régions → zone géographique,
+noms de fournisseurs → fournisseur…), puis en **responsabilité** (Directeur réseau,
+supply chain, CRM…). Le Decision Engine ne raisonne plus sur un nom de colonne mais
+sur un concept — d'où la robustesse aux colonnes opaques.
 
 > Données 100 % synthétiques. Aucune donnée réelle, aucune donnée personnelle.

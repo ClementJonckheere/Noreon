@@ -16,16 +16,7 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
-# Vocabulaire d'un axe d'analyse → rôle le plus concerné.
-# Ordre = priorité de correspondance (le premier motif trouvé gagne).
-_ROLE_HINTS = {
-    "supply": r"fournisseur|supplier|entrep|warehouse|appro|logisti|transport|livraison|rupture",
-    "rh": r"departement|département|employ|salari|effectif|motif|poste|turnover|équipe|equipe|manager|démission|demission",
-    "reseau": r"magasin|store|shop|boutique|ville|city|region|région|zone|secteur|territoire",
-    "crm": r"client|customer|fidel|fidél|loyal|age\b|âge|genre|segment|acheteur",
-    "produit": r"produit|product|categor|catégor|gamme|article|référence|ligne_produit|ligne de produit|sku",
-    "canal": r"paiement|payment|canal|channel|method|mode",
-}
+from app.services import responsibility
 
 # Intentions détectables derrière une question.
 _INTENTS = [
@@ -119,14 +110,6 @@ def _clean_dimension(label: str | None) -> str:
     if not label:
         return ""
     return re.sub(r"\s*\([^)]*\)", "", label).strip()
-
-
-def _role_of(dimension: str) -> str | None:
-    low = dimension.lower()
-    for role, pat in _ROLE_HINTS.items():
-        if re.search(pat, low):
-            return role
-    return None
 
 
 # role → (libellé, action, justification, effort typique de l'action)
@@ -238,13 +221,20 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
     # Le PREMIER facteur est la cause principale de la variation : sa décision est
     # rehaussée d'une étoile pour qu'elle mène la liste (l'action « au bon endroit »
     # prime sur une action à faible effort mais hors sujet).
+    #
+    # Responsibility Engine : on ne route plus sur le NOM de la colonne mais sur le
+    # CONCEPT détecté (par les valeurs d'abord) → robuste aux colonnes opaques.
     seen_roles: set[str] = set()
     for idx, d in enumerate(drivers[:3]):
-        role = _role_of(d.get("dimension", ""))
+        resp = responsibility.resolve(
+            d.get("dimension", ""), d.get("segment"), d.get("samples") or [])
+        role = resp.role_key if resp else None
         if role is None or role in seen_roles or role not in _ROLE_ACTIONS:
             continue
         seen_roles.add(role)
-        seg, share, dim = d.get("segment"), d.get("share", 0), _clean_dimension(d.get("dimension"))
+        seg, share = d.get("segment"), d.get("share", 0)
+        # On affiche le CONCEPT (« zone géographique ») plutôt que le nom d'axe brut.
+        dim = resp.concept_label
         role_label, action_tpl, just_tpl, effort = _ROLE_ACTIONS[role]
         impact, conf, impact_level = _estimate_impact(share, trend_pct)
         stars = _stars(impact_level, effort)

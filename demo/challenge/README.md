@@ -27,13 +27,14 @@ Challenge → Le moteur se trompe → On corrige → Le challenge passe → Nouv
 | Challenge | Piège | État |
 |---|---|---|
 | `cause_diffuse/` | Baisse **systémique** (aucun coupable localisé) — le moteur retombait sur une tautologie (« le plus gros segment »). | **APPRIS ✅** (lift ≥ 1.5 + « baisse généralisée », ADR D-33) |
-| `colonnes_opaques_n1/` | **Toutes les colonnes opaques** (`col_003`, `a3`…) — le moteur ne peut plus lire les noms. | **APPRIS ✅** (mesure + identifiant détectés PAR LES DONNÉES ; cause trouvée par la VALEUR, ADR D-34) |
+| `colonnes_opaques_n1/` | **Toutes les colonnes opaques** (`col_003`, `a3`…) — le moteur ne peut plus lire les noms. | **APPRIS ✅** (mesure + cause par les DONNÉES/VALEURS, ADR D-34 ; **+ décideur par le concept**, ADR D-35) |
 
 > **Colonnes opaques — la preuve la plus forte.** Même scénario que retail (PACA
 > 97 %), tous les noms rendus opaques. Noreon retrouve la mesure (`col_003`) par son
-> profil et la cause (« Provence-Alpes-Côte d'Azur ») par la valeur du segment — il
-> comprend donc les **données**, pas seulement le schéma. Limite restante : le
-> routage vers un rôle métier dépend encore du nom de l'axe.
+> profil, la cause (« Provence-Alpes-Côte d'Azur ») par la valeur du segment, **et le
+> décideur (Directeur réseau) par le concept** (valeurs = régions → zone
+> géographique). Il comprend les **données**, pas le schéma. Valide P-01 et P-02
+> (`demo/PROPERTIES.md`).
 
 ## Prochains challenges (feuille de route)
 
