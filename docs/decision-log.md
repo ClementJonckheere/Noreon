@@ -444,6 +444,38 @@ effort/impact, **apprendre** des décisions prises, et garder un **ton mesuré**
 actionnable (priorité coût/bénéfice) et cumulatif (il capitalise sur les décisions
 passées) — sans jamais imiter une confiance humaine qu'il n'a pas.
 
+### D-30 — Attribution de la variation + bibliothèque de démonstration (N)
+**Contexte.** La construction du **scénario vitrine** de la bibliothèque de
+démonstration (`demo/retail/`, « Pourquoi le CA baisse depuis 4 mois ? ») a révélé,
+via la méthode **Gold Standard**, un manque du moteur : l'investigation rapportait
+la **part du total** (« le plus gros segment pèse 80 % » — tautologie) au lieu de
+la **contribution à la baisse**. Un analyste senior dit « la baisse vient de PACA »,
+pas « la majorité du CA vient de la majorité des clients ».
+**Décision.**
+- **Attribution de la variation** (`agent._attribute_variation`) : pour une mesure
+  en baisse/hausse avec un axe temporel, on compare la **fenêtre récente** à la
+  **précédente**, axe par axe, et on classe par **contribution au changement**
+  (part de la baisse brute portée par le segment, ∈ [0, 100]). La fenêtre = le
+  nombre de périodes consécutives de la tendance (`_trailing_run`).
+- **Priorité à la cause du changement** : quand l'attribution est concluante
+  (≥ 55 %), elle **remplace** les facteurs de structure dans `drivers_struct` (on
+  ne garde un facteur secondaire que s'il est lui aussi concentré ≥ 65 %) ; les
+  tranches numériques sont écartées (libellés bruts peu parlants).
+- **Decision Engine** : la cause dominante (1er facteur) est **rehaussée d'une
+  étoile** pour mener les recommandations (« agir au bon endroit » prime sur « agir
+  à faible effort mais hors sujet »).
+- **Auto-révision cohérente** : le « changement d'avis » s'ancre sur l'attribution
+  (« la structure pointait X, mais la baisse vient de Y »).
+- **Bibliothèque de démonstration** (`demo/`) : une base Postgres synthétique et
+  déterministe par scénario (`setup_scenario.sh`), un **runner de vérification**
+  (`verify.py`) qui rejoue le pipeline et imprime ce que le moteur trouve, et pour
+  chaque scénario un **Gold Standard** écrit à la main + les documents attendus
+  (raisonnement, SQL, graphiques, rapport, décisions, vérité plantée).
+**Conséquence.** Sur le scénario vitrine, Noreon passe de « le plus gros segment
+pèse le plus » à **« la baisse est portée à 97 % par la région PACA »**, avec le bon
+décideur (réseau) en tête — vérifié end-to-end. Le Gold Standard devient l'outil de
+non-régression du moteur.
+
 ---
 
 ## Dettes / limites connues (à traiter)

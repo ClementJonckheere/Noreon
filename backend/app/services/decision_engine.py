@@ -219,8 +219,11 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
             ).as_dict())
 
     # Rôles métier selon le facteur dominant (impact + justification + priorité).
+    # Le PREMIER facteur est la cause principale de la variation : sa décision est
+    # rehaussée d'une étoile pour qu'elle mène la liste (l'action « au bon endroit »
+    # prime sur une action à faible effort mais hors sujet).
     seen_roles: set[str] = set()
-    for d in drivers[:3]:
+    for idx, d in enumerate(drivers[:3]):
         role = _role_of(d.get("dimension", ""))
         if role is None or role in seen_roles or role not in _ROLE_ACTIONS:
             continue
@@ -228,13 +231,16 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
         seg, share, dim = d.get("segment"), d.get("share", 0), _clean_dimension(d.get("dimension"))
         role_label, action_tpl, just_tpl, effort = _ROLE_ACTIONS[role]
         impact, conf, impact_level = _estimate_impact(share, trend_pct)
+        stars = _stars(impact_level, effort)
+        if idx == 0:  # cause principale de la variation
+            stars = min(5, stars + 1)
         ds.decisions.append(Decision(
             role=role_label,
             priority=f"« {seg} » concentre {share:.0f}% de la variation ({dim}).",
             recommendation=action_tpl.format(seg=seg, dim=dim),
             justification="parce que " + just_tpl.format(seg=seg, dim=dim, share=share),
             impact=impact, impact_confidence=conf,
-            effort=effort, impact_level=impact_level, stars=_stars(impact_level, effort),
+            effort=effort, impact_level=impact_level, stars=stars,
         ).as_dict())
 
     # Mémoire métier : annoter les recommandations déjà retenues / éprouvées.

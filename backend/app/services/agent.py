@@ -104,6 +104,9 @@ class Investigation:
     # Facteurs dominants structurés (pour le Decision Engine) :
     # {dimension, segment, share}.
     drivers_struct: list[dict] = field(default_factory=list)
+    # Attribution de la VARIATION (contribution à la baisse/hausse, pas part du
+    # total) : {dimension, segment, contribution_pct, recent, prior, window}.
+    attribution: dict | None = None
     conclusion: str = ""
     recommendations: list[str] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
@@ -150,6 +153,88 @@ def _dim_rationale(label: str) -> str:
     if "mois" in l or "date" in l or "month" in l:
         return "La saisonnalité et les à-coups temporels comptent."
     return "Cet axe peut structurer la variation observée."
+
+
+def _trailing_run(rows: list, trend_dir: str) -> int:
+    """Nombre de périodes consécutives, en fin de série, allant dans le sens de la
+    tendance (la « fenêtre » de baisse/hausse — « depuis 4 mois »)."""
+    want_down = trend_dir == "baisse"
+    w = 0
+    for i in range(len(rows) - 1, 0, -1):
+        step_down = rows[i][1] < rows[i - 1][1]
+        if step_down == want_down:
+            w += 1
+        else:
+            break
+    return w
+
+
+def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
+                         measure_sql: str | None, date_col, recent_labels: list[str],
+                         prior_labels: list[str], trend_dir: str) -> dict | None:
+    """Attribue la VARIATION (fenêtre récente vs précédente) à un segment.
+
+    À la différence de la segmentation (part du *total*), on mesure ici la
+    **contribution à la baisse/hausse** : quel segment porte le plus le
+    changement. C'est la question de l'analyste senior — « d'où vient la baisse ? »
+    plutôt que « d'où vient le chiffre ? ». Renvoie {"best", "ranked"}, ou None.
+    """
+    if not measure_sql or not recent_labels or not prior_labels:
+        return None
+    fa = "f"
+    bucket = _date_bucket(adapter, "month", f"{fa}.{_q(adapter, date_col.name)}")
+
+    def _in(labels: list[str]) -> str:
+        return ", ".join("'" + str(x).replace("'", "") + "'" for x in labels)
+
+    rec_in, pri_in = _in(recent_labels), _in(prior_labels)
+    down = trend_dir == "baisse"
+    ranked: list[dict] = []
+
+    for dim in dims:
+        # Les tranches numériques (« tranche de … ») produisent des libellés de
+        # segment bruts (« 0 ») peu parlants pour une cause métier : on les écarte
+        # de l'attribution (elles restent utiles en gradient sur le total).
+        if dim.label.startswith("tranche de"):
+            continue
+        sql = (
+            f"SELECT {dim.expr} AS grp, "
+            f"sum(CASE WHEN {bucket} IN ({rec_in}) THEN {measure_sql} ELSE 0 END) AS recent, "
+            f"sum(CASE WHEN {bucket} IN ({pri_in}) THEN {measure_sql} ELSE 0 END) AS prior "
+            f"FROM {adapter.qualified(fact.schema, fact.name)} {fa}{dim.join_sql} "
+            f"WHERE {dim.expr} IS NOT NULL GROUP BY {dim.expr}"
+        )
+        try:
+            res = adapter.run_query(sql, connection_id=conn_id, **guard_args)
+        except Exception as exc:  # noqa: BLE001 - une dimension qui échoue est ignorée
+            log.info("Attribution ignorée (%s) : %s", dim.label, exc)
+            continue
+        groups = [(str(r[0]), _num(r[1]), _num(r[2])) for r in res.rows]
+        if len(groups) < 2:
+            continue
+        deltas = [(lbl, rec - pri, rec, pri) for lbl, rec, pri in groups]
+        # Total de la variation allant DANS LE SENS de la tendance (déclin brut),
+        # pour une part ∈ [0, 100] même quand d'autres segments compensent.
+        same = [(lbl, d, rec, pri) for lbl, d, rec, pri in deltas
+                if (d < 0) == down and abs(d) > 1e-9]
+        if not same:
+            continue
+        gross = sum(abs(d) for _, d, _, _ in same)
+        if gross < 1e-9:
+            continue
+        lbl, d, rec, pri = max(same, key=lambda x: abs(x[1]))
+        share = abs(d) / gross * 100.0
+        if share < 50:  # on ne retient que les axes où la variation est concentrée
+            continue
+        ranked.append({"dimension": dim.label, "segment": lbl,
+                       "contribution_pct": round(share, 1), "recent": rec, "prior": pri,
+                       "sql": res.guarded_sql, "window": len(recent_labels)})
+
+    ranked.sort(key=lambda c: c["contribution_pct"], reverse=True)
+    # On n'affirme une cause dominante que si la meilleure est réellement concentrée.
+    if not ranked or ranked[0]["contribution_pct"] < 55:
+        return None
+    return {"best": ranked[0], "ranked": ranked}
 
 
 def run_investigation(
@@ -278,14 +363,64 @@ def run_investigation(
     # Apprentissage : on mémorise l'efficacité observée (le caller valide).
     memory.record(db, conn.id, fact.name, observed)
 
+    # --- Attribution de la variation (d'où vient la baisse/hausse ?) ---------
+    # Un analyste senior ne dit pas « la majorité du CA vient du plus gros
+    # segment » (tautologie) : il dit « la baisse est portée par tel segment ».
+    attribution_ranked: list[dict] = []
+    if date_col is not None and trend_dir in ("baisse", "hausse") and len(inv.trend_rows) >= 4:
+        w = _trailing_run(inv.trend_rows, trend_dir) or 4
+        w = max(2, min(w, len(inv.trend_rows) // 2))
+        labels = [str(r[0]) for r in inv.trend_rows]
+        attribution = _attribute_variation(
+            adapter, conn.id, guard_args, fact, dims, measure_sql, date_col,
+            labels[-w:], labels[-2 * w:-w], trend_dir,
+        )
+        if attribution is not None:
+            attribution_ranked = attribution["ranked"]
+            inv.attribution = attribution["best"]
+            attribution = inv.attribution  # le meilleur candidat pour la narration
+            sens = "baisse" if trend_dir == "baisse" else "hausse"
+            finding = (f"Sur les {w} derniers mois, « {attribution['segment']} » "
+                       f"({attribution['dimension']}) porte {attribution['contribution_pct']:.0f}% "
+                       f"de la {sens} : {metric} y passe de {_fmt(attribution['prior'])} à "
+                       f"{_fmt(attribution['recent'])}.")
+            inv.plan.append({"title": "Attribution de la variation",
+                             "rationale": "Isoler d'où vient le changement, pas seulement d'où vient le total."})
+            inv.steps.append(asdict(Step(
+                title="Attribution de la variation",
+                question=f"D'où vient la {sens} de {metric} ?",
+                rationale="On compare la fenêtre récente à la précédente, axe par axe, "
+                          "pour isoler le segment qui porte réellement le changement.",
+                sql=attribution["sql"],
+                finding=finding,
+                figures=[{"label": "avant", "value": round(attribution["prior"])},
+                         {"label": "récent", "value": round(attribution["recent"])},
+                         {"label": "contribution_%", "value": attribution["contribution_pct"]}],
+            )))
+            queries.append(attribution["sql"])
+            inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
+                                "detail": f"Attribution de la variation : « {attribution['segment']} » "
+                                          f"({attribution['dimension']}) porte "
+                                          f"{attribution['contribution_pct']:.0f}% de la {sens}."})
+
     # Ce que disent réellement les données : le facteur dominant.
     if segmentations:
         winner = segmentations[0].dim
         inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
                             "detail": f"Facteur dominant retenu : « {winner.label} »."})
         # Auto-révision : le moteur change d'avis si les données contredisent
-        # l'hypothèse de départ. « Je pensais fidélité, finalement promotions. »
-        if initial is not None and initial.label != winner.label:
+        # l'hypothèse de départ. Quand l'attribution existe, elle prime — la
+        # cause du CHANGEMENT l'emporte sur la structure du total.
+        if inv.attribution is not None and inv.attribution["dimension"] != getattr(initial, "label", None):
+            a = inv.attribution
+            revision = (f"À première vue, la structure du chiffre pointait « "
+                        f"{(initial.label if initial else winner.label)} » ; mais en isolant "
+                        f"la variation, la baisse vient surtout de « {a['segment']} » "
+                        f"({a['dimension']}).")
+            inv.revisions.append(revision)
+            inv.journal.append({"t": _now(), "phase": "revision", "status": "info",
+                                "detail": revision})
+        elif inv.attribution is None and initial is not None and initial.label != winner.label:
             revision = (f"Je pensais que « {initial.label} » portait la variation ; "
                         f"finalement ce sont les écarts de « {winner.label} » qui structurent le plus {noun}.")
             inv.revisions.append(revision)
@@ -327,7 +462,29 @@ def run_investigation(
         return None
 
     # --- Synthèse ---
-    for seg in segmentations[:3]:
+    # L'attribution de la variation prime : c'est la cause du CHANGEMENT (« d'où
+    # vient la baisse ? »), pas la structure du total. Elle guide le Decision Engine.
+    seen_dims: set[str] = set()
+    # Priorité aux facteurs de VARIATION (contribution à la baisse), pas de total.
+    # Le premier est la cause dominante ; on n'ajoute un facteur secondaire que
+    # s'il est lui aussi nettement concentré (≥ 65 %) — sinon c'est du bruit
+    # (un même effet vu sous un autre angle, proche de 50/50).
+    for i, a in enumerate(attribution_ranked[:3]):
+        if i > 0 and a["contribution_pct"] < 65:
+            continue
+        inv.key_drivers.append(
+            f"{a['dimension']} — « {a['segment']} » ({a['contribution_pct']:.0f}% de la variation)")
+        inv.drivers_struct.append({
+            "dimension": a["dimension"], "segment": a["segment"],
+            "share": a["contribution_pct"],
+        })
+        seen_dims.add(a["dimension"])
+
+    # Sans attribution de variation exploitable, on se rabat sur la structure du
+    # total (part du plus gros segment) — utile en exploration, à défaut de mieux.
+    for seg in segmentations[:3] if not inv.drivers_struct else []:
+        if seg.dim.label in seen_dims:
+            continue
         top = seg.groups[0]
         total = sum((g.total if seg.metric_is_measure else g.n) or 0 for g in seg.groups)
         share = (((top.total if seg.metric_is_measure else top.n) or 0) / total * 100) if total else 0
@@ -343,7 +500,14 @@ def run_investigation(
         parts.append(f"{metric} est orienté à la hausse")
     elif trend_dir == "stable":
         parts.append(f"{metric} est globalement stable")
-    if segmentations:
+    if inv.attribution is not None:
+        a = inv.attribution
+        sens = "baisse" if trend_dir == "baisse" else "hausse"
+        parts.append(
+            f"la {sens} est portée à {a['contribution_pct']:.0f}% par « {a['segment']} » "
+            f"({a['dimension']})"
+        )
+    elif segmentations:
         d0 = segmentations[0]
         parts.append(
             f"la variation est surtout structurée par « {d0.dim.label} » "
@@ -352,7 +516,13 @@ def run_investigation(
     inv.conclusion = ("Conclusion : " + " ; ".join(parts) + ".") if parts else \
         "Conclusion : facteurs répartis, pas de cause unique dominante."
 
-    if segmentations:
+    if inv.attribution is not None:
+        a = inv.attribution
+        inv.recommendations.append(
+            f"Concentrer l'action sur « {a['segment']} » ({a['dimension']}) — "
+            f"qui porte l'essentiel de la variation — et suivre son redressement."
+        )
+    elif segmentations:
         d0 = segmentations[0]
         inv.recommendations.append(
             f"Concentrer l'action sur « {d0.groups[0].label} » ({d0.dim.label}) et suivre son évolution."
