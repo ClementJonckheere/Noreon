@@ -17,10 +17,13 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
 # Vocabulaire d'un axe d'analyse → rôle le plus concerné.
+# Ordre = priorité de correspondance (le premier motif trouvé gagne).
 _ROLE_HINTS = {
+    "supply": r"fournisseur|supplier|entrep|warehouse|appro|logisti|transport|livraison|rupture",
+    "rh": r"departement|département|employ|salari|effectif|motif|poste|turnover|équipe|equipe|manager|démission|demission",
     "reseau": r"magasin|store|shop|boutique|ville|city|region|région|zone|secteur|territoire",
-    "crm": r"client|customer|fidel|fidél|loyal|age\b|âge|genre|segment client|acheteur",
-    "produit": r"produit|product|categor|catégor|gamme|article|référence|sku",
+    "crm": r"client|customer|fidel|fidél|loyal|age\b|âge|genre|segment|acheteur|acquisition|canal d",
+    "produit": r"produit|product|categor|catégor|gamme|article|référence|ligne_produit|ligne de produit|sku",
     "canal": r"paiement|payment|canal|channel|method|mode",
 }
 
@@ -146,6 +149,16 @@ _ROLE_ACTIONS = {
               "Analyser le parcours sur le canal « {seg} » (friction, coût, conversion).",
               "le canal « {seg} » explique {share:.0f}% de la variation ({dim}).",
               "Moyen"),
+    "supply": ("Directeur supply chain",
+               "Sécuriser l'approvisionnement lié à « {seg} » : sourcing alternatif, "
+               "stock de sécurité, pénalités de délai.",
+               "« {seg} » concentre {share:.0f}% de la variation ({dim}).",
+               "Moyen"),
+    "rh": ("Directeur des ressources humaines",
+           "Lancer un plan de rétention ciblé sur « {seg} » : entretiens, charge de "
+           "travail, rémunération, perspectives de mobilité.",
+           "« {seg} » concentre {share:.0f}% de la variation ({dim}).",
+           "Moyen"),
 }
 
 _EFFORT_RANK = {"Faible": 1, "Moyen": 2, "Élevé": 3}
@@ -160,6 +173,9 @@ def _estimate_impact(share: float, trend_pct: float | None) -> tuple[str | None,
     addressable = share / 100.0 * abs(trend_pct)   # part de la variation portée par ce facteur
     low, high = addressable * 0.3, addressable * 0.6  # récupération partielle réaliste
     level = "Élevé" if addressable >= 6 else "Moyen" if addressable >= 3 else "Faible"
+    # Plafond de crédibilité : au-delà, une « fourchette d'impact » cesse d'être
+    # crédible. On ne promet jamais plus qu'un redressement partiel raisonnable.
+    low, high = min(low, 25.0), min(high, 45.0)
     if high < 0.5:
         return None, None, level
     conf = "Moyenne" if share >= 45 else "Faible"

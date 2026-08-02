@@ -413,9 +413,10 @@ def run_investigation(
         # cause du CHANGEMENT l'emporte sur la structure du total.
         if inv.attribution is not None and inv.attribution["dimension"] != getattr(initial, "label", None):
             a = inv.attribution
+            sens_word = "baisse" if trend_dir == "baisse" else "hausse"
             revision = (f"À première vue, la structure du chiffre pointait « "
                         f"{(initial.label if initial else winner.label)} » ; mais en isolant "
-                        f"la variation, la baisse vient surtout de « {a['segment']} » "
+                        f"la variation, la {sens_word} vient surtout de « {a['segment']} » "
                         f"({a['dimension']}).")
             inv.revisions.append(revision)
             inv.journal.append({"t": _now(), "phase": "revision", "status": "info",

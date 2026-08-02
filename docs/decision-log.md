@@ -476,6 +476,31 @@ pèse le plus » à **« la baisse est portée à 97 % par la région PACA »**,
 décideur (réseau) en tête — vérifié end-to-end. Le Gold Standard devient l'outil de
 non-régression du moteur.
 
+### D-31 — 5 scénarios métier vérifiés + corrections révélées (Étape 2)
+**Contexte.** Extension de la bibliothèque aux 4 domaines restants (CRM, Finance,
+Supply Chain, RH), chacun avec une cause plantée et un Gold Standard. La
+vérification end-to-end a fait apparaître trois corrections.
+**Décision.**
+- **5 scénarios** (`demo/crm|finance|supply_chain|hr`) : une base Postgres
+  synthétique par domaine, l'axe causal porté par une colonne propre de la table de
+  faits (attribution fiable sans jointure). Causes découvertes par le moteur :
+  Publicité payante (100 %), Composants (92 %), Fournisseur Delta (97 %),
+  Ingénierie (100 %).
+- **Rôles supply chain & RH** ajoutés au Decision Engine (`_ROLE_HINTS` /
+  `_ROLE_ACTIONS`) : un axe « fournisseur » → *Directeur supply chain* (sécuriser
+  l'appro) ; « département » → *Directeur des ressources humaines* (plan de rétention).
+- **Faux positif de mesure corrigé** : le sous-mot « net » dans « ancienneté »
+  déclenchait la détection de mesure monétaire → colonne de démo renommée
+  (`duree_poste_mois`) ; note laissée sur la fragilité de la détection par sous-chaîne.
+- **Plafond de crédibilité des impacts** (`_estimate_impact`) : la fourchette
+  d'impact récupérable est bornée (≤ +25 à +45 %) — une variation extrême ne produit
+  plus « +81 à +162 % ».
+- **Cohérence hausse/baisse** de l'auto-révision (le texte disait « baisse » même
+  pour une hausse).
+**Conséquence.** Cinq démonstrations métier reproductibles et vérifiées, chacune
+avec le bon décideur et un impact crédible. La méthode Gold Standard a directement
+produit quatre améliorations du moteur.
+
 ---
 
 ## Dettes / limites connues (à traiter)

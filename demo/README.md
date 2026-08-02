@@ -17,17 +17,20 @@ dans cet ordre :
 1. **Scénario vitrine** — `retail/` *« Pourquoi le CA baisse-t-il depuis 4 mois ? »*
    Poussé au maximum : compréhension → investigation → hypothèses → preuves →
    graphiques → recommandations → projection → Decision Engine → rapport. **✅ livré.**
-2. **5 scénarios métier vérifiés** — Retail, CRM, Finance, Supply Chain, RH. *(feuille de route)*
+2. **5 scénarios métier vérifiés** — Retail, CRM, Finance, Supply Chain, RH. **✅ livrés.**
 3. **Framework de non-régression** — `Gold Standard → Noreon → écart → score`,
-   pour tester chaque évolution du moteur. *(feuille de route)*
+   pour tester chaque évolution du moteur. *(feuille de route — prochaine étape)*
 
-| Domaine       | Dossier         | Question                                   | État |
-|---------------|-----------------|--------------------------------------------|------|
-| Retail        | `retail/`       | Pourquoi le CA baisse-t-il depuis 4 mois ? | ✅ vitrine |
-| CRM           | `crm/`          | Pourquoi le churn augmente-t-il ?          | ⏳ à venir |
-| Finance       | `finance/`      | Pourquoi la marge diminue-t-elle ?         | ⏳ à venir |
-| Supply Chain  | `supply_chain/` | Pourquoi les ruptures augmentent-elles ?   | ⏳ à venir |
-| RH            | `hr/`           | Pourquoi les départs augmentent-ils ?      | ⏳ à venir |
+| Domaine       | Dossier         | Question                                   | Cause plantée (trouvée par Noreon) | État |
+|---------------|-----------------|--------------------------------------------|---|------|
+| Retail        | `retail/`       | Pourquoi le CA baisse-t-il depuis 4 mois ? | Région PACA (97 % de la baisse) | ✅ vitrine |
+| CRM           | `crm/`          | Pourquoi le churn augmente-t-il ?          | Canal « Publicité payante » (100 %) | ✅ |
+| Finance       | `finance/`      | Pourquoi la marge diminue-t-elle ?         | Ligne « Composants » (92 %) | ✅ |
+| Supply Chain  | `supply_chain/` | Pourquoi les ruptures augmentent-elles ?   | « Fournisseur Delta » (97 %) | ✅ |
+| RH            | `hr/`           | Pourquoi les départs augmentent-ils ?      | Département « Ingénierie » (100 %) | ✅ |
+
+Chaque cause est **découverte par le moteur** (pas codée en dur), vérifiable par
+`python demo/verify.py <scenario>`.
 
 ## Le Gold Standard : notre meilleur outil de développement
 
@@ -38,10 +41,18 @@ produirait — le meilleur rapport possible (`gold_standard.md`). Puis on compar
 Gold Standard  →  Noreon  →  Différences  →  Score
 ```
 
-L'écart n'est pas un échec : c'est la **liste de courses** du développement. Le
-scénario vitrine a déjà, à lui seul, révélé un manque majeur du moteur (il
-rapportait la *part du total* au lieu de la *contribution à la baisse*) — comblé
-par l'**attribution de la variation** (cf. `retail/notes.md` et l'ADR D-30).
+L'écart n'est pas un échec : c'est la **liste de courses** du développement. La
+bibliothèque a déjà, à elle seule, fait progresser le moteur (ADR D-30/D-31) :
+
+- **Attribution de la variation** (retail) : rapportait la *part du total* (« le plus
+  gros segment pèse 80 % » — tautologie) → désormais la *contribution à la baisse*
+  (« PACA porte 97 % de la baisse »).
+- **Rôles supply chain & RH** (supply, hr) : le Decision Engine ne savait pas quoi
+  recommander sur un axe « fournisseur » ou « département » → rôles ajoutés.
+- **Piège de détection de mesure** (hr) : une colonne d'ancienneté était prise pour
+  une mesure monétaire (le sous-mot « net ») → corrigé.
+- **Plafond de crédibilité des impacts** : les fourchettes d'impact ne dépassent
+  plus un redressement partiel raisonnable.
 
 ## Structure d'un scénario
 

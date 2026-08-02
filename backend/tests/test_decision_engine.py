@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from app.services import chronicle
 from app.services import decision_engine as de
 from app.services import decision_memory as dm
@@ -110,6 +112,36 @@ def test_decision_effort_impact_matrix():
     # CRM (effort Faible) doit être bien classé grâce au faible effort.
     crm = next(x for x in d.decisions if x["role"] == "Responsable CRM")
     assert crm["effort"] == "Faible"
+
+
+def test_decision_supply_and_hr_roles():
+    """Les axes « fournisseur » et « département » déclenchent les bons rôles
+    (supply chain / RH) avec une action ciblée."""
+    supply = de.decide(
+        question="Pourquoi les ruptures augmentent ?", metric_label="le coût de rupture",
+        trend_direction="hausse", trend_pct=40.0,
+        drivers=[{"dimension": "fournisseur", "segment": "Fournisseur Delta", "share": 97.0}],
+    )
+    roles = [x["role"] for x in supply.decisions]
+    assert "Directeur supply chain" in roles
+    sc = next(x for x in supply.decisions if x["role"] == "Directeur supply chain")
+    assert "Delta" in sc["recommendation"]
+
+    hr = de.decide(
+        question="Pourquoi les départs augmentent ?", metric_label="le coût de remplacement",
+        trend_direction="hausse", trend_pct=40.0,
+        drivers=[{"dimension": "departement", "segment": "Ingénierie", "share": 98.0}],
+    )
+    assert "Directeur des ressources humaines" in [x["role"] for x in hr.decisions]
+
+
+def test_impact_estimate_is_capped():
+    """Une variation extrême ne produit jamais une fourchette d'impact absurde."""
+    imp, conf, level = de._estimate_impact(share=100.0, trend_pct=300.0)
+    assert imp is not None
+    # Bornes de crédibilité : jamais au-delà de +25 à +45 %.
+    low, high = (int(x) for x in re.findall(r"\d+", imp))
+    assert low <= 25 and high <= 45
 
 
 def test_decision_history_annotation():
