@@ -132,7 +132,14 @@ Challenges livrés :
   valeurs = régions → zone géographique). Corrections = détection par les données
   (ADR D-34) + **Responsibility Engine** (ADR D-35).
 
-Voir `demo/challenge/README.md` et `demo/PROPERTIES.md` (propriétés P-01…P-04).
+- **`causes_multiples`** — la baisse se répartit sur 3 foyers (~40/35/25 %). Noreon
+  les **nomme tous les trois** au lieu d'en désigner un seul ou de conclure « diffus »
+  (attribution single / multi / diffuse, ADR D-36).
+- **`colonnes_opaques_n2`** — colonnes opaques **et aucune FK déclarée**. Noreon
+  **infère les relations par recouvrement de valeurs** (`col_002 ⊆ t_s.k0`) pour
+  atteindre la région (ADR D-37).
+
+Voir `demo/challenge/README.md` et `demo/PROPERTIES.md` (propriétés P-01…P-06).
 
 ## Pipeline de raisonnement
 

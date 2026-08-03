@@ -613,6 +613,27 @@ foyers) était mal classé « généralisée » : l'attribution ne regardait que
 (APPRIS ✅). Propriété **P-06** validée. Les 5 scénarios (cause unique) restent à
 100/100 grâce au rasoir d'Occam (concentration prioritaire).
 
+### D-37 — Relations inférées par recouvrement de valeurs (P-05)
+**Contexte.** Le challenge `colonnes_opaques_n2` durcit N1 : colonnes opaques ET
+**aucune FK déclarée**. L'inférence de relations existante est purement basée sur
+le NOM (`xxx_id`) — inopérante ici. Pour atteindre la région (sur `t_s`), il faut
+deviner `col_002 → t_s.k0` par les VALEURS.
+**Décision.**
+- `sources/base.infer_value_overlap` : une colonne entière, non clé, sans relation
+  connue, dont les valeurs sont **incluses** dans la PK d'une autre table (0
+  orphelin) **et en couvrent ≥ 90 %**, est une clé étrangère de fait. L'adaptateur
+  Postgres fournit le calcul de containment (SQL natif) ; best-effort, borné
+  (`max_checks`), jamais bloquant pour un scan.
+- **Précision avant rappel** : les seuils stricts (couverture ≥ 0,9, 0 orphelin)
+  évitent le faux positif classique — un attribut « âge » (18..72) inclus par
+  hasard dans des identifiants (produits 1..80) n'est PAS pris pour une FK (69 % de
+  couverture). Ce garde-fou est né d'un vrai faux positif détecté en test
+  (âge → produits) — exactement la démarche « anti-benchmark ».
+**Conséquence.** N2 (colonnes opaques + sans FK) : Noreon infère les relations,
+atteint la région et attribue la baisse à PACA (97 %) → Directeur réseau. Propriété
+**P-05** validée. Les 5 scénarios et les tests d'intégration restent verts (aucune
+relation parasite introduite).
+
 ---
 
 ## Dettes / limites connues (à traiter)

@@ -90,10 +90,26 @@ l'axe en cause unique / multi-foyers / diffuse ; rasoir d'Occam pour choisir l'a
 
 ---
 
+## P-05 — Relations sans clé étrangère (*FK-free Relation Inference*)
+
+> En l'absence de FK déclarée et de noms parlants, Noreon retrouve une relation par
+> **recouvrement de valeurs** : une colonne dont les valeurs sont incluses dans la
+> clé d'une autre table (et en couvrent la quasi-totalité) est une FK de fait.
+
+**Preuve.** `challenge/colonnes_opaques_n2` — colonnes opaques **et aucune FK
+déclarée**. Noreon infère `col_002 → t_s.k0`, atteint la région, et attribue la
+baisse à « Provence-Alpes-Côte d'Azur » (97 %) → Directeur réseau.
+
+**Mécanisme** (ADR D-37) : `infer_value_overlap` (couverture ≥ 90 %, 0 orphelin) —
+précision avant rappel, pour ne pas confondre un attribut (âge) inclus par hasard
+dans des identifiants avec une vraie clé étrangère.
+
+**Statut : ✅ vérifié.**
+
+---
+
 ### Prochaines propriétés visées (challenges à venir)
 
-- **P-05 — Relations sans FK** : inférer une relation par recouvrement de valeurs
-  (colonnes opaques N2, FK non déclarées).
 - **P-07 — Saisonnalité** : « la baisse dépasse la saisonnalité habituelle ».
 - **P-08 — Humilité** : savoir dire « je ne peux pas conclure » (qualité catastrophique).
 

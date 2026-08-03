@@ -1,0 +1,15 @@
+{
+  "mode": "challenge",
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "intent": "diagnostic",
+  "trend_direction": "baisse",
+  "difficulty": "Colonnes opaques ET aucune FK déclarée : la relation vers les régions doit être inférée par recouvrement de valeurs.",
+  "ideal": "Inférer col_002 → t_s.k0 par recouvrement de valeurs, atteindre la région, et attribuer la baisse à « Provence-Alpes-Côte d'Azur » → Directeur réseau.",
+  "robustness": {
+    "measure_from_data": true,
+    "segment_contains": "Provence",
+    "min_contribution_pct": 85,
+    "expected_role": "Directeur réseau"
+  },
+  "resolved_by": "Inférence de relation par recouvrement de valeurs (ADR D-37, P-05)."
+}

@@ -68,3 +68,18 @@ def test_challenge_opaque_columns_is_robust():
     # Cause identifiée par la VALEUR du segment, pas par le nom de l'axe.
     assert "provence" in (attr.get("segment") or "").lower()
     assert attr.get("contribution_pct", 0) >= 85
+
+
+def test_challenge_opaque_columns_n2_infers_relations_by_value():
+    """Challenge « colonnes opaques N2 » : colonnes opaques ET aucune FK déclarée.
+    La relation vers les régions est inférée par recouvrement de valeurs (P-05),
+    et la cause reste identifiée par la valeur du segment."""
+    sc = "challenge/colonnes_opaques_n2"
+    if not _runner.db_available(sc):
+        pytest.skip("base du challenge injoignable")
+    exp = json.loads((ROOT / "demo" / sc / "expected.json").read_text(encoding="utf-8"))
+    r, _ = _runner.analyze(sc, exp["question"])
+    inv = r.investigation or {}
+    attr = inv.get("attribution") or {}
+    assert "provence" in (attr.get("segment") or "").lower()   # région atteinte SANS FK déclarée
+    assert attr.get("contribution_pct", 0) >= 85
