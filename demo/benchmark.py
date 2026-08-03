@@ -145,6 +145,19 @@ def run_challenge(sc: str) -> None:
         # Cause diffuse : reconnaître qu'AUCUN segment ne se détache (pas de tautologie).
         learned = bool(inv.get("broad_based")) and inv.get("attribution") is None \
             and not inv.get("drivers_struct")
+    elif "multi_cause" in exp:
+        # Causes multiples : nommer plusieurs foyers, pas un seul (ni « généralisée »).
+        mc = exp["multi_cause"]
+        causes = inv.get("multi_causes") or []
+        cum = sum(c.get("contribution_pct", 0) for c in causes)
+        accepted = [_norm(s) for s in mc.get("segments_any", [])]
+        named_ok = all(any(a in _norm(c.get("segment")) for a in accepted) for c in causes) \
+            if accepted else True
+        learned = (len(causes) >= mc.get("min_causes", 2)
+                   and cum >= mc.get("cumulative_min_pct", 0) and named_ok)
+        listed = ", ".join(f"{c['segment']} ({c['contribution_pct']:.0f}%)" for c in causes)
+        notes.append(f"foyers nommés : {'✓' if learned else '✗'} "
+                     f"[{listed or '—'}] (cumul {cum:.0f}%)")
     elif "robustness" in exp:
         # Colonnes opaques : retrouver la mesure PAR LES DONNÉES et la cause PAR LA VALEUR.
         rob = exp["robustness"]

@@ -596,6 +596,23 @@ opaques, la décision retombait sur un rôle générique.
 `a3` vers **Directeur réseau** (ses valeurs sont des régions) — limite de D-34
 levée. Propriété **P-02** validée. Les 5 scénarios nommés restent à 100/100.
 
+### D-36 — Attribution multi-causes (P-06)
+**Contexte.** Le challenge `causes_multiples` (baisse répartie 40/35/25 % sur 3
+foyers) était mal classé « généralisée » : l'attribution ne regardait que le
+**premier** segment de chaque axe (< 55 % → aucune cause).
+**Décision.**
+- `_attribute_variation` calcule la contribution **et le lift de CHAQUE segment**,
+  puis classe l'axe : **cause unique** (un segment ≥ 55 %, lift franc) / **causes
+  multiples** (≥ 2 foyers ≥ 15 %, lift ≥ 1,3, expliquant ≥ 60 %) / **diffuse**.
+- Retour typé `{"mode": "single"|"multi", …}` ; `Investigation.multi_causes`
+  alimente `drivers_struct`, la conclusion (« 3 foyers — … »), une recommandation
+  (« agir sur les N foyers ») et le benchmark.
+- **Rasoir d'Occam** pour choisir l'axe : on préfère l'explication la plus
+  concentrée (« une région à 97 % » plutôt que « deux villes à 51/46 % »).
+**Conséquence.** Le challenge affiche « 3 foyers : PACA 44 %, ARA 32 %, HdF 20 % »
+(APPRIS ✅). Propriété **P-06** validée. Les 5 scénarios (cause unique) restent à
+100/100 grâce au rasoir d'Occam (concentration prioritaire).
+
 ---
 
 ## Dettes / limites connues (à traiter)

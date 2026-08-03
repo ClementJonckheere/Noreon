@@ -107,6 +107,9 @@ class Investigation:
     # Attribution de la VARIATION (contribution à la baisse/hausse, pas part du
     # total) : {dimension, segment, contribution_pct, lift, recent, prior, window}.
     attribution: dict | None = None
+    # Causes MULTIPLES : plusieurs foyers concentrés se partagent la variation
+    # (ex. trois magasins à 40/35/25 %). Liste de {segment, contribution_pct, …}.
+    multi_causes: list[dict] = field(default_factory=list)
     # Variation GÉNÉRALISÉE : tendance nette mais aucun segment disproportionné
     # (cause transverse probable — prix, saison, macro).
     broad_based: bool = False
@@ -180,7 +183,8 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
     À la différence de la segmentation (part du *total*), on mesure ici la
     **contribution à la baisse/hausse** : quel segment porte le plus le
     changement. C'est la question de l'analyste senior — « d'où vient la baisse ? »
-    plutôt que « d'où vient le chiffre ? ». Renvoie {"best", "ranked"}, ou None.
+    plutôt que « d'où vient le chiffre ? ». Renvoie {"mode": "single"|"multi", …},
+    ou None (variation généralisée, aucun segment disproportionné).
     """
     if not measure_sql or not recent_labels or not prior_labels:
         return None
@@ -192,12 +196,11 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
 
     rec_in, pri_in = _in(recent_labels), _in(prior_labels)
     down = trend_dir == "baisse"
-    ranked: list[dict] = []
+    candidates: list[dict] = []   # une entrée par dimension exploitable
 
     for dim in dims:
         # Les tranches numériques (« tranche de … ») produisent des libellés de
-        # segment bruts (« 0 ») peu parlants pour une cause métier : on les écarte
-        # de l'attribution (elles restent utiles en gradient sur le total).
+        # segment bruts (« 0 ») peu parlants pour une cause métier : on les écarte.
         if dim.label.startswith("tranche de"):
             continue
         sql = (
@@ -216,8 +219,6 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
         if len(groups) < 2:
             continue
         deltas = [(lbl, rec - pri, rec, pri) for lbl, rec, pri in groups]
-        # Total de la variation allant DANS LE SENS de la tendance (déclin brut),
-        # pour une part ∈ [0, 100] même quand d'autres segments compensent.
         same = [(lbl, d, rec, pri) for lbl, d, rec, pri in deltas
                 if (d < 0) == down and abs(d) > 1e-9]
         if not same:
@@ -226,32 +227,45 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
         total_prior = sum(max(pri, 0) for _, _, _, pri in deltas)
         if gross < 1e-9:
             continue
-        lbl, d, rec, pri = max(same, key=lambda x: abs(x[1]))
-        share = abs(d) / gross * 100.0
-        if share < 50:  # on ne retient que les axes où la variation est concentrée
+        samples = [g[0] for g in groups][:12]
+        # Contribution + LIFT de CHAQUE segment (pas seulement le premier).
+        # LIFT = sur-représentation dans la variation vs. dans la base : un segment
+        # n'est une cause que s'il varie PLUS que sa taille ne le voudrait (≈ 1 =
+        # simple effet de taille → tautologie).
+        segs = []
+        for lbl, d, rec, pri in same:
+            share = abs(d) / gross * 100.0
+            base_share = (max(pri, 0) / total_prior) if total_prior > 1e-9 else 0.0
+            lift = (share / 100.0) / base_share if base_share > 1e-9 else 99.0
+            segs.append({"dimension": dim.label, "segment": lbl,
+                         "contribution_pct": round(share, 1), "lift": round(lift, 2),
+                         "recent": rec, "prior": pri, "samples": samples,
+                         "sql": res.guarded_sql, "window": len(recent_labels)})
+        segs.sort(key=lambda s: s["contribution_pct"], reverse=True)
+        # Segments réellement causals de cette dimension (notables + disproportionnés).
+        causal = [s for s in segs if s["contribution_pct"] >= 15 and s["lift"] >= 1.3][:3]
+        explained = sum(s["contribution_pct"] for s in causal)
+        if not causal or explained < 60:
             continue
-        # LIFT = sur-représentation dans la variation vs. dans la base. Un segment
-        # n'est une CAUSE que s'il varie PLUS que sa taille ne le voudrait. Une
-        # baisse uniforme touche mécaniquement le plus gros segment (tautologie) :
-        # son lift ≈ 1 → écarté. Une vraie cause locale a un lift nettement > 1.
-        base_share = (max(pri, 0) / total_prior) if total_prior > 1e-9 else 0.0
-        lift = (share / 100.0) / base_share if base_share > 1e-9 else 99.0
-        # Échantillon de valeurs de l'axe → permet au Responsibility Engine de
-        # reconnaître le CONCEPT (géographie, fournisseur…) même si le nom est opaque.
-        ranked.append({"dimension": dim.label, "segment": lbl,
-                       "contribution_pct": round(share, 1), "lift": round(lift, 2),
-                       "recent": rec, "prior": pri, "samples": [g[0] for g in groups][:12],
-                       "sql": res.guarded_sql, "window": len(recent_labels)})
+        candidates.append({"dimension": dim.label, "causal": causal, "explained": explained,
+                           "top": causal[0]["contribution_pct"], "top_lift": causal[0]["lift"]})
 
-    # Une cause = concentrée (≥ 55 %) ET disproportionnée (lift ≥ 1.5). Sinon, la
-    # variation est GÉNÉRALISÉE (aucun coupable localisé).
-    causal = [c for c in ranked if c["contribution_pct"] >= 55 and c["lift"] >= 1.5]
-    # Le lift est un GARDE-FOU (rejette les tautologies) ; le classement reste piloté
-    # par la contribution — la concentration du changement prime.
-    causal.sort(key=lambda c: (c["contribution_pct"], c["lift"]), reverse=True)
-    if not causal:
-        return None
-    return {"best": causal[0], "ranked": causal}
+    if not candidates:
+        return None   # aucune cause exploitable → variation GÉNÉRALISÉE (diffuse)
+
+    # Meilleur axe : rasoir d'Occam — on préfère l'explication la plus CONCENTRÉE
+    # (segment le plus fort), puis celle qui explique le plus. Ainsi « une région à
+    # 97 % » l'emporte sur « deux villes à 51/46 % » qui décrivent le même fait.
+    best = max(candidates, key=lambda c: (c["top"], c["explained"]))
+    top = best["causal"][0]
+    # Une cause UNIQUE domine si son segment porte ≥ 55 % avec un lift franc.
+    if top["contribution_pct"] >= 55 and top["lift"] >= 1.5:
+        return {"mode": "single", "best": top, "ranked": [top]}
+    # Sinon, plusieurs foyers concentrés se partagent la variation → CAUSES MULTIPLES.
+    if len(best["causal"]) >= 2:
+        return {"mode": "multi", "dimension": best["dimension"],
+                "causes": best["causal"], "explained": round(best["explained"], 1)}
+    return {"mode": "single", "best": top, "ranked": [top]}
 
 
 def run_investigation(
@@ -392,15 +406,14 @@ def run_investigation(
             adapter, conn.id, guard_args, fact, dims, measure_sql, date_col,
             labels[-w:], labels[-2 * w:-w], trend_dir,
         )
-        if attribution is not None:
+        sens = "baisse" if trend_dir == "baisse" else "hausse"
+        if attribution is not None and attribution["mode"] == "single":
             attribution_ranked = attribution["ranked"]
-            inv.attribution = attribution["best"]
-            attribution = inv.attribution  # le meilleur candidat pour la narration
-            sens = "baisse" if trend_dir == "baisse" else "hausse"
-            finding = (f"Sur les {w} derniers mois, « {attribution['segment']} » "
-                       f"({attribution['dimension']}) porte {attribution['contribution_pct']:.0f}% "
-                       f"de la {sens} : {metric} y passe de {_fmt(attribution['prior'])} à "
-                       f"{_fmt(attribution['recent'])}.")
+            inv.attribution = a = attribution["best"]
+            finding = (f"Sur les {w} derniers mois, « {a['segment']} » "
+                       f"({a['dimension']}) porte {a['contribution_pct']:.0f}% "
+                       f"de la {sens} : {metric} y passe de {_fmt(a['prior'])} à "
+                       f"{_fmt(a['recent'])}.")
             inv.plan.append({"title": "Attribution de la variation",
                              "rationale": "Isoler d'où vient le changement, pas seulement d'où vient le total."})
             inv.steps.append(asdict(Step(
@@ -408,17 +421,37 @@ def run_investigation(
                 question=f"D'où vient la {sens} de {metric} ?",
                 rationale="On compare la fenêtre récente à la précédente, axe par axe, "
                           "pour isoler le segment qui porte réellement le changement.",
-                sql=attribution["sql"],
-                finding=finding,
-                figures=[{"label": "avant", "value": round(attribution["prior"])},
-                         {"label": "récent", "value": round(attribution["recent"])},
-                         {"label": "contribution_%", "value": attribution["contribution_pct"]}],
+                sql=a["sql"], finding=finding,
+                figures=[{"label": "avant", "value": round(a["prior"])},
+                         {"label": "récent", "value": round(a["recent"])},
+                         {"label": "contribution_%", "value": a["contribution_pct"]}],
             )))
-            queries.append(attribution["sql"])
+            queries.append(a["sql"])
             inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
-                                "detail": f"Attribution de la variation : « {attribution['segment']} » "
-                                          f"({attribution['dimension']}) porte "
-                                          f"{attribution['contribution_pct']:.0f}% de la {sens}."})
+                                "detail": f"Attribution : « {a['segment']} » ({a['dimension']}) porte "
+                                          f"{a['contribution_pct']:.0f}% de la {sens}."})
+        elif attribution is not None and attribution["mode"] == "multi":
+            # CAUSES MULTIPLES : plusieurs foyers concentrés se partagent la variation.
+            inv.multi_causes = attribution["causes"]
+            parts = " ; ".join(f"« {c['segment']} » {c['contribution_pct']:.0f}%"
+                               for c in attribution["causes"])
+            finding = (f"Pas de cause unique : {len(attribution['causes'])} foyers se "
+                       f"partagent la {sens} — {parts} (soit {attribution['explained']:.0f}% "
+                       f"à eux seuls). Il faut agir sur les trois, pas sur un seul.")
+            inv.plan.append({"title": "Attribution de la variation",
+                             "rationale": "Repérer les foyers qui se partagent le changement."})
+            inv.steps.append(asdict(Step(
+                title="Attribution de la variation (causes multiples)",
+                question=f"D'où vient la {sens} de {metric} ?",
+                rationale="On compare récent vs précédent, axe par axe : ici plusieurs "
+                          "segments portent chacun une part notable du changement.",
+                sql=attribution["causes"][0]["sql"], finding=finding,
+                figures=[{"label": c["segment"], "value": c["contribution_pct"]}
+                         for c in attribution["causes"]],
+            )))
+            queries.append(attribution["causes"][0]["sql"])
+            inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
+                                "detail": f"Causes multiples ({len(attribution['causes'])}) : {parts}."})
         else:
             # Tendance nette mais aucun segment disproportionné → GÉNÉRALISÉE.
             inv.broad_based = True
@@ -503,6 +536,18 @@ def run_investigation(
     # L'attribution de la variation prime : c'est la cause du CHANGEMENT (« d'où
     # vient la baisse ? »), pas la structure du total. Elle guide le Decision Engine.
     seen_dims: set[str] = set()
+    # Causes MULTIPLES : chaque foyer devient un facteur (même dimension, segments
+    # différents) → le Decision Engine peut recommander une action par foyer.
+    if inv.multi_causes:
+        for c in inv.multi_causes:
+            inv.key_drivers.append(
+                f"{c['dimension']} — « {c['segment']} » ({c['contribution_pct']:.0f}% de la variation)")
+            inv.drivers_struct.append({
+                "dimension": c["dimension"], "segment": c["segment"],
+                "share": c["contribution_pct"], "samples": c.get("samples", []),
+            })
+        seen_dims.add(inv.multi_causes[0]["dimension"])
+
     # Priorité aux facteurs de VARIATION (contribution à la baisse), pas de total.
     # Le premier est la cause dominante ; on n'ajoute un facteur secondaire que
     # s'il est lui aussi nettement concentré (≥ 65 %) — sinon c'est du bruit
@@ -547,6 +592,13 @@ def run_investigation(
             f"la {sens} est portée à {a['contribution_pct']:.0f}% par « {a['segment']} » "
             f"({a['dimension']})"
         )
+    elif inv.multi_causes:
+        foyers = ", ".join(f"« {c['segment']} » ({c['contribution_pct']:.0f}%)"
+                           for c in inv.multi_causes)
+        parts.append(
+            f"la {sens} ne vient pas d'une cause unique mais de "
+            f"{len(inv.multi_causes)} foyers — {foyers}"
+        )
     elif inv.broad_based:
         parts.append(
             f"la {sens} est GÉNÉRALISÉE : aucun segment ne se détache "
@@ -566,6 +618,12 @@ def run_investigation(
         inv.recommendations.append(
             f"Concentrer l'action sur « {a['segment']} » ({a['dimension']}) — "
             f"qui porte l'essentiel de la variation — et suivre son redressement."
+        )
+    elif inv.multi_causes:
+        foyers = ", ".join(f"« {c['segment']} »" for c in inv.multi_causes)
+        inv.recommendations.append(
+            f"Agir sur les {len(inv.multi_causes)} foyers à la fois ({foyers}) : "
+            "un plan pour un seul ne redressera qu'une fraction de la variation."
         )
     elif inv.broad_based:
         inv.recommendations.append(

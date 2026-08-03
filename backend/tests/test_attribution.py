@@ -119,6 +119,28 @@ def test_attribution_rejects_proportional_tautology():
     assert out is None  # concentration réelle mais lift ≈ 1 → pas une cause
 
 
+def test_attribution_detects_multiple_causes():
+    """Trois foyers concentrés (≈ 44/33/23 %), aucun ≥ 55 % : le moteur doit
+    renvoyer mode « multi » avec les trois causes, pas « une seule » ni « diffuse »."""
+    by_expr = {
+        # (segment, recent, prior) — 3 magasins s'effondrent, 3 restent stables.
+        "city": [("Marseille", 5600, 10000), ("Lyon", 6700, 10000),
+                 ("Lille", 7700, 10000), ("Paris", 10000, 10000),
+                 ("Nice", 10000, 10000), ("Bordeaux", 10000, 10000)],
+    }
+    dims = [_Dim(label="city (stores)", expr="city")]
+    out = agent._attribute_variation(
+        _FakeAdapter(by_expr), conn_id=1, guard_args={}, fact=_Fact(), dims=dims,
+        measure_sql="f.amount", date_col=_Col(),
+        recent_labels=["2025-05", "2025-06"], prior_labels=["2025-03", "2025-04"],
+        trend_dir="baisse",
+    )
+    assert out is not None and out["mode"] == "multi"
+    segs = [c["segment"] for c in out["causes"]]
+    assert {"Marseille", "Lyon", "Lille"} <= set(segs)
+    assert sum(c["contribution_pct"] for c in out["causes"]) >= 80
+
+
 def test_attribution_none_when_diffuse():
     """Aucune cause dominante (baisse répartie) → pas d'attribution."""
     by_expr = {"f.gender": [("F", 41000, 45000), ("M", 40000, 44000)]}

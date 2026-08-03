@@ -74,11 +74,26 @@ Ingénierie 100 %), pas la part du total.
 
 ---
 
+## P-06 — Causes multiples (*Multi-cause Attribution*)
+
+> Quand la variation vient de plusieurs foyers concentrés (aucun dominant), Noreon
+> les **nomme tous** avec leur contribution — au lieu d'en désigner un seul, ou de
+> conclure à tort « baisse généralisée ».
+
+**Preuve.** `challenge/causes_multiples` — baisse répartie sur 3 magasins (~40/35/25 %)
+dans 3 régions. Noreon : « 3 foyers — PACA (44 %), ARA (32 %), HdF (20 %) ».
+
+**Mécanisme** (ADR D-36) : contribution + lift de **chaque** segment ; classement de
+l'axe en cause unique / multi-foyers / diffuse ; rasoir d'Occam pour choisir l'axe.
+
+**Statut : ✅ vérifié.**
+
+---
+
 ### Prochaines propriétés visées (challenges à venir)
 
 - **P-05 — Relations sans FK** : inférer une relation par recouvrement de valeurs
   (colonnes opaques N2, FK non déclarées).
-- **P-06 — Multi-causes** : nommer 2–3 causes concurrentes (40/35/25 %).
 - **P-07 — Saisonnalité** : « la baisse dépasse la saisonnalité habituelle ».
 - **P-08 — Humilité** : savoir dire « je ne peux pas conclure » (qualité catastrophique).
 

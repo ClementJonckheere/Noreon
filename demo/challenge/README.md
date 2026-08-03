@@ -28,6 +28,7 @@ Challenge → Le moteur se trompe → On corrige → Le challenge passe → Nouv
 |---|---|---|
 | `cause_diffuse/` | Baisse **systémique** (aucun coupable localisé) — le moteur retombait sur une tautologie (« le plus gros segment »). | **APPRIS ✅** (lift ≥ 1.5 + « baisse généralisée », ADR D-33) |
 | `colonnes_opaques_n1/` | **Toutes les colonnes opaques** (`col_003`, `a3`…) — le moteur ne peut plus lire les noms. | **APPRIS ✅** (mesure + cause par les DONNÉES/VALEURS, ADR D-34 ; **+ décideur par le concept**, ADR D-35) |
+| `causes_multiples/` | La baisse se répartit sur **3 foyers** (~40/35/25 %) — pas de cause unique. | **APPRIS ✅** (attribution single / **multi** / diffuse, ADR D-36) |
 
 > **Colonnes opaques — la preuve la plus forte.** Même scénario que retail (PACA
 > 97 %), tous les noms rendus opaques. Noreon retrouve la mesure (`col_003`) par son
