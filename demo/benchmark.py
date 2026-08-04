@@ -141,7 +141,15 @@ def run_challenge(sc: str) -> None:
     learned = None
     notes: list[str] = []
 
-    if exp.get("expects_no_dominant_cause"):
+    if exp.get("expects_seasonal"):
+        # Saisonnalité : reconnaître que la baisse est un creux annuel (pas d'anomalie)
+        # et NE recommander aucune action corrective.
+        seasonal = bool(inv.get("seasonal"))
+        no_decision = (r.decisions is None) or not (r.decisions or {}).get("decisions")
+        learned = seasonal and no_decision
+        notes.append(f"baisse reconnue saisonnière : {'✓' if seasonal else '✗'}")
+        notes.append(f"aucune action corrective : {'✓' if no_decision else '✗'}")
+    elif exp.get("expects_no_dominant_cause"):
         # Cause diffuse : reconnaître qu'AUCUN segment ne se détache (pas de tautologie).
         learned = bool(inv.get("broad_based")) and inv.get("attribution") is None \
             and not inv.get("drivers_struct")

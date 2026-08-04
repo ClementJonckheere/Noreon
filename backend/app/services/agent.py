@@ -113,6 +113,10 @@ class Investigation:
     # Variation GÉNÉRALISÉE : tendance nette mais aucun segment disproportionné
     # (cause transverse probable — prix, saison, macro).
     broad_based: bool = False
+    # SAISONNALITÉ : la baisse des derniers mois est conforme à la même période
+    # l'an dernier → normale, pas une anomalie.
+    seasonal: bool = False
+    seasonal_detail: str = ""
     conclusion: str = ""
     recommendations: list[str] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
@@ -394,11 +398,55 @@ def run_investigation(
     # Apprentissage : on mémorise l'efficacité observée (le caller valide).
     memory.record(db, conn.id, fact.name, observed)
 
+    # --- Test de SAISONNALITÉ (P-07) : la baisse est-elle juste un creux annuel ? -
+    # Beaucoup d'analystes comparent au mois précédent (« ça baisse ! ») alors qu'il
+    # faut comparer à la MÊME période l'an dernier. Si le niveau récent est conforme
+    # (ou supérieur) à l'an dernier, la baisse est SAISONNIÈRE — pas une anomalie.
+    if date_col is not None and trend_dir == "baisse" and len(inv.trend_rows) >= 16:
+        labels = [str(r[0]) for r in inv.trend_rows]
+        vals = {str(r[0]): _num(r[1]) for r in inv.trend_rows}
+        ww = max(2, min(_trailing_run(inv.trend_rows, "baisse") or 4, 6))
+        recent = labels[-ww:]
+
+        def _year_ago(lbl: str) -> str:
+            y, mth = lbl.split("-")
+            return f"{int(y) - 1}-{mth}"
+
+        prev = [_year_ago(x) for x in recent]
+        if all(p in vals for p in prev):
+            rsum = sum(vals[x] for x in recent)
+            psum = sum(vals[p] for p in prev)
+            yoy = (rsum - psum) / psum * 100 if psum else 0.0
+            if yoy >= -4:   # pas pire qu'à la même période l'an dernier → saisonnier
+                inv.seasonal = True
+                inv.seasonal_detail = (
+                    f"À la même période l'an dernier, {metric} était comparable "
+                    f"({yoy:+.0f}% en glissement annuel). La baisse des {ww} derniers "
+                    "mois est SAISONNIÈRE (ce creux revient chaque année) — pas une anomalie.")
+                inv.plan.append({"title": "Test de saisonnalité",
+                                 "rationale": "Comparer à la même période l'an dernier, pas au mois précédent."})
+                inv.steps.append(asdict(Step(
+                    title="Test de saisonnalité",
+                    question=f"La baisse de {metric} est-elle saisonnière ?",
+                    rationale="On compare la fenêtre récente à la MÊME période l'an dernier "
+                              "(glissement annuel) plutôt qu'à la période précédente.",
+                    sql="-- comparaison en glissement annuel (mêmes mois, année N-1) --",
+                    finding=inv.seasonal_detail,
+                    figures=[{"label": "récent", "value": round(rsum)},
+                             {"label": "an dernier", "value": round(psum)},
+                             {"label": "glissement_annuel_%", "value": round(yoy, 1)}],
+                )))
+                inv.journal.append({"t": _now(), "phase": "analysis", "status": "accepted",
+                                    "detail": f"Baisse SAISONNIÈRE : {yoy:+.0f}% en glissement annuel "
+                                              "(pas d'anomalie)."})
+
     # --- Attribution de la variation (d'où vient la baisse/hausse ?) ---------
     # Un analyste senior ne dit pas « la majorité du CA vient du plus gros
     # segment » (tautologie) : il dit « la baisse est portée par tel segment ».
+    # Sautée si la baisse est purement saisonnière (il n'y a pas d'anomalie à isoler).
     attribution_ranked: list[dict] = []
-    if date_col is not None and trend_dir in ("baisse", "hausse") and len(inv.trend_rows) >= 4:
+    if not inv.seasonal and date_col is not None and trend_dir in ("baisse", "hausse") \
+            and len(inv.trend_rows) >= 4:
         w = _trailing_run(inv.trend_rows, trend_dir) or 4
         w = max(2, min(w, len(inv.trend_rows) // 2))
         labels = [str(r[0]) for r in inv.trend_rows]
@@ -564,9 +612,10 @@ def run_investigation(
         seen_dims.add(a["dimension"])
 
     # Sans attribution de variation exploitable, on se rabat sur la structure du
-    # total — MAIS PAS si la variation est généralisée : émettre un « plus gros
-    # segment » y serait une tautologie trompeuse (c'est justement le piège).
-    _fallback = segmentations[:3] if (not inv.drivers_struct and not inv.broad_based) else []
+    # total — MAIS PAS si la variation est généralisée/saisonnière : émettre un
+    # « plus gros segment » y serait une tautologie trompeuse (c'est justement le piège).
+    _fallback = segmentations[:3] if (
+        not inv.drivers_struct and not inv.broad_based and not inv.seasonal) else []
     for seg in _fallback:
         if seg.dim.label in seen_dims:
             continue
@@ -586,7 +635,11 @@ def run_investigation(
     elif trend_dir == "stable":
         parts.append(f"{metric} est globalement stable")
     sens = "baisse" if trend_dir == "baisse" else "hausse"
-    if inv.attribution is not None:
+    if inv.seasonal:
+        parts = [f"la baisse récente de {metric} est SAISONNIÈRE",
+                 inv.seasonal_detail.rstrip(".") if inv.seasonal_detail else
+                 "conforme à la même période l'an dernier"]
+    elif inv.attribution is not None:
         a = inv.attribution
         parts.append(
             f"la {sens} est portée à {a['contribution_pct']:.0f}% par « {a['segment']} » "
@@ -613,7 +666,13 @@ def run_investigation(
     inv.conclusion = ("Conclusion : " + " ; ".join(parts) + ".") if parts else \
         "Conclusion : facteurs répartis, pas de cause unique dominante."
 
-    if inv.attribution is not None:
+    if inv.seasonal:
+        inv.recommendations.append(
+            "Pas d'action corrective : la baisse est saisonnière. Suivre l'indicateur "
+            "en GLISSEMENT ANNUEL (même mois l'an dernier), pas d'un mois sur l'autre, "
+            "et vérifier que la reprise post-creux a bien lieu comme les années passées."
+        )
+    elif inv.attribution is not None:
         a = inv.attribution
         inv.recommendations.append(
             f"Concentrer l'action sur « {a['segment']} » ({a['dimension']}) — "
@@ -635,7 +694,7 @@ def run_investigation(
         inv.recommendations.append(
             f"Concentrer l'action sur « {d0.groups[0].label} » ({d0.dim.label}) et suivre son évolution."
         )
-    if trend_dir == "baisse" and inv.trend_rows:
+    if trend_dir == "baisse" and inv.trend_rows and not inv.seasonal:
         lo = min(inv.trend_rows, key=lambda r: r[1])
         inv.recommendations.append(
             f"Investiguer la période « {lo[0]} » (point bas) : événement métier, promotion, ou données incomplètes ?"

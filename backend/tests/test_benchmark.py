@@ -70,6 +70,22 @@ def test_challenge_opaque_columns_is_robust():
     assert attr.get("contribution_pct", 0) >= 85
 
 
+def test_challenge_seasonality_is_recognized():
+    """Challenge « saisonnalité » : la baisse récente est un creux annuel. Le moteur
+    doit la reconnaître comme SAISONNIÈRE (glissement annuel comparable) et ne
+    recommander AUCUNE action corrective."""
+    sc = "challenge/saisonnalite"
+    if not _runner.db_available(sc):
+        pytest.skip("base du challenge injoignable")
+    exp = json.loads((ROOT / "demo" / sc / "expected.json").read_text(encoding="utf-8"))
+    r, _ = _runner.analyze(sc, exp["question"])
+    inv = r.investigation or {}
+    assert inv.get("seasonal") is True
+    assert "saisonn" in (inv.get("conclusion") or "").lower()
+    # Pas d'anomalie → aucune décision corrective.
+    assert (r.decisions is None) or not (r.decisions or {}).get("decisions")
+
+
 def test_challenge_opaque_columns_n2_infers_relations_by_value():
     """Challenge « colonnes opaques N2 » : colonnes opaques ET aucune FK déclarée.
     La relation vers les régions est inférée par recouvrement de valeurs (P-05),

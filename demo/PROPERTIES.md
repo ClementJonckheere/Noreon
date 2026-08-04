@@ -108,9 +108,26 @@ dans des identifiants avec une vraie clé étrangère.
 
 ---
 
+## P-07 — Conscience de la saisonnalité (*Seasonality Awareness*)
+
+> Noreon compare une baisse à la **même période l'an dernier** (glissement annuel),
+> pas seulement au mois précédent. Si le creux est conforme aux années passées, il
+> le déclare **saisonnier** et ne recommande **aucune action corrective**.
+
+**Preuve.** `challenge/saisonnalite` — creux estival qui se répète chaque année.
+Noreon : « baisse SAISONNIÈRE ; +4 % en glissement annuel — pas une anomalie »,
+sans aucune décision corrective.
+
+**Mécanisme** (ADR D-38) : dès ~ 16 mois d'historique, comparaison de la fenêtre
+récente aux mêmes mois de l'année N-1 ; si ≥ −4 %, la baisse est saisonnière →
+attribution sautée, décisions supprimées.
+
+**Statut : ✅ vérifié.**
+
+---
+
 ### Prochaines propriétés visées (challenges à venir)
 
-- **P-07 — Saisonnalité** : « la baisse dépasse la saisonnalité habituelle ».
 - **P-08 — Humilité** : savoir dire « je ne peux pas conclure » (qualité catastrophique).
 
 > Chaque propriété validée est un argument technique différenciant : Noreon

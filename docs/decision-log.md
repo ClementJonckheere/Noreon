@@ -634,6 +634,22 @@ atteint la région et attribue la baisse à PACA (97 %) → Directeur réseau. P
 **P-05** validée. Les 5 scénarios et les tests d'intégration restent verts (aucune
 relation parasite introduite).
 
+### D-38 — Conscience de la saisonnalité (P-07)
+**Contexte.** Le challenge `saisonnalite` : la baisse des 4 derniers mois est un
+creux estival qui se répète chaque année. Le moteur criait à la baisse alors qu'en
+**glissement annuel** le niveau est comparable (voire supérieur) — fausse alerte.
+**Décision.**
+- **Test de saisonnalité** (`agent`, dès ~ 16 mois d'historique) : avant de chercher
+  une cause, comparer la fenêtre récente aux **mêmes mois de l'année N-1**. Si
+  ≥ −4 % (pas pire que l'an dernier) → `Investigation.seasonal = True`.
+- Quand la baisse est saisonnière : l'**attribution est sautée**, la conclusion dit
+  « baisse SAISONNIÈRE — pas une anomalie », la recommandation invite à suivre
+  l'indicateur **en glissement annuel**, et le Decision Engine **ne produit aucune
+  décision corrective** (recommander une action serait une erreur d'analyse).
+**Conséquence.** Le challenge affiche « baisse reconnue saisonnière ✓ / aucune
+action corrective ✓ » (APPRIS ✅). Propriété **P-07** validée. Les 5 scénarios (dont
+la vraie baisse de retail, nettement pire qu'en N-1) restent à 100/100.
+
 ---
 
 ## Dettes / limites connues (à traiter)
