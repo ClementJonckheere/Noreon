@@ -667,6 +667,25 @@ une réponse à partir des données restantes, mais de **s'abstenir honnêtement
 100/100. Sept propriétés vérifiées (P-01 → P-08, hors P-06 déjà comptée) forment le
 socle « comprendre les données, pas le schéma » + « conclure avec discernement ».
 
+### D-40 — Challenge de l'analyste humain : mesurer la VALEUR (V-01)
+**Contexte.** Après avoir mesuré la *justesse* (benchmark) et la *robustesse*
+(challenges), il manquait la mesure la plus parlante pour un investisseur/client :
+**qu'apporte Noreon face à un vrai analyste ?**
+**Décision.**
+- `demo/human_challenge.py` : harnais de comparaison. Une **ligne de base humaine**
+  écrite à la main (`demo/<scenario>/human_baseline.json` — ce qu'un analyste
+  compétent produit en ~45 min, estimation honnête) est confrontée, critère par
+  critère, à ce que Noreon produit **réellement** (extrait de la réponse, temps
+  chronométré) : cause principale, causes secondaires, recommandations, projection,
+  auto-critique, traçabilité, reproductibilité, contexte métier, temps.
+- Restitution en **tableau** + synthèse de valeur (avantages nets de chaque côté),
+  et doc `demo/HUMAN_CHALLENGE.md`. Lignes de base : retail, CRM.
+**Conséquence.** La comparaison est **honnête et complémentaire** : Noreon apporte
+la vitesse (~ 10 s vs 45 min) et la rigueur que les humains sautent (auto-critique,
+preuves rejouables, projection, reproductibilité) ; l'humain garde le contexte
+métier et le jugement causal. C'est la mesure de la **valeur**, pas seulement de la
+justesse (propriété **V-01**).
+
 ---
 
 ## Dettes / limites connues (à traiter)

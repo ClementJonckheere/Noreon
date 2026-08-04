@@ -146,6 +146,19 @@ Challenges livrés :
 
 Voir `demo/challenge/README.md` et `demo/PROPERTIES.md` (propriétés P-01…P-08).
 
+## Le challenge de l'analyste humain — mesurer la VALEUR
+
+Au-delà de la justesse : que gagne-t-on face à un vrai Data Analyst ?
+
+```bash
+cd backend && python ../demo/human_challenge.py retail
+```
+
+Comparaison multi-critères chronométrée (cause, recos, auto-critique, traçabilité,
+reproductibilité, temps) contre une ligne de base humaine honnête. Noreon apporte
+la vitesse (~ 10 s vs 45 min) et la rigueur que les humains sautent ; l'humain garde
+le contexte métier. Voir `demo/HUMAN_CHALLENGE.md`.
+
 ## Pipeline de raisonnement
 
 ```

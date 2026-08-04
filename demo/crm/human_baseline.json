@@ -1,0 +1,15 @@
+{
+  "question": "Pourquoi le churn augmente-t-il ?",
+  "analyst_profile": "Analyste CRM, ~40 min, accès SQL + tableur.",
+  "time_label": "~40 min",
+  "main_cause": true,
+  "secondary_causes": false,
+  "recommendations": true,
+  "projection": false,
+  "self_critique": false,
+  "evidence_trail": false,
+  "reproducible": false,
+  "business_context": true,
+  "notes": "L'analyste identifie le canal « Publicité payante » et sait qu'une campagne promo agressive a été lancée (contexte). En 40 min il n'a pas le temps de croiser le plan (Basic), ne formalise pas d'auto-critique, ni de trace rejouable.",
+  "verdict": "Noreon croise plus d'axes en secondes (canal + plan), trace tout et reste reproductible ; l'humain garde le contexte de la campagne et la décision finale."
+}

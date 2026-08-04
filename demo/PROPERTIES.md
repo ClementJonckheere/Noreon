@@ -143,12 +143,24 @@ s'arrête sur un constat de fiabilité.
 
 ---
 
+## V-01 — Valeur vs analyste humain (*Human-Analyst Value*)
+
+> Au-delà de la justesse : face à un vrai Data Analyst (45 min), Noreon apporte la
+> **vitesse** (secondes) et la **rigueur** que les humains sautent sous la pression
+> (auto-critique, preuves rejouables, projection, reproductibilité) — tandis que
+> l'humain garde le contexte métier et le jugement causal.
+
+**Preuve.** `demo/human_challenge.py retail` — comparaison multi-critères chronométrée
+contre `demo/<scenario>/human_baseline.json`. Cf. `demo/HUMAN_CHALLENGE.md`.
+
+**Statut : ✅ outillé** (harnais de comparaison + lignes de base retail & CRM).
+
+---
+
 ### Prochaines propriétés visées (challenges à venir)
 
 - **Causalité inversée** : ne pas confondre « les promos font baisser les ventes »
   avec « les promos augmentent PARCE QUE les ventes baissent ».
-- **Le challenge de l'analyste humain** : comparer Noreon à un vrai analyste
-  (cause principale, causes secondaires, recommandations, auto-critique, temps).
 
 > Chaque propriété validée est un argument technique différenciant : Noreon
 > **reconstruit la sémantique à partir des données**, il ne se contente pas de lire
