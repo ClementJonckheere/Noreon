@@ -126,9 +126,29 @@ attribution sautée, décisions supprimées.
 
 ---
 
+## P-08 — Humilité (*Calibrated Abstention*)
+
+> Quand la qualité des données est insuffisante pour une conclusion fiable, Noreon
+> **s'abstient honnêtement** — « je ne peux pas conclure avec suffisamment de
+> confiance » — plutôt que d'inventer une réponse à partir de données trouées.
+
+**Preuve.** `challenge/qualite_catastrophique` — montants (~ 45 %) et dates (~ 50 %)
+majoritairement manquants. Noreon s'abstient et ne produit aucune décision.
+
+**Mécanisme** (ADR D-39) : contrôle de complétude (profilage) de la mesure et de la
+date avant toute analyse ; au-delà de 40 % de valeurs manquantes, l'investigation
+s'arrête sur un constat de fiabilité.
+
+**Statut : ✅ vérifié.**
+
+---
+
 ### Prochaines propriétés visées (challenges à venir)
 
-- **P-08 — Humilité** : savoir dire « je ne peux pas conclure » (qualité catastrophique).
+- **Causalité inversée** : ne pas confondre « les promos font baisser les ventes »
+  avec « les promos augmentent PARCE QUE les ventes baissent ».
+- **Le challenge de l'analyste humain** : comparer Noreon à un vrai analyste
+  (cause principale, causes secondaires, recommandations, auto-critique, temps).
 
 > Chaque propriété validée est un argument technique différenciant : Noreon
 > **reconstruit la sémantique à partir des données**, il ne se contente pas de lire

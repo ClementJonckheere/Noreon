@@ -31,6 +31,7 @@ Challenge → Le moteur se trompe → On corrige → Le challenge passe → Nouv
 | `colonnes_opaques_n2/` | Colonnes opaques **ET aucune FK déclarée** — la relation vers les régions doit être devinée. | **APPRIS ✅** (relation inférée par **recouvrement de valeurs**, ADR D-37) |
 | `causes_multiples/` | La baisse se répartit sur **3 foyers** (~40/35/25 %) — pas de cause unique. | **APPRIS ✅** (attribution single / **multi** / diffuse, ADR D-36) |
 | `saisonnalite/` | La baisse des 4 derniers mois est un **creux estival** normal (se répète chaque année). | **APPRIS ✅** (glissement annuel → « saisonnière, pas d'anomalie », ADR D-38) |
+| `qualite_catastrophique/` | Montants et dates **majoritairement manquants** — trop troué pour conclure. | **APPRIS ✅** (abstention honnête « je ne peux pas conclure », ADR D-39) |
 
 > **Colonnes opaques — la preuve la plus forte.** Même scénario que retail (PACA
 > 97 %), tous les noms rendus opaques. Noreon retrouve la mesure (`col_003`) par son

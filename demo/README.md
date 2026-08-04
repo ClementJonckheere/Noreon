@@ -138,8 +138,13 @@ Challenges livrés :
 - **`colonnes_opaques_n2`** — colonnes opaques **et aucune FK déclarée**. Noreon
   **infère les relations par recouvrement de valeurs** (`col_002 ⊆ t_s.k0`) pour
   atteindre la région (ADR D-37).
+- **`saisonnalite`** — la baisse est un **creux estival** qui revient chaque année.
+  Noreon compare en **glissement annuel** et conclut « saisonnière, pas d'anomalie »,
+  sans action corrective (ADR D-38).
+- **`qualite_catastrophique`** — données majoritairement manquantes. Noreon
+  **s'abstient honnêtement** (« je ne peux pas conclure ») au lieu d'inventer (ADR D-39).
 
-Voir `demo/challenge/README.md` et `demo/PROPERTIES.md` (propriétés P-01…P-06).
+Voir `demo/challenge/README.md` et `demo/PROPERTIES.md` (propriétés P-01…P-08).
 
 ## Pipeline de raisonnement
 

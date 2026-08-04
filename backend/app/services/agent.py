@@ -117,6 +117,9 @@ class Investigation:
     # l'an dernier → normale, pas une anomalie.
     seasonal: bool = False
     seasonal_detail: str = ""
+    # HUMILITÉ : données trop incomplètes/douteuses pour conclure avec confiance.
+    low_quality: bool = False
+    quality_detail: str = ""
     conclusion: str = ""
     recommendations: list[str] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
@@ -323,9 +326,49 @@ def run_investigation(
         inv.journal.append({"t": _now(), "phase": "plan", "status": "info",
                             "detail": f"Hypothèse de départ : « {initial.label} » porte probablement la variation."})
 
-    # --- Étape tendance (si une date existe sur la table de faits) ---
     date_col = next((c for c in fact.columns if c.is_temporal
                      and (fact.name.lower(), c.name.lower()) not in hidden_columns), None)
+
+    # --- Garde-fou HUMILITÉ (P-08) : la donnée est-elle assez fiable pour conclure ?
+    # Mieux vaut une abstention honnête qu'une fausse certitude tirée de données
+    # trouées. On mesure le taux de valeurs manquantes de la MESURE et de la DATE
+    # (issu du profilage) : au-delà d'un seuil, on ne conclut pas.
+    def _null_rate(col) -> float:
+        p = getattr(col, "profile", None) if col else None
+        return p.null_rate if (p and p.null_rate is not None) else 0.0
+
+    measure_col_obj = fact.col(measure.column) if measure.column else None
+    _issues = []
+    if measure_col_obj is not None and _null_rate(measure_col_obj) >= 0.4:
+        _issues.append(f"{measure.column} manquant à {_null_rate(measure_col_obj) * 100:.0f}%")
+    if date_col is not None and _null_rate(date_col) >= 0.4:
+        _issues.append(f"{date_col.name} manquant à {_null_rate(date_col) * 100:.0f}%")
+    if _issues:
+        inv.low_quality = True
+        inv.quality_detail = (
+            "Je ne peux pas conclure avec suffisamment de confiance : la qualité des "
+            f"données est insuffisante ({', '.join(_issues)}). Toute tendance ou cause "
+            "tirée de ces données serait trompeuse. Priorité : fiabiliser la saisie "
+            "(mesure et date) avant d'analyser.")
+        inv.conclusion = "Conclusion : " + inv.quality_detail
+        inv.plan.append({"title": "Contrôle de fiabilité des données",
+                         "rationale": "Vérifier que la mesure et la date sont exploitables avant d'analyser."})
+        inv.steps.append(asdict(Step(
+            title="Contrôle de fiabilité des données",
+            question="Les données sont-elles assez complètes pour conclure ?",
+            rationale="On mesure le taux de valeurs manquantes de la mesure et de la date.",
+            sql="-- audit de complétude (profilage) --",
+            finding=inv.quality_detail,
+            figures=[{"label": lbl, "value": 0} for lbl in _issues],
+        )))
+        inv.journal.append({"t": _now(), "phase": "analysis", "status": "rejected",
+                            "detail": f"Abstention (qualité insuffisante) : {', '.join(_issues)}."})
+        inv.recommendations.append(
+            "Ne pas décider sur ces données : fiabiliser d'abord la saisie de la mesure "
+            "et de la date, puis relancer l'analyse.")
+        return inv
+
+    # --- Étape tendance (si une date existe sur la table de faits) ---
     trend_dir = None
     if date_col is not None:
         col_sql = f"f.{_q(adapter, date_col.name)}"

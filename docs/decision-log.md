@@ -650,6 +650,23 @@ creux estival qui se répète chaque année. Le moteur criait à la baisse alors
 action corrective ✓ » (APPRIS ✅). Propriété **P-07** validée. Les 5 scénarios (dont
 la vraie baisse de retail, nettement pire qu'en N-1) restent à 100/100.
 
+### D-39 — Humilité : abstention calibrée sur données catastrophiques (P-08)
+**Contexte.** Le challenge `qualite_catastrophique` : montants (~ 45 %) et dates
+(~ 50 %) majoritairement manquants. Le meilleur comportement n'est pas d'inventer
+une réponse à partir des données restantes, mais de **s'abstenir honnêtement**.
+**Décision.**
+- **Garde-fou d'humilité** (`agent`, avant l'étape tendance) : lecture du taux de
+  valeurs manquantes (profilage) de la **mesure** et de la **date**. Au-delà de
+  40 %, `Investigation.low_quality = True`, l'investigation **s'arrête** sur un
+  constat de fiabilité, la conclusion est « je ne peux pas conclure… » (avec les
+  taux exacts), et **aucune décision** n'est produite (chat.py).
+- La recommandation invite à **fiabiliser la saisie** (mesure + date) avant de
+  relancer l'analyse.
+**Conséquence.** Le challenge affiche « abstention honnête ✓ / aucune décision ✓ »
+(APPRIS ✅). Propriété **P-08** validée. Les 5 scénarios (données saines) restent à
+100/100. Sept propriétés vérifiées (P-01 → P-08, hors P-06 déjà comptée) forment le
+socle « comprendre les données, pas le schéma » + « conclure avec discernement ».
+
 ---
 
 ## Dettes / limites connues (à traiter)

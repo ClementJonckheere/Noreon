@@ -141,7 +141,15 @@ def run_challenge(sc: str) -> None:
     learned = None
     notes: list[str] = []
 
-    if exp.get("expects_seasonal"):
+    if exp.get("expects_low_quality"):
+        # Humilité : s'abstenir sur données trop trouées (pas de fausse certitude).
+        low_q = bool(inv.get("low_quality"))
+        no_decision = (r.decisions is None) or not (r.decisions or {}).get("decisions")
+        says_cannot = "conclure" in (inv.get("conclusion") or "").lower()
+        learned = low_q and no_decision and says_cannot
+        notes.append(f"abstention honnête : {'✓' if (low_q and says_cannot) else '✗'}")
+        notes.append(f"aucune décision : {'✓' if no_decision else '✗'}")
+    elif exp.get("expects_seasonal"):
         # Saisonnalité : reconnaître que la baisse est un creux annuel (pas d'anomalie)
         # et NE recommander aucune action corrective.
         seasonal = bool(inv.get("seasonal"))

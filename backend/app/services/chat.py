@@ -255,9 +255,9 @@ def answer_question(
                 from app.services import discoveries as disc_svc
 
                 # Mémoire métier : recommandations déjà retenues / éprouvées.
-                # Baisse SAISONNIÈRE (P-07) : pas d'anomalie → aucune décision
-                # corrective (recommander une action serait une erreur d'analyse).
-                if inv.seasonal:
+                # Baisse SAISONNIÈRE (P-07) ou données trop douteuses (P-08) : pas
+                # de décision corrective (agir serait une erreur d'analyse).
+                if inv.seasonal or inv.low_quality:
                     decisions = None
                 else:
                     _dmem_records = dmem_svc.history_for(db, conn.id, inv.subject)
