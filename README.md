@@ -181,6 +181,20 @@ Ouvrir http://localhost:3000, créer une connexion vers `noreon_demo`
 (utilisateur `noreon_ro` / mot de passe `readonly`), **scanner**, **profiler**,
 puis poser des questions dans le **Chat**.
 
+### Test rapide en une commande
+
+Avec le backend démarré, `scripts/quicktest.sh` enchaîne **connexion → scan →
+profil → question** contre une base et imprime la réponse du moteur :
+
+```bash
+bash scripts/quicktest.sh                 # scénario « retail » (base noreon_demo_retail)
+bash scripts/quicktest.sh crm             # crm | finance | supply_chain | hr
+bash scripts/quicktest.sh --db ma_base --question "Pourquoi ... ?"
+```
+
+Prépare une base de démo au besoin : `sudo -u postgres bash demo/setup_scenario.sh retail`.
+Sans lancer le serveur, `python demo/verify.py retail` montre le raisonnement complet.
+
 ---
 
 ## Parcours de démonstration
