@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import AlertsPanel from "@/components/AlertsPanel";
 import AnswerView from "@/components/AnswerView";
 import DefinitionsPanel from "@/components/DefinitionsPanel";
@@ -37,12 +37,23 @@ type Tab =
 
 export default function Workspace() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = Number(params.id);
   const [conn, setConn] = useState<Connection | null>(null);
   const [tab, setTab] = useState<Tab>("chat");
   const [notice, setNotice] = useState<string | null>(null);
   // Historique rejouable : question relancée depuis l'onglet Historique.
   const [replay, setReplay] = useState<{ q: string; n: number } | null>(null);
+
+  // Question passée par l'accueil (barre « Que souhaitez-vous comprendre ? »).
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) {
+      setTab("chat");
+      setReplay({ q, n: Date.now() });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function refresh() {
     setConn(await api.getConnection(id));

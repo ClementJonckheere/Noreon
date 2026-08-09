@@ -13,6 +13,7 @@ type Item = { href: string; label: string; icon: string; count?: number; dot?: b
 const PRIMARY: Item[] = [
   { href: "/", label: "Accueil", icon: "home" },
   { href: "/reports", label: "Rapports", icon: "report" },
+  { href: "/sources", label: "Données", icon: "data" },
   { href: "/spaces", label: "Espaces", icon: "spaces" },
   { href: "/metrics", label: "Qualité", icon: "quality" },
 ];
@@ -51,7 +52,11 @@ export default function Sidebar() {
   // Surfaces publiques (connexion) : pas de sidebar applicative.
   if (pathname.startsWith("/login")) return null;
   const isActive = (href: string) =>
-    href === "/" ? pathname === "/" || pathname.startsWith("/connections") : pathname.startsWith(href);
+    href === "/"
+      ? pathname === "/"
+      : href === "/sources"
+      ? pathname.startsWith("/sources") || pathname.startsWith("/connections")
+      : pathname.startsWith(href);
 
   return (
     <aside className="w-[248px] shrink-0 bg-bg-secondary border-r border-line-subtle flex flex-col">
