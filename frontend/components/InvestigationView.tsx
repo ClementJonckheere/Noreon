@@ -2,110 +2,121 @@
 
 import { ChatResponse } from "@/lib/api";
 
-// Rendu du raisonnement de l'agent : plan → étapes (sous-questions + constats) →
-// synthèse. Violet : c'est la machine qui interprète. Chaque étape est justifiée
-// et porte son SQL (transparence « preuve »).
+// Rendu du raisonnement de l'agent (écrans 03–05). Ordre éditorial du design :
+// le RÉSULTAT d'abord (la conclusion se lit comme un rapport), puis la CHAÎNE
+// ÉTABLIE (sous-questions → constats), puis le plan et le journal, repliés.
+// Violet : c'est la machine qui interprète.
 export default function InvestigationView({
   inv,
 }: {
   inv: NonNullable<ChatResponse["investigation"]>;
 }) {
   return (
-    <div className="card p-4 space-y-4 border-l-[3px] border-l-reason">
-      <div className="flex items-center gap-2">
-        <span className="tag tag-reason">Raisonnement</span>
-        <span className="text-body text-ink-2">
-          {inv.steps.length} étape(s) sur <span className="mono text-ink">{inv.subject}</span>
-        </span>
+    <div className="space-y-5">
+      {/* Résumé d'investigation — barre repliée par défaut. */}
+      <details className="group">
+        <summary className="flex items-center gap-2 cursor-pointer list-none rounded-card border border-line-subtle bg-bg-secondary px-4 py-2.5">
+          <span className="grid place-items-center w-4 h-4 rounded-full bg-success text-white text-[9px]">✓</span>
+          <span className="text-label uppercase text-ink-tertiary flex-1">
+            Investigation terminée · {inv.steps.length} étape(s) · sujet {inv.subject}
+          </span>
+          <span className="text-small text-brand-700 group-open:hidden">Déplier</span>
+          <span className="text-small text-brand-700 hidden group-open:inline">Replier</span>
+        </summary>
+
+        <div className="mt-3 space-y-4 pl-1">
+          {inv.plan.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-label uppercase text-ink-tertiary">Plan d'investigation</div>
+              <ol className="text-body space-y-1">
+                {inv.plan.map((p, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="text-reasoning font-medium mono">{i + 1}.</span>
+                    <span className="text-ink-secondary">
+                      <span className="font-medium text-ink-primary">{p.title}</span> — {p.rationale}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {inv.journal?.length > 0 && (
+            <details className="text-small">
+              <summary className="cursor-pointer text-ink-tertiary hover:text-ink-primary">
+                Journal de raisonnement ({inv.journal.length})
+              </summary>
+              <ol className="mt-2 space-y-1 border-l border-line pl-3">
+                {inv.journal.map((j, i) => {
+                  const dot =
+                    j.status === "accepted" ? "text-reasoning"
+                    : j.status === "rejected" ? "text-ink-tertiary"
+                    : j.phase === "revision" ? "text-warning-hover"
+                    : "text-line-strong";
+                  return (
+                    <li key={i} className="flex gap-2">
+                      <span className="meta text-[10px]">{j.t}</span>
+                      <span className={dot}>●</span>
+                      <span className="text-ink-secondary">{j.detail}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </details>
+          )}
+        </div>
+      </details>
+
+      {/* RÉSULTAT — la conclusion, lue comme un rapport. */}
+      <div className="space-y-2">
+        <div className="text-label uppercase text-ink-tertiary">Résultat</div>
+        <div className="text-title text-ink-primary max-w-reading">{inv.conclusion}</div>
+        {inv.key_drivers.length > 0 && (
+          <div className="text-small text-ink-tertiary">Facteurs classés : {inv.key_drivers.join(" · ")}</div>
+        )}
       </div>
 
-      {/* Plan annoncé */}
-      {inv.plan.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-label uppercase text-ink-3">Plan d'investigation</div>
-          <ol className="text-body space-y-1">
-            {inv.plan.map((p, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-reason font-medium mono">{i + 1}.</span>
-                <span className="text-ink-2">
-                  <span className="font-medium text-ink">{p.title}</span> — {p.rationale}
-                </span>
-              </li>
+      {/* CHAÎNE ÉTABLIE — sous-questions → constats. */}
+      {inv.steps.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-label uppercase text-ink-tertiary">Chaîne établie</div>
+          <div className="card divide-y divide-line-inset">
+            {inv.steps.map((s, i) => (
+              <div key={i} className="px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <span className="font-mono text-[11px] text-ink-tertiary mt-0.5">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-body text-ink-primary">{s.question}</div>
+                    <div className="text-body text-ink-secondary">{s.finding}</div>
+                  </div>
+                </div>
+                <details className="mt-1 pl-6 text-small text-ink-tertiary">
+                  <summary className="cursor-pointer hover:text-ink-primary">Pourquoi & SQL</summary>
+                  <div className="mt-1 text-ink-secondary">{s.rationale}</div>
+                  <pre className="mt-1 mono bg-bg-secondary border border-line-subtle rounded p-2 overflow-x-auto whitespace-pre-wrap text-ink-secondary">
+                    {s.sql}
+                  </pre>
+                </details>
+              </div>
             ))}
-          </ol>
+          </div>
         </div>
       )}
 
-      {/* Étapes exécutées */}
-      <div className="space-y-2">
-        <div className="text-label uppercase text-ink-3">Sous-questions & constats</div>
-        {inv.steps.map((s, i) => (
-          <div key={i} className="bg-paper-2 rounded-card border border-line-subtle p-2.5 space-y-1">
-            <div className="text-body font-medium text-ink">
-              {i + 1}. {s.question}
-            </div>
-            <div className="text-body text-ink-2">{s.finding}</div>
-            <details className="text-small text-ink-3">
-              <summary className="cursor-pointer hover:text-ink">Pourquoi & SQL</summary>
-              <div className="mt-1 text-ink-2">{s.rationale}</div>
-              <pre className="mt-1 mono bg-raised border border-line-subtle rounded p-2 overflow-x-auto whitespace-pre-wrap text-ink-2">
-                {s.sql}
-              </pre>
-            </details>
-          </div>
-        ))}
-      </div>
-
       {/* « Le moteur change d'avis » — révision d'hypothèse (raisonnement). */}
       {inv.revisions?.length > 0 && (
-        <div className="rounded-card bg-reason-subtle border border-reason/20 p-2.5 space-y-1">
-          <div className="text-label uppercase text-reason">J'ai revu mon analyse</div>
+        <div className="rounded-card bg-reasoning-subtle border border-reasoning/20 p-2.5 space-y-1">
+          <div className="text-label uppercase text-reasoning-hover">J'ai revu mon analyse</div>
           {inv.revisions.map((r, i) => (
-            <div key={i} className="text-body text-ink-2">{r}</div>
+            <div key={i} className="text-body text-ink-secondary">{r}</div>
           ))}
         </div>
       )}
 
-      {/* Journal de raisonnement (experts) — timeline horodatée. */}
-      {inv.journal?.length > 0 && (
-        <details className="text-small">
-          <summary className="cursor-pointer text-ink-3 hover:text-ink">
-            Journal de raisonnement ({inv.journal.length})
-          </summary>
-          <ol className="mt-2 space-y-1 border-l border-line pl-3">
-            {inv.journal.map((j, i) => {
-              const dot =
-                j.status === "accepted" ? "text-reason"
-                : j.status === "rejected" ? "text-ink-3"
-                : j.phase === "revision" ? "text-warning-hover"
-                : "text-line-strong";
-              return (
-                <li key={i} className="flex gap-2">
-                  <span className="meta text-[10px]">{j.t}</span>
-                  <span className={dot}>●</span>
-                  <span className="text-ink-2">{j.detail}</span>
-                </li>
-              );
-            })}
-          </ol>
-        </details>
-      )}
-
-      {/* Synthèse */}
-      <div className="space-y-1">
-        <div className="text-label uppercase text-reason">Synthèse</div>
-        <div className="text-subhead text-ink">{inv.conclusion}</div>
-        {inv.key_drivers.length > 0 && (
-          <div className="text-small text-ink-3">
-            Facteurs classés : {inv.key_drivers.join(" · ")}
-          </div>
-        )}
-      </div>
-
       {inv.recommendations.length > 0 && (
         <div className="space-y-1">
           <div className="text-label uppercase text-brand-700">Prochaines actions</div>
-          <ul className="text-body list-disc pl-4 space-y-1 text-ink-2">
+          <ul className="text-body list-disc pl-4 space-y-1 text-ink-secondary">
             {inv.recommendations.map((r, i) => (
               <li key={i}>{r}</li>
             ))}
