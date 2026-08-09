@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import Sidebar from "@/components/Sidebar";
+import Shell from "@/components/Shell";
 
 // Instrument Sans pour tout ce qui se lit, JetBrains Mono pour tout ce qui se
 // vérifie. Auto-hébergées par next/font (aucune requête réseau à l'exécution).
@@ -27,10 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans">
         <div className="flex h-screen overflow-hidden">
           <Sidebar />
-          {/* Zone de lecture — papier chaud, largeur maîtrisée pour la lisibilité. */}
-          <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-5xl px-8 py-8">{children}</div>
-          </main>
+          <Shell>{children}</Shell>
         </div>
       </body>
     </html>
