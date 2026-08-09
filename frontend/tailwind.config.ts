@@ -1,13 +1,14 @@
 import type { Config } from "tailwindcss";
 
 // =============================================================================
-// Noreon — Design System v1.0 « Precision editorial interface »
+// Noreon — Design System v1.0 « Precision editorial » (handoff design).
 //
-// Un outil rigoureux, presque scientifique, dont les réponses se lisent comme un
-// rapport d'analyste. 70 % instrument de précision, 30 % document éditorial.
+// Les couleurs pointent vers les variables de globals.css (jetons) : le mode
+// sombre se fera plus tard en redéfinissant :root, sans toucher aux composants.
+// Aucun composant n'écrit une couleur en dur.
 //
-// Règle d'or : aucun composant n'écrit une couleur en dur. Tout passe par ces
-// jetons — seule condition pour que le mode sombre arrive plus tard sans reprise.
+// Noms canoniques du handoff (bg-primary, ink-secondary, reasoning, success…).
+// Un petit bloc d'alias en fin conserve les écrans pas encore migrés.
 // =============================================================================
 
 const config: Config = {
@@ -18,129 +19,123 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // -- Surfaces (papier chaud, pas gris froid) --------------------------
-        paper: "#FCFBF9", // background-primary — zone de lecture
-        "paper-2": "#F5F4F1", // background-secondary — sidebar, panneaux, entêtes
-        raised: "#FFFFFF", // surface-raised — cartes sémantiques, modales
-
-        // -- Encre & texte ----------------------------------------------------
-        ink: "#101820", // text-primary — conclusions, chiffres, titres
-        "ink-2": "#4A5560", // text-secondary — corps de texte long
-        "ink-3": "#646E79", // text-tertiary — étiquettes mono, métadonnées
-
-        // -- Bordures ---------------------------------------------------------
-        "line-subtle": "#E8E6E1", // séparateurs de lignes en zone dense
-        line: "#DBD8D2", // contour des cartes, champs, boutons secondaires
-        "line-strong": "#C4C0B8", // focus, sélection de ligne
-        grid: "#F0EFEB", // grille de graphique (horizontale seule)
-
-        disabled: "#A9AFB6", // texte d'un bouton inactif — jamais du bleu pâli
-
-        // -- Bleu Noreon · l'utilisateur & le produit -------------------------
-        // Navigation, action primaire, sélection, lien. « Vous pouvez agir. »
+        bg: {
+          primary: "var(--background-primary)",
+          secondary: "var(--background-secondary)",
+        },
+        surface: { raised: "var(--surface-raised)" },
+        ink: {
+          DEFAULT: "var(--text-primary)", // compat : text-ink / bg-ink
+          primary: "var(--text-primary)",
+          secondary: "var(--text-secondary)",
+          tertiary: "var(--text-tertiary)",
+          disabled: "var(--text-disabled)",
+          "2": "var(--text-secondary)", // compat : text-ink-2
+          "3": "var(--text-tertiary)", // compat : text-ink-3
+        },
+        line: {
+          subtle: "var(--border-subtle)",
+          DEFAULT: "var(--border-default)",
+          strong: "var(--border-strong)",
+          inset: "var(--divider-inset)",
+        },
         brand: {
-          50: "#F4F8FF",
-          100: "#E7F0FF", // fonds de sélection
-          200: "#C9DDFF", // anneau de focus / séries de graphique
-          300: "#9EC3FF",
-          400: "#67A0F5",
-          500: "#357FEA",
-          600: "#1769E0", // MARQUE — action primaire, nav active
-          700: "#1458BE", // survol
-          800: "#164B98",
-          900: "#173F78",
-          DEFAULT: "#1769E0",
+          50: "var(--blue-50)", 100: "var(--blue-100)", 200: "var(--blue-200)",
+          300: "var(--blue-300)", 400: "var(--blue-400)", 500: "var(--blue-500)",
+          600: "var(--blue-600)", 700: "var(--blue-700)", 800: "var(--blue-800)",
+          900: "var(--blue-900)",
+          DEFAULT: "var(--accent-brand)",
+          subtle: "var(--accent-brand-subtle)",
+          hover: "var(--accent-brand-hover)",
         },
-
-        // -- Violet · le raisonnement de la machine ---------------------------
-        // Investigation, hypothèse, découverte, recalcul, confiance de Noreon.
-        reason: {
-          DEFAULT: "#5B4BD6",
-          hover: "#4A3BC0",
-          subtle: "#EEEBFC",
+        reasoning: {
+          DEFAULT: "var(--accent-reasoning)",
+          subtle: "var(--accent-reasoning-subtle)",
+          hover: "var(--accent-reasoning-hover)",
         },
-
-        // -- Vert · validation externe (jamais la confiance de Noreon) --------
         success: {
-          DEFAULT: "#1F8A5F",
-          hover: "#166B49",
-          subtle: "#E2F3EB",
+          DEFAULT: "var(--status-success)",
+          subtle: "var(--status-success-subtle)",
+          hover: "var(--status-success-hover)",
+          border: "var(--status-success-border)",
+          bg: "var(--status-success-bg)",
         },
-
-        // -- Orange · limite épistémique (« j'ai travaillé, je ne conclus pas »)
         warning: {
-          DEFAULT: "#C77A13",
-          hover: "#8F5609",
-          subtle: "#FBF0DE",
+          DEFAULT: "var(--status-warning)",
+          subtle: "var(--status-warning-subtle)",
+          hover: "var(--status-warning-hover)",
+          border: "var(--status-warning-border)",
+          bg: "var(--status-warning-bg)",
         },
-
-        // -- Rouge · blocage (« je ne peux pas travailler ») ------------------
         blocker: {
-          DEFAULT: "#C0392B",
-          hover: "#A32C1F",
-          subtle: "#FAE7E4",
+          DEFAULT: "var(--status-blocker)",
+          subtle: "var(--status-blocker-subtle)",
+          hover: "var(--status-blocker-hover)",
+          border: "var(--status-blocker-border)",
+          bg: "var(--status-blocker-bg)",
         },
 
-        // -- Alias de compatibilité (anciens jetons → nouvelle palette) -------
-        // Permet aux écrans non encore repris d'hériter du papier chaud et du
-        // bleu Noreon sans réécriture. À retirer une fois tout migré.
+        // -- Alias de compatibilité (écrans pas encore migrés) ----------------
+        // Même variables : « paper/ink/reason/noreon.* » restent valides le
+        // temps de reprendre chaque écran. À retirer en fin de migration.
+        paper: "var(--background-primary)",
+        "paper-2": "var(--background-secondary)",
+        raised: "var(--surface-raised)",
+        grid: "var(--divider-inset)",
+        reason: {
+          DEFAULT: "var(--accent-reasoning)",
+          subtle: "var(--accent-reasoning-subtle)",
+          hover: "var(--accent-reasoning-hover)",
+        },
+        disabled: "var(--text-disabled)",
         noreon: {
-          bg: "#FCFBF9",
-          panel: "#FFFFFF",
-          border: "#DBD8D2",
-          accent: "#1769E0",
-          soft: "#646E79",
+          bg: "var(--background-primary)",
+          panel: "var(--surface-raised)",
+          border: "var(--border-default)",
+          accent: "var(--accent-brand)",
+          soft: "var(--text-tertiary)",
         },
       },
 
       fontFamily: {
-        // Instrument Sans pour tout ce qui se lit ; JetBrains Mono pour tout ce
-        // qui se vérifie (85 / 15 %). Le mono ne sert jamais de style.
+        // Auto-hébergées via next/font (variables --font-sans / --font-mono).
         sans: ["var(--font-sans)", "Instrument Sans", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "JetBrains Mono", "ui-monospace", "monospace"],
       },
 
       fontSize: {
-        // display / title / heading / subhead / body / small — échelle éditoriale
-        display: ["2rem", { lineHeight: "1.15", letterSpacing: "-0.025em", fontWeight: "600" }],
-        title: ["1.5rem", { lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "600" }],
-        heading: ["1.1875rem", { lineHeight: "1.3", letterSpacing: "-0.015em", fontWeight: "600" }],
-        subhead: ["0.96875rem", { lineHeight: "1.4", letterSpacing: "-0.01em", fontWeight: "500" }],
-        body: ["0.84375rem", { lineHeight: "1.6" }], // 13.5px
-        small: ["0.75rem", { lineHeight: "1.5" }], // 12px
-        metric: ["0.9375rem", { lineHeight: "1.2", fontWeight: "500" }], // 15px mono
-        label: ["0.625rem", { lineHeight: "1.4", letterSpacing: "0.1em", fontWeight: "500" }], // 10px caps
+        label: ["10px", { lineHeight: "1", letterSpacing: "0.1em", fontWeight: "500" }],
+        small: ["12px", { lineHeight: "1.5" }],
+        body: ["13.5px", { lineHeight: "1.6" }],
+        metric: ["15px", { lineHeight: "1", fontWeight: "500" }],
+        subhead: ["15.5px", { lineHeight: "1.4", letterSpacing: "-0.01em", fontWeight: "500" }],
+        heading: ["19px", { lineHeight: "1.3", letterSpacing: "-0.015em", fontWeight: "600" }],
+        title: ["24px", { lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "600" }],
+        display: ["32px", { lineHeight: "1.15", letterSpacing: "-0.025em", fontWeight: "600" }],
       },
 
       borderRadius: {
-        // Trois rayons seulement.
-        field: "4px",
-        button: "7px",
-        card: "10px",
+        field: "var(--radius-field)",
+        button: "var(--radius-button)",
+        card: "var(--radius-card)",
       },
 
       boxShadow: {
-        // Trois élévations dont la première est plate ; l'ombre reste l'exception.
-        e1: "0 1px 2px rgba(16,24,32,0.06)", // carte
-        e2: "0 8px 28px rgba(16,24,32,0.14)", // flottant (modale, tiroir, palette)
-        card: "0 1px 2px rgba(16,24,32,0.06)", // alias compat
+        card: "var(--elevation-1)",
+        floating: "var(--elevation-2)",
+        e1: "var(--elevation-1)", // alias compat
+        e2: "var(--elevation-2)", // alias compat
+        "focus-brand": "0 0 0 3px var(--blue-200)",
+        "focus-field": "0 0 0 3px var(--blue-100)",
       },
 
-      spacing: {
-        // Base de 4 px — échelle officielle (les valeurs Tailwind couvrent le reste).
-        "18": "4.5rem",
-      },
-
-      ringColor: {
-        focus: "#C9DDFF",
-      },
-      ringWidth: {
-        focus: "3px",
+      maxWidth: {
+        reading: "640px", // corps de texte long
       },
 
       keyframes: {
         "noreon-fadein": {
-          from: { opacity: "0", transform: "translateY(3px)" },
+          from: { opacity: "0", transform: "translateY(4px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
         "noreon-pulse": {
@@ -149,8 +144,7 @@ const config: Config = {
         },
       },
       animation: {
-        // Transitions 120–200 ms, en sortie.
-        "fade-in": "noreon-fadein 160ms ease-out",
+        "fade-in": "noreon-fadein 220ms ease-out",
       },
     },
   },
