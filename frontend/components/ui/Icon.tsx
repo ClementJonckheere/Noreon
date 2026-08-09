@@ -20,6 +20,8 @@ const PATHS: Record<string, JSX.Element> = {
   gov: <><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z" /><path d="M9 12l2 2 4-4" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" /></>,
   spaces: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
+  concepts: <><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="12" cy="18" r="2.5" /><path d="M7.6 7.9L11 15.6M16.4 7.9L13 15.6M8.5 6h7" /></>,
+  audit: <><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4" /><path d="M9 13l2 2 4-4" /></>,
 };
 
 export default function Icon({

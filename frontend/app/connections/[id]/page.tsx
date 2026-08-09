@@ -97,8 +97,8 @@ export default function Workspace() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <Link href="/" className="text-small text-ink-3 hover:text-ink transition-colors">
-            ← Conversations
+          <Link href="/data" className="text-small text-ink-3 hover:text-ink transition-colors">
+            ← Données
           </Link>
           <h1 className="text-title text-ink mt-0.5">{conn.name}</h1>
           <div className="meta mt-0.5">
