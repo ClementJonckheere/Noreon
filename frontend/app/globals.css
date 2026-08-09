@@ -2,62 +2,167 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================================
+   Noreon — Design System v1.0. Le produit doit ressembler à un document, pas à
+   un tableau de bord. Densité pilotée par le niveau d'expertise de l'écran.
+   ============================================================================= */
+
 :root {
   color-scheme: light;
 }
 
-body {
-  @apply bg-noreon-bg text-slate-800;
+@layer base {
+  body {
+    @apply bg-paper text-ink-2 antialiased;
+    font-feature-settings: "cv01", "cv03", "ss01";
+  }
+
+  /* Anneau de focus visible partout — jamais supprimé (a11y). */
+  :focus-visible {
+    @apply outline-none ring-[3px] ring-brand-200;
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-ink;
+  }
 }
 
-.card {
-  @apply bg-noreon-panel border border-noreon-border rounded-xl shadow-card;
+@layer components {
+  /* -- Boutons -------------------------------------------------------------
+     Un seul bouton plein par zone d'action. Le bleu dit « vous pouvez agir » :
+     un bouton inactif n'est jamais bleu pâli, il devient neutre.               */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-button
+           px-3.5 h-[34px] text-body font-medium transition-colors duration-150
+           disabled:cursor-not-allowed select-none;
+  }
+  .btn-sm { @apply h-[30px] px-3 text-small; }
+  .btn-lg { @apply h-[42px] px-5; }
+
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700
+           disabled:bg-line-subtle disabled:text-disabled;
+  }
+  .btn-secondary {
+    @apply btn bg-raised border border-line text-ink-2 hover:border-line-strong hover:text-ink
+           disabled:text-disabled disabled:hover:border-line;
+  }
+  /* Refuser reste réversible : le rouge n'est jamais un bouton plein. */
+  .btn-danger {
+    @apply btn bg-raised border border-line text-blocker hover:bg-blocker-subtle hover:border-blocker;
+  }
+
+  /* -- Champs --------------------------------------------------------------- */
+  .field {
+    @apply w-full rounded-field bg-raised border border-line px-3 h-[34px]
+           text-body text-ink placeholder-ink-3/70 transition-colors
+           focus:border-line-strong;
+  }
+  .field-label {
+    @apply block text-label uppercase text-ink-3 mb-1.5;
+  }
+
+  /* -- Cartes --------------------------------------------------------------
+     Une carte = « un objet qu'on peut ouvrir, valider ou dater ». Jamais un
+     simple regroupement visuel. Dans le doute : un filet et un titre.          */
+  .card {
+    @apply bg-raised border border-line rounded-card shadow-e1;
+  }
+  .rule {
+    @apply border-t border-line-subtle;
+  }
+
+  /* -- Étiquettes d'état (badges) -----------------------------------------
+     La couleur ne porte jamais seule le sens : chaque état a un mot écrit.      */
+  .tag {
+    @apply inline-flex items-center gap-1.5 rounded-field px-2 py-0.5
+           text-label uppercase font-medium;
+  }
+  .tag-brand   { @apply bg-brand-100 text-brand-800; }
+  .tag-reason  { @apply bg-reason-subtle text-reason; }
+  .tag-success { @apply bg-success-subtle text-success-hover; }
+  .tag-warning { @apply bg-warning-subtle text-warning-hover; }
+  .tag-blocker { @apply bg-blocker-subtle text-blocker-hover; }
+  .tag-neutral { @apply bg-paper-2 text-ink-3 border border-line-subtle; }
+
+  /* -- Blocs d'état · les quatre seuls -------------------------------------
+     Filet gauche coloré + titre en capitales + phrase affirmative.
+     LIMITE (orange) · ABSTENTION (orange) · BLOCAGE (rouge) · VALIDATION (vert). */
+  .state {
+    @apply rounded-card border border-line-subtle bg-raised pl-4 pr-4 py-3.5
+           border-l-[3px];
+  }
+  .state-title {
+    @apply text-label uppercase font-medium mb-1;
+  }
+  .state-body { @apply text-body text-ink-2; }
+  .state-limit    { @apply border-l-warning; }
+  .state-limit    .state-title { @apply text-warning-hover; }
+  .state-abstain  { @apply border-l-warning; }
+  .state-abstain  .state-title { @apply text-warning-hover; }
+  .state-blocker  { @apply border-l-blocker; }
+  .state-blocker  .state-title { @apply text-blocker-hover; }
+  .state-validate { @apply border-l-success; }
+  .state-validate .state-title { @apply text-success-hover; }
+
+  /* -- Score de confiance — TOUJOURS violet -------------------------------
+     C'est la machine qui estime sa propre certitude. Ne devient jamais verte :
+     seul un humain valide (le vert est réservé à la validation externe).       */
+  .confidence-track {
+    @apply h-1.5 w-full rounded-full bg-reason-subtle overflow-hidden;
+  }
+  .confidence-fill {
+    @apply h-full rounded-full bg-reason transition-[width] duration-200;
+  }
+
+  /* -- Compatibilité : classes des écrans non encore repris ---------------- */
+  .btn-ghost {
+    @apply btn bg-raised border border-line text-ink-2 hover:border-line-strong hover:text-ink;
+  }
+  .input {
+    @apply w-full rounded-field bg-raised border border-line px-3 py-2 text-body
+           text-ink placeholder-ink-3/70 outline-none transition-colors focus:border-line-strong;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-small font-medium;
+  }
+
+  /* -- Mono : les sept usages autorisés (chiffres, SQL, ids, versions…) ----- */
+  .mono { @apply font-mono; }
+  .metric { @apply font-mono text-metric text-ink tabular-nums; }
+  .meta { @apply font-mono text-small text-ink-3 tabular-nums; }
+  .kbd {
+    @apply font-mono text-[10px] text-ink-3 border border-line rounded px-1 py-px bg-paper-2;
+  }
 }
 
-.btn {
-  @apply inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition;
-}
-.btn-primary {
-  @apply btn bg-noreon-accent text-white hover:brightness-110;
-}
-.btn-ghost {
-  @apply btn bg-white border border-noreon-border text-slate-700 hover:bg-slate-50;
-}
+/* -- Densité : règle officielle (extension des trois profondeurs de réponse) -
+   Aérée (Décision/Rapport/Accueil) · Équilibrée (Comprendre/Découvertes) ·
+   Dense (Preuve/Données/Journal/Concepts).                                    */
+.density-airy   { --row: 44px; --pad: 24px; --gap: 16px; }
+.density-even   { --row: 36px; --pad: 16px; --gap: 10px; }
+.density-dense  { --row: 28px; --pad: 12px; --gap: 5px; }
 
-.input {
-  @apply w-full rounded-lg bg-white border border-noreon-border px-3 py-2 text-sm
-         text-slate-800 placeholder-slate-400 outline-none focus:border-noreon-accent;
+/* -- Attente : une analyse ne se représente jamais par un rond qui tourne.
+   La chronologie d'investigation s'affiche en violet, étape par étape.        */
+.reasoning-dots span {
+  @apply inline-block w-1.5 h-1.5 rounded-full bg-reason;
+  animation: noreon-pulse 1.1s infinite both;
 }
-
-.badge {
-  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-/* Fluidité : apparition douce des réponses et blocs. */
-@keyframes noreon-fadein {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.fade-in {
-  animation: noreon-fadein 0.22s ease-out;
-}
-
-/* Indicateur « en cours » : trois points qui pulsent. */
-.dots span {
-  @apply inline-block w-1.5 h-1.5 rounded-full bg-sky-500;
-  animation: noreon-blink 1s infinite both;
-}
-.dots span:nth-child(2) { animation-delay: 0.2s; }
-.dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes noreon-blink {
-  0%, 80%, 100% { opacity: 0.25; }
+.reasoning-dots span:nth-child(2) { animation-delay: 0.18s; }
+.reasoning-dots span:nth-child(3) { animation-delay: 0.36s; }
+@keyframes noreon-pulse {
+  0%, 80%, 100% { opacity: 0.3; }
   40% { opacity: 1; }
 }
 
+.fade-in { animation: noreon-fadein 160ms ease-out; }
+@keyframes noreon-fadein {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* prefers-reduced-motion : tout sauf l'opacité disparaît. */
 @media (prefers-reduced-motion: reduce) {
-  .fade-in, .dots span { animation: none; }
+  .fade-in, .reasoning-dots span { animation: none; }
 }

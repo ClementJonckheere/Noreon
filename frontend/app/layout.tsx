@@ -1,48 +1,37 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import Link from "next/link";
-import SessionBar from "@/components/SessionBar";
+import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import Sidebar from "@/components/Sidebar";
+
+// Instrument Sans pour tout ce qui se lit, JetBrains Mono pour tout ce qui se
+// vérifie. Auto-hébergées par next/font (aucune requête réseau à l'exécution).
+const sans = Instrument_Sans({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Noreon — Data Analyst IA",
-  description: "Comprendre. Relier. Éclairer.",
+  description: "Un outil rigoureux dont les réponses se lisent comme un rapport d'analyste.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr">
-      <body>
-        <header className="border-b border-noreon-border bg-noreon-panel/60 backdrop-blur">
-          <div className="mx-auto max-w-6xl px-6 py-3 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3">
-              <span className="text-xl font-bold tracking-tight">Noreon</span>
-              <span className="text-xs text-noreon-soft hidden sm:inline">
-                Comprendre. Relier. Éclairer.
-              </span>
-            </Link>
-            <div className="flex items-center gap-4">
-              <Link href="/spaces" className="text-sm text-noreon-soft hover:text-slate-900">
-                Espaces
-              </Link>
-              <Link href="/reports" className="text-sm text-noreon-soft hover:text-slate-900">
-                Rapports
-              </Link>
-              <Link href="/metrics" className="text-sm text-noreon-soft hover:text-slate-900">
-                Métriques
-              </Link>
-              <Link href="/settings" className="text-sm text-noreon-soft hover:text-slate-900">
-                Contexte
-              </Link>
-              <SessionBar />
-              <span className="badge bg-noreon-accent/15 text-noreon-accent">V1.0</span>
-            </div>
-          </div>
-        </header>
-        <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+    <html lang="fr" className={`${sans.variable} ${mono.variable}`}>
+      <body className="font-sans">
+        <div className="flex h-screen overflow-hidden">
+          <Sidebar />
+          {/* Zone de lecture — papier chaud, largeur maîtrisée pour la lisibilité. */}
+          <main className="flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-5xl px-8 py-8">{children}</div>
+          </main>
+        </div>
       </body>
     </html>
   );

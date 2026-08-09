@@ -80,52 +80,55 @@ export default function Workspace() {
     }
   }
 
-  if (!conn) return <div className="text-noreon-soft">Chargement…</div>;
+  if (!conn) return <div className="text-ink-3">Chargement…</div>;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <Link href="/" className="text-xs text-noreon-soft hover:underline">
-            ← Connexions
+          <Link href="/" className="text-small text-ink-3 hover:text-ink transition-colors">
+            ← Conversations
           </Link>
-          <h1 className="text-2xl font-semibold">{conn.name}</h1>
-          <div className="text-xs text-noreon-soft mono">
+          <h1 className="text-title text-ink mt-0.5">{conn.name}</h1>
+          <div className="meta mt-0.5">
             <span className="uppercase mr-2">{conn.engine}</span>
             {conn.engine === "csv" || conn.engine === "excel"
               ? "fichier importé (SQLite local)"
               : `${conn.username}@${conn.host}:${conn.port}/${conn.database}`}
           </div>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-ghost" onClick={doScan}>
+        <div className="flex gap-2 shrink-0">
+          <button className="btn-secondary btn-sm" onClick={doScan}>
             Scanner le schéma
           </button>
-          <button className="btn-ghost" onClick={doProfile}>
+          <button className="btn-secondary btn-sm" onClick={doProfile}>
             Profiler
           </button>
-          <button className="btn-ghost" onClick={doQuality}>
+          <button className="btn-secondary btn-sm" onClick={doQuality}>
             Score qualité
           </button>
         </div>
       </div>
 
       {conn.is_read_only === false && (
-        <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">
-          Ce compte n’est pas en lecture seule — les analyses sont bloquées tant
-          que les droits ne sont pas corrigés.
+        <div className="state state-blocker">
+          <div className="state-title">Blocage</div>
+          <div className="state-body">
+            Ce compte n'est pas en lecture seule — aucune analyse n'est lancée
+            tant que les droits ne sont pas corrigés.
+          </div>
         </div>
       )}
       {notice && (
-        <div className="text-sm text-noreon-soft bg-slate-100 rounded-lg p-3">
+        <div className="rounded-card border border-line-subtle bg-paper-2 px-3 py-2.5 text-body text-ink-2">
           {notice}
         </div>
       )}
 
-      <nav className="flex gap-1 border-b border-noreon-border">
+      <nav className="flex gap-1 border-b border-line overflow-x-auto">
         {(
           [
-            ["chat", "Chat"],
+            ["chat", "Conversation"],
             ["schema", "Schéma"],
             ["graph", "Graphe"],
             ["profiles", "Profils"],
@@ -133,16 +136,16 @@ export default function Workspace() {
             ["concepts", "Concepts"],
             ["definitions", "Définitions"],
             ["alerts", "Alertes"],
-            ["log", "Historique"],
+            ["log", "Journal"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm border-b-2 -mb-px ${
+            className={`px-4 py-2 text-body border-b-2 -mb-px whitespace-nowrap transition-colors ${
               tab === t
-                ? "border-noreon-accent text-slate-900"
-                : "border-transparent text-noreon-soft hover:text-slate-900"
+                ? "border-brand-600 text-ink font-medium"
+                : "border-transparent text-ink-3 hover:text-ink"
             }`}
           >
             {label}
@@ -537,19 +540,22 @@ function ChatPanel({
             turns.map((t) => (
               <div key={t.id} className="space-y-3">
                 <div className="flex justify-end">
-                  <div className="max-w-[80%] rounded-2xl bg-noreon-accent/12 border border-noreon-accent/25 px-4 py-2 text-sm text-slate-800">
+                  <div className="max-w-[80%] rounded-card bg-brand-100 border border-brand-200 px-4 py-2 text-body text-ink">
                     {t.question}
                   </div>
                 </div>
                 {t.error && (
-                  <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{t.error}</div>
+                  <div className="state state-blocker">
+                    <div className="state-title">Blocage</div>
+                    <div className="state-body">{t.error}</div>
+                  </div>
                 )}
                 {t.response ? (
                   <ChatResult r={t.response} connectionId={id} />
                 ) : (
                   !t.error && (
-                    <div className="text-sm text-noreon-soft flex items-center gap-2">
-                      <span className="dots"><span /><span /><span /></span>
+                    <div className="text-body text-reason flex items-center gap-2">
+                      <span className="reasoning-dots"><span /><span /><span /></span>
                       {t.deep
                         ? "Analyse approfondie en cours (requêtes de suivi)…"
                         : "Analyse en cours…"}
@@ -819,29 +825,29 @@ function Composer({
   onSubmit: () => void;
 }) {
   return (
-    <div className="border-t border-noreon-border p-3 space-y-2 bg-noreon-panel">
+    <div className="border-t border-line p-3 space-y-2 bg-paper-2">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="inline-flex rounded-lg border border-noreon-border overflow-hidden text-sm">
+        <div className="inline-flex rounded-button border border-line overflow-hidden text-body">
           <button
             type="button"
             onClick={() => setDeep(false)}
-            className={`px-3 py-1.5 ${
-              !deep ? "bg-slate-100 text-slate-900 font-medium" : "text-noreon-soft hover:text-slate-900"
+            className={`px-3 py-1.5 transition-colors ${
+              !deep ? "bg-raised text-ink font-medium" : "text-ink-3 hover:text-ink"
             }`}
           >
-            ⚡ Rapide
+            Rapide
           </button>
           <button
             type="button"
             onClick={() => setDeep(true)}
-            className={`px-3 py-1.5 ${
-              deep ? "bg-sky-500/15 text-sky-700 font-medium" : "text-noreon-soft hover:text-slate-900"
+            className={`px-3 py-1.5 transition-colors ${
+              deep ? "bg-reason-subtle text-reason font-medium" : "text-ink-3 hover:text-ink"
             }`}
           >
-            📊 Approfondie
+            Approfondie
           </button>
         </div>
-        <span className="text-xs text-noreon-soft flex-1 min-w-[12rem]">
+        <span className="text-small text-ink-3 flex-1 min-w-[12rem]">
           {deep
             ? "Détaille : croisements de dimensions, facteurs explicatifs, recommandations."
             : "Essentiel : réponse, graphique et indice de confiance."}
@@ -852,7 +858,7 @@ function Composer({
         <textarea
           ref={inputRef}
           rows={2}
-          className="input resize-none pr-12"
+          className="field h-auto resize-none pr-12 py-2"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -868,7 +874,7 @@ function Composer({
           onClick={onSubmit}
           disabled={busy || !q.trim()}
           aria-label="Envoyer"
-          className="absolute right-2 bottom-2 w-8 h-8 rounded-full bg-noreon-accent text-white flex items-center justify-center hover:brightness-110 disabled:opacity-40"
+          className="absolute right-2 bottom-2 w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center hover:bg-brand-700 disabled:bg-line-subtle disabled:text-disabled transition-colors"
         >
           {busy ? "…" : <Icon name="send" />}
         </button>

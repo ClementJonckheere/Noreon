@@ -4,47 +4,30 @@ import { useState } from "react";
 import { ChatResponse, api } from "@/lib/api";
 
 // Decision Engine — des mêmes données, des décisions selon le rôle.
-// Chaque décision est justifiée (Decision Journal), porte un impact estimé et
-// une priorité effort/impact (⭐), le bloc « et si je ne fais rien ? » projette
-// (prudemment) l'inaction, et le décideur peut qualifier une reco (mémoire
-// métier → « déjà appliquée avec succès dans un contexte similaire »).
-const ROLE_ICON: Record<string, string> = {
-  "Directeur financier": "💰",
-  "Responsable CRM": "🤝",
-  "Directeur réseau": "🏬",
-  "Directeur produit": "📦",
-  "Responsable des opérations": "⚙️",
-};
+// Panneau violet : ces décisions sont produites par le raisonnement. La couleur
+// suit la règle stricte : le bleu dit « vous pouvez agir » (recommandation), le
+// vert ne dit JAMAIS une hausse ni un impact favorable — un impact projeté se
+// lit en neutre, avec son signe.
 
-const CONF_CLS: Record<string, string> = {
-  "Élevée": "text-emerald-700",
-  "Moyenne": "text-amber-700",
-  "Faible": "text-slate-500",
-};
-
-const LEVEL_CLS: Record<string, string> = {
-  "Élevé": "bg-emerald-500/15 text-emerald-700",
-  "Moyen": "bg-amber-500/15 text-amber-700",
-  "Faible": "bg-slate-200 text-slate-600",
-};
-
+// Priorité effort/impact — le remplissage est neutre (magnitude), pas un jugement.
 function Stars({ n }: { n: number }) {
   const full = Math.max(1, Math.min(5, n));
   return (
-    <span className="shrink-0 tracking-tight" title={`Priorité effort/impact : ${full}/5`}>
-      <span className="text-amber-500">{"★".repeat(full)}</span>
-      <span className="text-slate-300">{"★".repeat(5 - full)}</span>
+    <span className="shrink-0 tracking-tight meta" title={`Priorité effort/impact : ${full}/5`}>
+      <span className="text-ink">{"★".repeat(full)}</span>
+      <span className="text-line-strong">{"★".repeat(5 - full)}</span>
     </span>
   );
 }
 
 type Decision = NonNullable<ChatResponse["decisions"]>["decisions"][number];
 
-// Retours possibles d'un décideur (human-in-the-loop).
+// Retours d'un décideur (human-in-the-loop). Bleu = geste, violet = en cours,
+// vert = résultat mesuré (validation externe — le seul emploi légitime du vert).
 const FEEDBACK = [
-  { status: "retained", label: "Je retiens", cls: "text-sky-700 border-sky-500/30" },
-  { status: "implemented", label: "Mise en œuvre", cls: "text-violet-700 border-violet-500/30" },
-  { status: "successful", label: "A porté ses fruits", cls: "text-emerald-700 border-emerald-500/30" },
+  { status: "retained", label: "Je retiens", cls: "text-brand-700 border-brand-200 hover:bg-brand-50" },
+  { status: "implemented", label: "Mise en œuvre", cls: "text-reason border-reason/30 hover:bg-reason-subtle" },
+  { status: "successful", label: "A porté ses fruits", cls: "text-success-hover border-success/30 hover:bg-success-subtle" },
 ];
 
 function DecisionCard(
@@ -69,62 +52,56 @@ function DecisionCard(
   }
 
   return (
-    <div className="rounded-lg border border-noreon-border bg-white/60 p-2.5 text-xs space-y-1">
-      <div className="font-medium flex items-center gap-1.5">
-        <span>{ROLE_ICON[x.role] || "•"}</span>
-        <span className="flex-1">{x.role}</span>
+    <div className="rounded-card border border-line bg-raised p-3 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 text-subhead text-ink">{x.role}</span>
         <Stars n={x.stars} />
       </div>
 
-      {/* Mémoire métier : recommandation déjà retenue / éprouvée ailleurs. */}
+      {/* Mémoire métier : recommandation déjà éprouvée ailleurs — résultat mesuré. */}
       {x.history && (
-        <div className="text-[11px] text-emerald-700 bg-emerald-500/10 rounded px-1.5 py-0.5">
-          ↻ {x.history}
+        <div className="text-small text-success-hover bg-success-subtle rounded-field px-2 py-1">
+          {x.history}
         </div>
       )}
 
-      <div className="text-slate-700">{x.priority}</div>
-      <div className="text-emerald-700">→ {x.recommendation}</div>
+      <div className="text-body text-ink-2">{x.priority}</div>
+      {/* La recommandation est une action : bleu « vous pouvez agir », jamais vert. */}
+      <div className="text-body text-brand-700 font-medium">{x.recommendation}</div>
 
-      {/* Matrice effort / impact : le décideur arbitre selon le coût/bénéfice. */}
-      <div className="flex flex-wrap items-center gap-1 pt-0.5">
-        <span className={`badge ${LEVEL_CLS[x.impact_level] || LEVEL_CLS["Moyen"]}`}>
-          Impact {x.impact_level}
-        </span>
-        <span className="badge bg-slate-100 text-slate-600">Effort {x.effort}</span>
-        {x.impact && (
-          <span className="badge bg-emerald-500/15 text-emerald-700">{x.impact}</span>
-        )}
+      {/* Matrice effort / impact — étiquettes neutres (magnitude, pas jugement). */}
+      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+        <span className="tag tag-neutral">Impact {x.impact_level}</span>
+        <span className="tag tag-neutral">Effort {x.effort}</span>
+        {x.impact && <span className="tag tag-neutral"><span className="mono">{x.impact}</span></span>}
       </div>
 
       {x.impact && (
-        <div className="text-[11px] text-noreon-soft">
-          Impact estimé {x.impact}
-          {x.impact_confidence && (
-            <> · confiance <span className={CONF_CLS[x.impact_confidence] || ""}>{x.impact_confidence}</span></>
-          )}{" "}· estimation basée sur la structure historique des données.
+        <div className="text-small text-ink-3">
+          Impact estimé <span className="mono">{x.impact}</span>
+          {x.impact_confidence && <> · confiance {x.impact_confidence}</>}{" "}
+          · estimation basée sur la structure historique des données.
         </div>
       )}
 
       {x.justification && (
-        <details className="text-[11px] text-noreon-soft">
-          <summary className="cursor-pointer">Pourquoi cette recommandation ?</summary>
-          <div className="mt-0.5 text-slate-600">{x.justification}</div>
+        <details className="text-small text-ink-3">
+          <summary className="cursor-pointer hover:text-ink">Pourquoi cette recommandation ?</summary>
+          <div className="mt-1 text-ink-2">{x.justification}</div>
         </details>
       )}
 
-      {/* Boucle d'amélioration : le décideur qualifie la reco. */}
       {connectionId && subject && (
         sent ? (
-          <div className="text-[11px] text-emerald-700">✓ Enregistré — merci, cela nourrit les prochaines analyses.</div>
+          <div className="text-small text-success-hover">Enregistré — merci, cela nourrit les prochaines analyses.</div>
         ) : (
-          <div className="flex flex-wrap gap-1 pt-0.5">
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
             {FEEDBACK.map((f) => (
               <button
                 key={f.status}
                 onClick={() => qualify(f.status)}
                 disabled={busy}
-                className={`text-[11px] rounded border px-1.5 py-0.5 hover:bg-slate-50 disabled:opacity-50 ${f.cls}`}
+                className={`text-small rounded-field border px-2 py-0.5 transition-colors disabled:opacity-50 ${f.cls}`}
               >
                 {f.label}
               </button>
@@ -141,30 +118,34 @@ export default function DecisionView(
   { d: NonNullable<ChatResponse["decisions"]>; connectionId?: number; subject?: string },
 ) {
   return (
-    <div className="card p-4 space-y-3 border border-violet-500/30">
-      <div className="text-sm font-semibold text-violet-700">🧭 Décisions selon le rôle</div>
+    <div className="card p-4 space-y-3 border-l-[3px] border-l-reason">
+      <div className="flex items-center gap-2">
+        <span className="tag tag-reason">Décisions</span>
+        <span className="text-heading text-ink">Selon le rôle</span>
+      </div>
       {d.restated && (
-        <div className="text-xs text-slate-600">
-          🎯 Objectif compris : <span className="font-medium">{d.restated}</span>
+        <div className="text-body text-ink-2">
+          Objectif compris : <span className="font-medium text-ink">{d.restated}</span>
         </div>
       )}
 
-      <div className="grid sm:grid-cols-2 gap-2">
+      <div className="grid sm:grid-cols-2 gap-2.5">
         {d.decisions.map((x, i) => (
           <DecisionCard key={i} x={x} connectionId={connectionId} subject={subject} />
         ))}
       </div>
 
-      {/* « Et si je ne fais rien ? » — projection prudente, jamais une prédiction. */}
+      {/* « Et si je ne fais rien ? » — projection prudente, en neutre (pas une
+          alarme : l'orange dirait à tort une urgence à traiter). */}
       {d.inaction && (
-        <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-2.5 text-xs text-amber-800">
-          <span className="font-medium">Et si je ne fais rien ? </span>
+        <div className="rounded-card border border-line-subtle bg-paper-2 px-3 py-2.5 text-body text-ink-2">
+          <span className="font-medium text-ink">Et si je ne fais rien ? </span>
           {d.inaction}
         </div>
       )}
 
-      <div className="text-[11px] text-noreon-soft">
-        Priorité par ⭐ = rapport effort/impact. Les données sont identiques ; les priorités changent selon le métier.
+      <div className="text-small text-ink-3">
+        Priorité par ★ = rapport effort/impact. Les données sont identiques ; les priorités changent selon le métier.
       </div>
     </div>
   );

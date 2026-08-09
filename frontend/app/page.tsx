@@ -12,13 +12,6 @@ const ENGINES = [
   { id: "excel", label: "Excel", kind: "file" },
 ] as const;
 
-const ENGINE_BADGE: Record<string, string> = {
-  postgresql: "bg-sky-500/15 text-sky-700",
-  mysql: "bg-amber-500/15 text-amber-700",
-  csv: "bg-emerald-500/15 text-emerald-700",
-  excel: "bg-emerald-500/15 text-emerald-700",
-};
-
 const EMPTY = {
   name: "",
   host: "localhost",
@@ -82,134 +75,143 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      <PipelineRibbon />
-      <div className="grid gap-8 md:grid-cols-5">
-      <section className="md:col-span-3 space-y-4">
-        <h1 className="text-2xl font-semibold">Connexions</h1>
-        <p className="text-sm text-noreon-soft">
-          Sources multi-moteurs : PostgreSQL, MySQL, CSV, Excel. Noreon vérifie
-          que l’accès est en <strong>lecture seule</strong> avant toute analyse.
+      <header className="space-y-1">
+        <h1 className="text-title text-ink">Conversations</h1>
+        <p className="text-body text-ink-2">
+          Choisissez une source pour composer une analyse. Noreon vérifie que
+          l'accès est en <span className="text-ink font-medium">lecture seule</span> avant de travailler.
         </p>
+      </header>
 
-        {conns.length === 0 && (
-          <div className="card p-6 text-noreon-soft text-sm">
-            Aucune connexion pour l’instant. Créez-en une à droite.
+      <PipelineRibbon />
+
+      <div className="grid gap-8 md:grid-cols-5">
+        <section className="md:col-span-3 space-y-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-heading text-ink">Sources connectées</h2>
+            <span className="meta">{conns.length}</span>
           </div>
-        )}
 
-        <div className="space-y-3">
-          {conns.map((c) => (
-            <Link
-              key={c.id}
-              href={`/connections/${c.id}`}
-              className="card p-4 flex items-center justify-between hover:border-noreon-accent transition"
-            >
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{c.name}</span>
-                  <span className={`badge ${ENGINE_BADGE[c.engine] || "bg-slate-200"}`}>
-                    {ENGINES.find((e) => e.id === c.engine)?.label || c.engine}
-                  </span>
-                </div>
-                <div className="text-xs text-noreon-soft mono">
-                  {c.engine === "csv" || c.engine === "excel"
-                    ? `fichier ${c.engine}`
-                    : `${c.username}@${c.host}:${c.port}/${c.database}`}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <ReadOnlyBadge value={c.is_read_only} />
-                <StatusBadge status={c.status} />
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section className="md:col-span-2">
-        <div className="card p-5 space-y-4">
-          <h2 className="font-semibold">Nouvelle connexion</h2>
-
-          <div>
-            <label className="text-xs text-noreon-soft">Moteur</label>
-            <div className="grid grid-cols-2 gap-2 mt-1">
-              {ENGINES.map((e) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  onClick={() => {
-                    setEngine(e.id);
-                    if (e.kind === "db") setForm((f) => ({ ...f, port: e.port }));
-                  }}
-                  className={`btn text-xs justify-center ${
-                    engine === e.id
-                      ? "bg-noreon-accent text-white"
-                      : "border border-noreon-border text-noreon-soft"
-                  }`}
-                >
-                  {e.label}
-                </button>
-              ))}
+          {conns.length === 0 && (
+            <div className="card p-6 text-body text-ink-3">
+              Aucune source pour l'instant. Créez-en une à droite.
             </div>
+          )}
+
+          <div className="space-y-2.5">
+            {conns.map((c) => (
+              <Link
+                key={c.id}
+                href={`/connections/${c.id}`}
+                className="card p-4 flex items-center justify-between hover:border-line-strong transition-colors"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-subhead text-ink truncate">{c.name}</span>
+                    <span className="tag tag-neutral">
+                      {ENGINES.find((e) => e.id === c.engine)?.label || c.engine}
+                    </span>
+                  </div>
+                  <div className="meta mt-0.5 truncate">
+                    {c.engine === "csv" || c.engine === "excel"
+                      ? `fichier ${c.engine}`
+                      : `${c.username}@${c.host}:${c.port}/${c.database}`}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <ReadOnlyBadge value={c.is_read_only} />
+                  <StatusBadge status={c.status} />
+                </div>
+              </Link>
+            ))}
           </div>
+        </section>
 
-          <form onSubmit={submit} className="space-y-3">
-            <Field label="Nom" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
+        <section className="md:col-span-2">
+          <div className="card p-5 space-y-4">
+            <h2 className="text-subhead text-ink">Nouvelle source</h2>
 
-            {isFile ? (
-              <div>
-                <label className="text-xs text-noreon-soft">
-                  Fichier {engine === "excel" ? "(.xlsx)" : "(.csv)"}
-                </label>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept={engine === "excel" ? ".xlsx,.xls,.xlsm" : ".csv"}
-                  className="input"
-                  required
-                />
-                <p className="text-xs text-noreon-soft mt-1">
-                  Le fichier est matérialisé localement en base analytique
-                  (lecture seule).
-                </p>
+            <div>
+              <label className="field-label">Moteur</label>
+              <div className="grid grid-cols-2 gap-2">
+                {ENGINES.map((e) => (
+                  <button
+                    key={e.id}
+                    type="button"
+                    onClick={() => {
+                      setEngine(e.id);
+                      if (e.kind === "db") setForm((f) => ({ ...f, port: e.port }));
+                    }}
+                    className={`btn btn-sm ${
+                      engine === e.id
+                        ? "bg-brand-600 text-white"
+                        : "bg-raised border border-line text-ink-2 hover:border-line-strong"
+                    }`}
+                  >
+                    {e.label}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <>
-                <Field label="Hôte" value={form.host} mono onChange={(v) => setForm({ ...form, host: v })} required />
-                <Field label="Port" value={String(form.port)} mono onChange={(v) => setForm({ ...form, port: Number(v) })} />
-                <Field label="Base" value={form.database} mono onChange={(v) => setForm({ ...form, database: v })} required />
-                <Field label="Utilisateur" value={form.username} mono onChange={(v) => setForm({ ...form, username: v })} required />
-                <Field label="Mot de passe" value={form.password} type="password" onChange={(v) => setForm({ ...form, password: v })} />
-              </>
+            </div>
+
+            <form onSubmit={submit} className="space-y-3">
+              <Field label="Nom" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
+
+              {isFile ? (
+                <div>
+                  <label className="field-label">
+                    Fichier {engine === "excel" ? "(.xlsx)" : "(.csv)"}
+                  </label>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept={engine === "excel" ? ".xlsx,.xls,.xlsm" : ".csv"}
+                    className="field h-auto py-2"
+                    required
+                  />
+                  <p className="text-small text-ink-3 mt-1.5">
+                    Le fichier est matérialisé localement en base analytique (lecture seule).
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <Field label="Hôte" value={form.host} mono onChange={(v) => setForm({ ...form, host: v })} required />
+                  <Field label="Port" value={String(form.port)} mono onChange={(v) => setForm({ ...form, port: Number(v) })} />
+                  <Field label="Base" value={form.database} mono onChange={(v) => setForm({ ...form, database: v })} required />
+                  <Field label="Utilisateur" value={form.username} mono onChange={(v) => setForm({ ...form, username: v })} required />
+                  <Field label="Mot de passe" value={form.password} type="password" onChange={(v) => setForm({ ...form, password: v })} />
+                </>
+              )}
+
+              <button className="btn-primary w-full" disabled={busy}>
+                {busy ? "Test en cours…" : isFile ? "Importer & analyser" : "Tester & enregistrer"}
+              </button>
+            </form>
+
+            {error && (
+              <div className="state state-blocker">
+                <div className="state-title">Blocage</div>
+                <div className="state-body">{error}</div>
+              </div>
             )}
-
-            <button className="btn-primary w-full justify-center" disabled={busy}>
-              {busy ? "Test en cours…" : isFile ? "Importer & analyser" : "Tester & enregistrer"}
-            </button>
-          </form>
-
-          {error && (
-            <div className="text-sm text-red-600 bg-red-500/10 rounded-lg p-3">{error}</div>
-          )}
-          {result && (
-            <div className="text-sm space-y-2">
-              <div className="text-emerald-700">
-                Connexion « {result.connection.name} » enregistrée.
-              </div>
-              {result.probe.server_version && (
-                <div className="text-noreon-soft text-xs">
-                  {result.probe.server_version.split(",")[0]}
+            {result && (
+              <div className="space-y-2">
+                <div className="text-body text-ink">
+                  Source « {result.connection.name} » enregistrée.
                 </div>
-              )}
-              {result.read_only_alert && (
-                <pre className="text-xs text-amber-700 bg-amber-500/10 rounded-lg p-3 whitespace-pre-wrap">
-                  {result.read_only_alert}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+                {result.probe.server_version && (
+                  <div className="meta">{result.probe.server_version.split(",")[0]}</div>
+                )}
+                {result.read_only_alert && (
+                  <div className="state state-limit">
+                    <div className="state-title">Limite</div>
+                    <pre className="state-body whitespace-pre-wrap font-sans">{result.read_only_alert}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -232,9 +234,9 @@ function Field({
 }) {
   return (
     <div>
-      <label className="text-xs text-noreon-soft">{label}</label>
+      <label className="field-label">{label}</label>
       <input
-        className={`input ${mono ? "mono" : ""}`}
+        className={`field ${mono ? "mono" : ""}`}
         type={type}
         required={required}
         value={value}
@@ -244,19 +246,16 @@ function Field({
   );
 }
 
+// Lecture seule vérifiée = un contrôle technique passé (le seul emploi légitime
+// du vert). Un accès en écriture est un blocage : rouge.
 function ReadOnlyBadge({ value }: { value: boolean | null }) {
-  if (value === true)
-    return <span className="badge bg-emerald-500/15 text-emerald-700">read-only ✓</span>;
-  if (value === false)
-    return <span className="badge bg-red-500/15 text-red-600">écriture ✗</span>;
-  return <span className="badge bg-slate-200 text-noreon-soft">non testé</span>;
+  if (value === true) return <span className="tag tag-success">lecture seule ✓</span>;
+  if (value === false) return <span className="tag tag-blocker">écriture ✗</span>;
+  return <span className="tag tag-neutral">non testé</span>;
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    ok: "bg-emerald-500/15 text-emerald-700",
-    error: "bg-red-500/15 text-red-600",
-    untested: "bg-slate-200 text-noreon-soft",
-  };
-  return <span className={`badge ${map[status] || map.untested}`}>{status}</span>;
+  if (status === "ok") return <span className="tag tag-success">ok</span>;
+  if (status === "error") return <span className="tag tag-blocker">erreur</span>;
+  return <span className="tag tag-neutral">non testé</span>;
 }
