@@ -7,6 +7,7 @@ import { api, Connection, ReportSummary } from "@/lib/api";
 import Icon from "@/components/ui/Icon";
 import Kbd from "@/components/ui/Kbd";
 import { conversationRepository } from "@/lib/conversation/repository";
+import { useCurrentSpace } from "@/lib/space";
 
 // Écran 02 — Accueil analyste (densité équilibrée). Même architecture que 01,
 // priorité inversée : « l'analyste voit d'abord ce qui est fragile, pas ce qui
@@ -16,6 +17,7 @@ type CheckRow = { count: string; title: string; detail: string; action: string; 
 
 export default function AnalystHome({ name }: { name: string }) {
   const router = useRouter();
+  const { mode } = useCurrentSpace();
   const [conns, setConns] = useState<Connection[]>([]);
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [q, setQ] = useState("");
@@ -51,11 +53,26 @@ export default function AnalystHome({ name }: { name: string }) {
       <header className="space-y-1">
         <h1 className="text-title text-ink-primary">{name ? `Bonjour ${name}` : "Bonjour"}</h1>
         <p className="text-body text-ink-secondary">
-          {checklist.length + 3} éléments attendent votre regard.
+          {mode === "demo"
+            ? `${checklist.length + 3} éléments attendent votre regard.`
+            : "Ce qui est fragile apparaîtra ici en priorité."}
         </p>
       </header>
 
-      {/* Liste de contrôle : ce qui est fragile d'abord. */}
+      {/* Mode LIVE : état vide honnête (écran 28), jamais de contrôles fictifs. */}
+      {mode !== "demo" && (
+        <section className="card p-8 text-center space-y-2">
+          <div className="text-subhead text-ink-primary">Rien à vérifier pour l'instant</div>
+          <p className="text-body text-ink-tertiary max-w-reading mx-auto">
+            Les analyses fragiles, concepts à valider et découvertes s'afficheront ici
+            au fil des investigations. Composez une analyse pour commencer.
+          </p>
+        </section>
+      )}
+
+      {/* Liste de contrôle : ce qui est fragile d'abord (scénario démo). */}
+      {mode === "demo" && (
+      <>
       <section className="card divide-y divide-line-inset">
         {checklist.map((r, i) => (
           <Link
@@ -96,6 +113,8 @@ export default function AnalystHome({ name }: { name: string }) {
           onOpen={() => ask("Pourquoi le panier moyen web progresse ?")}
         />
       </section>
+      </>
+      )}
 
       {/* Composer une analyse. */}
       <section className="rounded-card border border-line bg-brand-50 p-4 flex items-center gap-3">

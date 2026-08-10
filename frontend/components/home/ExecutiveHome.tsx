@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api, ReportSummary } from "@/lib/api";
 import Icon from "@/components/ui/Icon";
 import { conversationRepository } from "@/lib/conversation/repository";
+import { useCurrentSpace } from "@/lib/space";
 
 // Écran 01 — Accueil dirigeant (densité aérée). « Le dirigeant n'ouvre jamais
 // une liste : il ouvre des décisions déjà instruites, avec leur impact estimé
@@ -24,6 +25,7 @@ const SUGGESTIONS = [
 
 export default function ExecutiveHome({ name }: { name: string }) {
   const router = useRouter();
+  const { mode } = useCurrentSpace();
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [q, setQ] = useState("");
 
@@ -73,7 +75,38 @@ export default function ExecutiveHome({ name }: { name: string }) {
         </div>
       </section>
 
-      {/* Décisions prioritaires. */}
+      {/* Mode LIVE sans file de décisions : état vide honnête (écran 28) — jamais
+          de scénario vitrine mêlé à un environnement réel. */}
+      {mode !== "demo" && (
+        <>
+          {reviewReport ? (
+            <section className="space-y-3">
+              <div className="text-label uppercase text-ink-tertiary">À instruire</div>
+              <Link href={`/reports/${reviewReport.id}`} className="card p-5 flex items-center justify-between hover:border-line-strong transition-colors">
+                <div>
+                  <div className="text-heading text-ink-primary">{reviewReport.title}</div>
+                  <div className="flex items-center gap-1.5 text-body text-warning-hover mt-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-warning" /> Rapport en revue
+                  </div>
+                </div>
+                <span className="btn-secondary">Comparer</span>
+              </Link>
+            </section>
+          ) : (
+            <section className="card p-8 text-center space-y-2">
+              <div className="text-subhead text-ink-primary">Rien ne requiert votre attention pour l'instant</div>
+              <p className="text-body text-ink-tertiary max-w-reading mx-auto">
+                Les décisions prioritaires apparaîtront ici dès qu'une analyse aura été
+                publiée. Posez une question ci-dessus pour commencer.
+              </p>
+            </section>
+          )}
+        </>
+      )}
+
+      {/* Décisions prioritaires — scénario vitrine (mode démo uniquement). */}
+      {mode === "demo" && (
+      <>
       <section className="space-y-3">
         <div className="text-label uppercase text-ink-tertiary">Deux décisions prioritaires</div>
 
@@ -148,6 +181,8 @@ export default function ExecutiveHome({ name }: { name: string }) {
           </div>
         </div>
       </section>
+      </>
+      )}
     </div>
   );
 }

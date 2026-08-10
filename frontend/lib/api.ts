@@ -463,6 +463,7 @@ export interface Space {
   slug: string;
   description: string;
   connection_ids: number[];
+  mode?: "demo" | "live";
   created_at: string | null;
 }
 export interface SpaceDetail extends Space {
