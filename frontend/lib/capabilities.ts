@@ -20,12 +20,13 @@ export interface Capabilities {
   validateConcept: boolean;   // valider/arbitrer un concept
   decideAction: boolean;      // retenir/instruire une décision
   administerSpace: boolean;   // gouvernance de l'espace
+  manageSources: boolean;     // connecter/retirer une source (sinon : demander)
 }
 
 const NONE: Capabilities = {
   askQuestions: false, viewDiscoveries: false, viewReports: false, viewPlan: false,
   viewData: false, inspectQuality: false, manageConcepts: false, publishConclusion: false,
-  validateConcept: false, decideAction: false, administerSpace: false,
+  validateConcept: false, decideAction: false, administerSpace: false, manageSources: false,
 };
 
 // Direction — décider. Voit les décisions instruites, pas l'atelier data.
@@ -40,7 +41,7 @@ const ANALYSTE: Capabilities = {
   ...NONE,
   askQuestions: true, viewDiscoveries: true, viewReports: true,
   viewData: true, inspectQuality: true, manageConcepts: true,
-  publishConclusion: true, validateConcept: true,
+  publishConclusion: true, validateConcept: true, manageSources: true,
 };
 
 // Opérationnel — agir. Son périmètre, ses actions, la lecture des rapports.
@@ -53,7 +54,7 @@ export function capabilitiesForRole(role?: string | null): Capabilities {
   switch (role) {
     case "analyst": return ANALYSTE;
     case "reader": return OPERATIONNEL;
-    case "admin": return { ...DIRECTION, viewData: true, inspectQuality: true, manageConcepts: true, validateConcept: true };
+    case "admin": return { ...DIRECTION, viewData: true, inspectQuality: true, manageConcepts: true, validateConcept: true, manageSources: true };
     default: return DIRECTION; // mode dev / non authentifié : accueil dirigeant
   }
 }

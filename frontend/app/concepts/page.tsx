@@ -3,13 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, Connection } from "@/lib/api";
+import { useSession } from "@/lib/session";
 
 // Concepts — le vocabulaire commun et ses désaccords (la Semantic Layer).
 // Domaine de premier niveau : ce que les données signifient, distinct de ce que
 // Noreon connaît (Données) et de la confiance qu'il peut leur accorder (Qualité).
 export default function ConceptsPage() {
   const [conns, setConns] = useState<Connection[] | null>(null);
+  const { caps } = useSession();
   useEffect(() => { api.listConnections().then(setConns).catch(() => setConns([])); }, []);
+  const sourceCta = caps.manageSources
+    ? { href: "/data", label: "Connecter une source" }
+    : { href: "/data", label: "Demander une connexion" };
 
   return (
     <div className="space-y-6 fade-in">
@@ -29,7 +34,7 @@ export default function ConceptsPage() {
           <p className="text-body text-ink-tertiary max-w-reading mx-auto">
             Les concepts émergent d'une source profilée : Noreon propose, vous validez.
           </p>
-          <div className="pt-2"><Link href="/data" className="btn-secondary">Connecter une source</Link></div>
+          <div className="pt-2"><Link href={sourceCta.href} className="btn-secondary">{sourceCta.label}</Link></div>
         </div>
       ) : (
         <div className="space-y-2.5">

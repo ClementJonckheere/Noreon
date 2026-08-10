@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Icon from "@/components/ui/Icon";
 import SessionBar from "@/components/SessionBar";
-import { api, Me } from "@/lib/api";
-import { capabilitiesForRole, Capabilities } from "@/lib/capabilities";
+import { Capabilities } from "@/lib/capabilities";
+import { useSession } from "@/lib/session";
 
 // Sidebar 248 px, fond background-secondary. La navigation DÉRIVE des capacités
 // (jamais d'un `if (role === …)`). Gouvernance/Journal sortent de la nav ; les
@@ -42,11 +41,7 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
 
 export default function Sidebar() {
   const pathname = usePathname() || "/";
-  const [caps, setCaps] = useState<Capabilities>(() => capabilitiesForRole(null));
-
-  useEffect(() => {
-    api.me().then((m: Me) => setCaps(capabilitiesForRole(m.role))).catch(() => {});
-  }, []);
+  const { caps } = useSession();
 
   if (pathname.startsWith("/login")) return null;
 

@@ -3,13 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, Connection } from "@/lib/api";
+import { useSession } from "@/lib/session";
 
 // Qualité — jusqu'où Noreon peut se fier aux données. Domaine de premier niveau
 // (pas un enfant de Data). Le drill-down par source montrera fraîcheur,
 // complétude, cohérence, stabilité, incidents et conclusions impactées.
 export default function QualityPage() {
   const [conns, setConns] = useState<Connection[] | null>(null);
+  const { caps } = useSession();
   useEffect(() => { api.listConnections().then(setConns).catch(() => setConns([])); }, []);
+  // L'action dérive de la capacité : sans manageSources, on ne « connecte » pas, on demande.
+  const sourceCta = caps.manageSources
+    ? { href: "/data", label: "Connecter une source" }
+    : { href: "/data", label: "Demander une connexion" };
 
   return (
     <div className="space-y-6 fade-in">
@@ -25,11 +31,13 @@ export default function QualityPage() {
         <div className="text-body text-ink-tertiary">Chargement…</div>
       ) : conns.length === 0 ? (
         <div className="card p-8 text-center space-y-2">
-          <div className="text-subhead text-ink-primary">Rien à contrôler pour l'instant</div>
+          <div className="text-subhead text-ink-primary">Aucune source à contrôler</div>
           <p className="text-body text-ink-tertiary max-w-reading mx-auto">
-            Les contrôles s'appliquent à une source connectée.
+            Connectez une source à cet espace pour que Noreon puisse vérifier sa fraîcheur,
+            sa complétude et sa cohérence. Aucune donnée n'est pas la même chose qu'aucun
+            problème détecté.
           </p>
-          <div className="pt-2"><Link href="/data" className="btn-secondary">Connecter une source</Link></div>
+          <div className="pt-2"><Link href={sourceCta.href} className="btn-secondary">{sourceCta.label}</Link></div>
         </div>
       ) : (
         <div className="space-y-2.5">
