@@ -20,7 +20,7 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
       <div className="h-[52px] shrink-0 flex items-center gap-1 px-3 border-b border-line-subtle">
         <TabButton active={tab === "comprendre"} onClick={() => setTab("comprendre")}>Comprendre</TabButton>
         {hasProof && <TabButton active={tab === "preuve"} onClick={() => setTab("preuve")}>Preuve</TabButton>}
-        {hasSources && <TabButton active={tab === "source"} onClick={() => setTab("source")}>Source</TabButton>}
+        {hasSources && <TabButton active={tab === "source"} onClick={() => setTab("source")}>Sources</TabButton>}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 density-dense">
@@ -31,7 +31,7 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
               <div className="state state-limit">
                 <div className="state-title">Ce qui pourrait remettre en question cette conclusion</div>
                 <ul className="state-body space-y-0.5">
-                  {r.self_critique.map((c, i) => <li key={i}>Cette analyse {c}.</li>)}
+                  {r.self_critique.map((c, i) => <li key={i}>{asSentence(c)}</li>)}
                 </ul>
               </div>
             )}
@@ -51,6 +51,16 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
 
         {tab === "preuve" && (
           <>
+            {/* Lignage : le concept métier ↔ sa traduction physique. */}
+            {r.investigation?.lineage && (
+              <div className="space-y-1.5">
+                <div className="text-label uppercase text-ink-tertiary">Concepts → physique</div>
+                <LineageRow concept={r.investigation.lineage.measure.concept} physical={r.investigation.metric_label} />
+                {r.investigation.lineage.dimensions.map((d, i) => (
+                  <LineageRow key={i} concept={d.concept} physical={d.physical ?? d.physical_label} />
+                ))}
+              </div>
+            )}
             <EvidenceGraph r={r} />
             {r.sql && (
               <pre className="mono bg-bg-secondary border border-line-subtle rounded-card p-3 overflow-x-auto whitespace-pre-wrap text-small text-ink-secondary">
@@ -101,4 +111,23 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-body text-ink-tertiary">{children}</p>;
+}
+
+// Les fragments d'auto-critique du moteur ne suivent pas tous le même gabarit
+// (« suppose que… », « la période récente… ») : on les rend comme des phrases,
+// sans préfixe « Cette analyse » qui produisait des phrases cassées.
+function asSentence(fragment: string): string {
+  const f = (fragment || "").trim();
+  const s = /^(suppose|considère|retient|écarte|ignore)\b/i.test(f) ? `Cette analyse ${f}` : f;
+  const capped = s.charAt(0).toUpperCase() + s.slice(1);
+  return /[.!?]$/.test(capped) ? capped : `${capped}.`;
+}
+
+function LineageRow({ concept, physical }: { concept: string; physical: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-field border border-line-subtle px-3 py-1.5">
+      <span className="text-body text-ink-primary">{concept}</span>
+      <span className="mono text-small text-ink-tertiary truncate">{physical}</span>
+    </div>
+  );
 }

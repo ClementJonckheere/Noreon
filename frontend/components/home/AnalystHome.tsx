@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, Connection, ReportSummary } from "@/lib/api";
 import Icon from "@/components/ui/Icon";
+import Kbd from "@/components/ui/Kbd";
 import { conversationRepository } from "@/lib/conversation/repository";
 
 // Écran 02 — Accueil analyste (densité équilibrée). Même architecture que 01,
@@ -105,7 +106,7 @@ export default function AnalystHome({ name }: { name: string }) {
           placeholder="Composer une analyse…"
           className="flex-1 bg-transparent text-[15px] text-ink-primary placeholder-ink-tertiary focus:outline-none"
         />
-        <span className="kbd">⌘K</span>
+        <Kbd />
         <button onClick={() => ask()} className="btn-primary shrink-0">
           <Icon name="plus" className="w-4 h-4" /> Composer
         </button>

@@ -86,9 +86,12 @@ export default function AnswerView({
         <div className="text-small text-ink-3">Objectif compris : {r.intent_restated}</div>
       )}
 
+      {/* Observation initiale : le constat temporel, distinct de la conclusion
+          causale — Noreon n'a pas encore fini d'investiguer à ce stade. */}
       {r.chronicle && r.chronicle.streak >= 2 && (
-        <div className="rounded-card border border-brand-200 bg-brand-50 px-3 py-2 text-body text-brand-800">
-          {r.chronicle.narrative}
+        <div className="rounded-card border border-line-subtle bg-bg-secondary px-4 py-3">
+          <div className="text-label uppercase text-ink-tertiary mb-1">Observation initiale</div>
+          <div className="text-body text-ink-secondary">{r.chronicle.narrative}</div>
         </div>
       )}
 
@@ -136,9 +139,12 @@ export default function AnswerView({
               <div className="state state-limit">
                 <div className="state-title">Ce qui pourrait remettre en question cette conclusion</div>
                 <ul className="state-body space-y-0.5">
-                  {r.self_critique.map((c, i) => (
-                    <li key={i}>Cette analyse {c}.</li>
-                  ))}
+                  {r.self_critique.map((c, i) => {
+                    const f = c.trim();
+                    const s = /^(suppose|considère|retient|écarte|ignore)\b/i.test(f) ? `Cette analyse ${f}` : f;
+                    const t = s.charAt(0).toUpperCase() + s.slice(1);
+                    return <li key={i}>{/[.!?]$/.test(t) ? t : `${t}.`}</li>;
+                  })}
                 </ul>
               </div>
             )}

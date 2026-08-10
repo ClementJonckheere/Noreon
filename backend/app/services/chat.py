@@ -270,23 +270,37 @@ def answer_question(
                         history=(lambda role, reco: dmem_svc.annotate(_dmem_records, role, reco))
                         if _dmem_records else None,
                     )
+                # --- Semantic Layer : le langage physique du moteur devient un
+                # langage métier AVANT d'atteindre la couche Decision ; le
+                # physique (table.colonne, SQL) reste dans la Preuve (lineage).
+                from app.services import concepts as concepts_svc
+                inv_dict = inv.as_dict()
+                _repls = concepts_svc.apply_semantic_layer(inv_dict)
+                _msg_repls = _repls + [(inv.subject, inv_dict.get("subject_label") or inv.subject)]
+                message = concepts_svc.translate(agent_svc.summary_message(inv), _msg_repls)
+                decisions_dict = (concepts_svc.translate(decisions.as_dict(), _repls)
+                                  if decisions is not None else None)
+                intent_restated_val = concepts_svc.translate(
+                    (decisions.restated if decisions is not None
+                     else decision_svc.restate_intent(
+                         question, metric_label=inv.metric_label,
+                         trend_direction=inv_chron.direction if inv_chron else None)),
+                    _repls)
                 return ChatResponse(
                     status="answered", question=question,
-                    message=agent_svc.summary_message(inv),
+                    message=message,
                     rationale="Investigation multi-étapes (planification → sous-questions → synthèse).",
                     tables_used=[inv.subject],
                     columns=inv.trend_columns, rows=inv.trend_rows, row_count=len(inv.trend_rows),
-                    investigation=inv.as_dict(), confidence=conf.as_dict(),
+                    investigation=inv_dict, confidence=conf.as_dict(),
                     validation=inv_validation,
                     sources=_sources([inv.subject], inv.trend_columns, {}),
                     self_critique=inv_critique,
-                    chronicle=inv_chron.as_dict() if inv_chron is not None else None,
+                    chronicle=(concepts_svc.translate(inv_chron.as_dict(), _repls)
+                               if inv_chron is not None else None),
                     intent=decision_svc.detect_intent(question),
-                    intent_restated=(decisions.restated if decisions is not None
-                                     else decision_svc.restate_intent(
-                                         question, metric_label=inv.metric_label,
-                                         trend_direction=inv_chron.direction if inv_chron else None)),
-                    decisions=decisions.as_dict() if decisions is not None else None,
+                    intent_restated=intent_restated_val,
+                    decisions=decisions_dict,
                     serendipity=disc_svc.top_side_finding(
                         db, conn, exclude_table=inv.subject,
                         hidden_tables=hidden_tables, hidden_columns=hidden_columns),

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Icon from "@/components/ui/Icon";
+import Kbd from "@/components/ui/Kbd";
 import SessionBar from "@/components/SessionBar";
 import { Capabilities } from "@/lib/capabilities";
 import { useSession } from "@/lib/session";
@@ -102,7 +103,7 @@ export default function Sidebar() {
         <button type="button" className="w-full flex items-center gap-2 h-9 px-3 rounded-[6px] bg-surface-raised border border-line text-ink-tertiary text-[12.5px] hover:border-line-strong transition-colors">
           <Icon name="search" className="w-4 h-4" />
           <span className="flex-1 text-left">Rechercher</span>
-          <span className="kbd">⌘K</span>
+          <Kbd />
         </button>
       </div>
 

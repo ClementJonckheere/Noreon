@@ -365,6 +365,14 @@ export interface ChatResponse {
     trend_rows: any[][];
     journal: { t: string; phase: string; status: string; detail: string }[];
     revisions: string[];
+    // Semantic Layer : concept métier + lignage physique (pour la Preuve).
+    subject_label?: string;
+    measure_label_concept?: string;
+    lineage?: {
+      measure: { concept: string; physical_label: string };
+      dimensions: { concept: string; physical: string | null; physical_label: string }[];
+    };
+    concepts?: { kind: string; label: string; physical?: string | null; physical_label?: string }[];
   } | null;
   deep: {
     subject: string;

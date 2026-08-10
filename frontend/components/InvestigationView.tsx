@@ -18,7 +18,7 @@ export default function InvestigationView({
         <summary className="flex items-center gap-2 cursor-pointer list-none rounded-card border border-line-subtle bg-bg-secondary px-4 py-2.5">
           <span className="grid place-items-center w-4 h-4 rounded-full bg-success text-white text-[9px]">✓</span>
           <span className="text-label uppercase text-ink-tertiary flex-1">
-            Investigation terminée · {inv.steps.length} étape(s) · sujet {inv.subject}
+            Investigation terminée · {inv.steps.length} étape{inv.steps.length > 1 ? "s" : ""} · {inv.subject_label ?? inv.subject}
           </span>
           <span className="text-small text-brand-700 group-open:hidden">Déplier</span>
           <span className="text-small text-brand-700 hidden group-open:inline">Replier</span>

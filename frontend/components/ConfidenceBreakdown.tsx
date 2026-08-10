@@ -23,7 +23,7 @@ export default function ConfidenceBreakdown({ c }: { c: NonNullable<ChatResponse
   return (
     <div className="card p-4 space-y-2.5">
       <div className="flex items-center justify-between">
-        <span className="text-label uppercase text-ink-3">Confiance de Noreon</span>
+        <span className="text-label uppercase text-ink-3">Confiance de l'analyse</span>
         <span className="metric text-reason">{c.percent}%</span>
       </div>
 
