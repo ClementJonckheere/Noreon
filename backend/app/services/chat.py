@@ -276,8 +276,12 @@ def answer_question(
                 from app.services import concepts as concepts_svc
                 inv_dict = inv.as_dict()
                 _repls = concepts_svc.apply_semantic_layer(inv_dict)
-                _msg_repls = _repls + [(inv.subject, inv_dict.get("subject_label") or inv.subject)]
-                message = concepts_svc.translate(agent_svc.summary_message(inv), _msg_repls)
+                # Message construit depuis le dict ENRICHI (conclusion reformulée
+                # + humanisée), pas depuis l'objet brut.
+                _n = len(inv.steps)
+                _subj = inv_dict.get("subject_label") or inv.subject
+                message = (f"J'ai mené une investigation en {_n} étape{'s' if _n > 1 else ''} "
+                           f"sur « {_subj} ». {inv_dict.get('conclusion') or ''}").strip()
                 decisions_dict = (concepts_svc.translate(decisions.as_dict(), _repls)
                                   if decisions is not None else None)
                 intent_restated_val = concepts_svc.translate(
@@ -296,7 +300,8 @@ def answer_question(
                     validation=inv_validation,
                     sources=_sources([inv.subject], inv.trend_columns, {}),
                     self_critique=inv_critique,
-                    chronicle=(concepts_svc.translate(inv_chron.as_dict(), _repls)
+                    chronicle=(concepts_svc.humanize_presentation_deep(
+                                   concepts_svc.translate(inv_chron.as_dict(), _repls))
                                if inv_chron is not None else None),
                     intent=decision_svc.detect_intent(question),
                     intent_restated=intent_restated_val,

@@ -67,41 +67,12 @@ export default function InvestigationView({
         </div>
       </details>
 
-      {/* RÉSULTAT — la conclusion, lue comme un rapport. */}
+      {/* RÉSULTAT — la conclusion, lue comme un rapport. Le détail (chaîne
+          établie, SQL) part dans la Preuve : le centre décide, il ne détaille pas. */}
       <div className="space-y-2">
         <div className="text-label uppercase text-ink-tertiary">Résultat</div>
         <div className="text-title text-ink-primary max-w-reading">{inv.conclusion}</div>
-        {inv.key_drivers.length > 0 && (
-          <div className="text-small text-ink-tertiary">Facteurs classés : {inv.key_drivers.join(" · ")}</div>
-        )}
       </div>
-
-      {/* CHAÎNE ÉTABLIE — sous-questions → constats. */}
-      {inv.steps.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-label uppercase text-ink-tertiary">Chaîne établie</div>
-          <div className="card divide-y divide-line-inset">
-            {inv.steps.map((s, i) => (
-              <div key={i} className="px-4 py-3">
-                <div className="flex items-start gap-3">
-                  <span className="font-mono text-[11px] text-ink-tertiary mt-0.5">{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-body text-ink-primary">{s.question}</div>
-                    <div className="text-body text-ink-secondary">{s.finding}</div>
-                  </div>
-                </div>
-                <details className="mt-1 pl-6 text-small text-ink-tertiary">
-                  <summary className="cursor-pointer hover:text-ink-primary">Pourquoi & SQL</summary>
-                  <div className="mt-1 text-ink-secondary">{s.rationale}</div>
-                  <pre className="mt-1 mono bg-bg-secondary border border-line-subtle rounded p-2 overflow-x-auto whitespace-pre-wrap text-ink-secondary">
-                    {s.sql}
-                  </pre>
-                </details>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* « Le moteur change d'avis » — révision d'hypothèse (raisonnement). */}
       {inv.revisions?.length > 0 && (
@@ -112,17 +83,40 @@ export default function InvestigationView({
           ))}
         </div>
       )}
+    </div>
+  );
+}
 
-      {inv.recommendations.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-label uppercase text-brand-700">Prochaines actions</div>
-          <ul className="text-body list-disc pl-4 space-y-1 text-ink-secondary">
-            {inv.recommendations.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+// Chaîne établie — sous-questions → constats. Vit dans la PREUVE (panneau droit),
+// plus au centre : le physique et le détail technique y ont leur place.
+export function InvestigationChain({
+  steps,
+}: {
+  steps: NonNullable<ChatResponse["investigation"]>["steps"];
+}) {
+  if (!steps?.length) return null;
+  return (
+    <div className="space-y-2">
+      <div className="text-label uppercase text-ink-tertiary">Chaîne établie</div>
+      <div className="card divide-y divide-line-inset">
+        {steps.map((s, i) => (
+          <div key={i} className="px-3 py-2.5">
+            <div className="flex items-start gap-2.5">
+              <span className="font-mono text-[11px] text-ink-tertiary mt-0.5">{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-body text-ink-primary">{s.question}</div>
+                <div className="text-body text-ink-secondary">{s.finding}</div>
+              </div>
+            </div>
+            <details className="mt-1 pl-[26px] text-small text-ink-tertiary">
+              <summary className="cursor-pointer hover:text-ink-primary">SQL</summary>
+              <pre className="mt-1 mono bg-bg-secondary border border-line-subtle rounded p-2 overflow-x-auto whitespace-pre-wrap text-ink-secondary">
+                {s.sql}
+              </pre>
+            </details>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -179,6 +179,26 @@ def _rephrase_conclusion(text: str) -> str:
     return text
 
 
+_MONTHS_FR = ["", "janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+              "août", "septembre", "octobre", "novembre", "décembre"]
+
+
+def humanize_presentation(text):
+    """Couche Decision/Understand : pluriels et dates HUMANISÉS. (La Preuve, elle,
+    garde les valeurs techniques exactes — « 2024-11 », « période(s) ».)"""
+    if not isinstance(text, str):
+        return text
+    # « 2024-11 » → « novembre 2024 »
+    text = re.sub(r"\b(\d{4})-(0[1-9]|1[0-2])\b",
+                  lambda m: f"{_MONTHS_FR[int(m.group(2))]} {m.group(1)}", text)
+    # « 4 période(s) consécutive(s) » → « 4 périodes consécutives »
+    text = re.sub(r"\b(\d+)\s+([A-Za-zÀ-ÿ]+)\(s\)",
+                  lambda m: f"{m.group(1)} {m.group(2)}s" if int(m.group(1)) != 1 else f"{m.group(1)} {m.group(2)}",
+                  text)
+    text = re.sub(r"\b([A-Za-zÀ-ÿ]+)\(s\)", r"\1s", text)  # « consécutive(s) » résiduel
+    return text
+
+
 def _walk_str(node, fn):
     if isinstance(node, str):
         return fn(node)
@@ -187,6 +207,11 @@ def _walk_str(node, fn):
     if isinstance(node, dict):
         return {k: _walk_str(v, fn) for k, v in node.items()}
     return node
+
+
+def humanize_presentation_deep(obj):
+    """Humanise toutes les chaînes d'un objet (Decision/Understand)."""
+    return _walk_str(obj, humanize_presentation)
 
 
 def _walk_replace(node, repls: list[tuple[str, str]]):
@@ -252,7 +277,7 @@ def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
         return _humanize_leaks(_walk_replace(text, repls))
 
     if inv.get("conclusion"):
-        inv["conclusion"] = _rephrase_conclusion(_present(inv["conclusion"]))
+        inv["conclusion"] = _rephrase_conclusion(humanize_presentation(_present(inv["conclusion"])))
     for field in ("steps", "key_drivers", "recommendations", "revisions"):
         if inv.get(field) is not None:
             inv[field] = _walk_str(inv[field], _present)

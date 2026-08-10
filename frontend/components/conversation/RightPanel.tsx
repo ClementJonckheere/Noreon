@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChatResponse } from "@/lib/api";
-import ConfidenceBreakdown from "@/components/ConfidenceBreakdown";
+import ConfidenceBreakdown, { TechnicalControls } from "@/components/ConfidenceBreakdown";
 import EvidenceGraph from "@/components/EvidenceGraph";
+import { InvestigationChain } from "@/components/InvestigationView";
 
 // Panneau droit CONTEXTUEL : ce que regarde l'utilisateur — Comprendre, Preuve,
 // Source, Limite qualité — et non une seconde navigation de conversations.
@@ -26,7 +27,7 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 density-dense">
         {tab === "comprendre" && (
           <>
-            {r.confidence && <ConfidenceBreakdown c={r.confidence} />}
+            {r.confidence && <ConfidenceBreakdown c={r.confidence} r={r} />}
             {r.self_critique?.length > 0 && (
               <div className="state state-limit">
                 <div className="state-title">Ce qui pourrait remettre en question cette conclusion</div>
@@ -51,6 +52,9 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
 
         {tab === "preuve" && (
           <>
+            {/* Chaîne établie — le raisonnement pas à pas, déplacé du centre. */}
+            {r.investigation?.steps && <InvestigationChain steps={r.investigation.steps} />}
+
             {/* Lignage : concept métier → traduction physique (ici, la technicité
                 est une qualité — nous sommes dans la Preuve). */}
             {r.investigation?.lineage && (
@@ -71,6 +75,8 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
                 ))}
               </div>
             )}
+            {/* Contrôles techniques — distincts des dimensions métier de confiance. */}
+            <TechnicalControls c={r.confidence} r={r} />
             <EvidenceGraph r={r} />
             {r.sql && (
               <pre className="mono bg-bg-secondary border border-line-subtle rounded-card p-3 overflow-x-auto whitespace-pre-wrap text-small text-ink-secondary">

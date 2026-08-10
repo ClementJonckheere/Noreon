@@ -29,10 +29,10 @@ function buildTree(r: ChatResponse): Node[] {
 
   if (r.sources?.length > 0) {
     nodes.push({
-      label: "Tables",
-      children: r.sources.map((s) => ({
+      label: "Sources mobilisées",
+      children: r.sources.map((s, i) => ({
         label: s.table,
-        detail: `${s.role}${s.quality_pct !== null ? ` · qualité ${s.quality_pct}%` : ""}`,
+        detail: `source ${s.role}${i === 0 ? ` · ${r.row_count} lignes utilisées` : ""}${s.quality_pct !== null ? ` · qualité ${s.quality_pct}%` : ""}`,
         level: s.level,
       })),
     });

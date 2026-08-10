@@ -133,7 +133,7 @@ export default function AnswerView({
             {(r.explanations?.length > 0 || r.proof) && (
               <WhyChoices items={r.explanations} proof={r.proof} />
             )}
-            {r.confidence && <ConfidenceBreakdown c={r.confidence} />}
+            {r.confidence && <ConfidenceBreakdown c={r.confidence} r={r} />}
             {r.sources?.length > 0 && <SourcesBar sources={r.sources} />}
             {r.self_critique?.length > 0 && (
               <div className="state state-limit">
