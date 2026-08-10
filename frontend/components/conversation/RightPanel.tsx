@@ -51,13 +51,23 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
 
         {tab === "preuve" && (
           <>
-            {/* Lignage : le concept métier ↔ sa traduction physique. */}
+            {/* Lignage : concept métier → traduction physique (ici, la technicité
+                est une qualité — nous sommes dans la Preuve). */}
             {r.investigation?.lineage && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <div className="text-label uppercase text-ink-tertiary">Concepts → physique</div>
-                <LineageRow concept={r.investigation.lineage.measure.concept} physical={r.investigation.metric_label} />
+                <LineageCard
+                  concept={r.investigation.lineage.measure.concept}
+                  definition={r.investigation.lineage.measure.definition_version}
+                  physical={
+                    r.investigation.lineage.measure.table && r.investigation.lineage.measure.column
+                      ? `${r.investigation.lineage.measure.table}.${r.investigation.lineage.measure.column}`
+                      : r.investigation.metric_label
+                  }
+                  aggregation={r.investigation.lineage.measure.aggregation}
+                />
                 {r.investigation.lineage.dimensions.map((d, i) => (
-                  <LineageRow key={i} concept={d.concept} physical={d.physical ?? d.physical_label} />
+                  <LineageCard key={i} concept={d.concept} definition={d.definition_version} physical={d.physical ?? d.physical_label} />
                 ))}
               </div>
             )}
@@ -123,11 +133,32 @@ function asSentence(fragment: string): string {
   return /[.!?]$/.test(capped) ? capped : `${capped}.`;
 }
 
-function LineageRow({ concept, physical }: { concept: string; physical: string }) {
+function LineageCard({
+  concept, definition, physical, aggregation,
+}: {
+  concept: string;
+  definition: number | null;
+  physical: string;
+  aggregation?: string | null;
+}) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-field border border-line-subtle px-3 py-1.5">
-      <span className="text-body text-ink-primary">{concept}</span>
-      <span className="mono text-small text-ink-tertiary truncate">{physical}</span>
+    <div className="rounded-card border border-line-subtle px-3 py-2.5 space-y-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-subhead text-ink-primary">{concept}</span>
+        <span className="text-label uppercase text-ink-tertiary">
+          {definition != null ? `Concept · définition ${definition}` : "Concept · proposé"}
+        </span>
+      </div>
+      <div className="grid grid-cols-[64px_1fr] gap-x-2 gap-y-0.5">
+        <span className="text-label uppercase text-ink-tertiary">Physique</span>
+        <span className="mono text-small text-ink-secondary">{physical}</span>
+        {aggregation && (
+          <>
+            <span className="text-label uppercase text-ink-tertiary">Agrégation</span>
+            <span className="mono text-small text-ink-secondary">{aggregation}</span>
+          </>
+        )}
+      </div>
     </div>
   );
 }

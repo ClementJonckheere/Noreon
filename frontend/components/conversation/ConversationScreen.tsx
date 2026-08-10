@@ -57,6 +57,10 @@ export default function ConversationScreen({ id }: { id: string }) {
     try {
       const turn = await repo.addMessage(id, text, deepMode);
       setTurns((t) => t.map((x) => (x.id === tmp.id ? turn : x)));
+      // Le titre de la conversation vient d'être posé côté serveur : signaler
+      // à la sidebar de rafraîchir sa liste (dérive du serveur, pas d'un état
+      // local périmé).
+      window.dispatchEvent(new CustomEvent("noreon:conversations-changed"));
     } catch (e: any) {
       setTurns((t) => t.map((x) => (x.id === tmp.id ? { ...x, error: e.message } : x)));
     } finally {

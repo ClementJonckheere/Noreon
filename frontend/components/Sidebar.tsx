@@ -61,7 +61,12 @@ export default function Sidebar() {
 
   useEffect(() => {
     if (!caps.askQuestions) return;
-    conversationRepository().list().then(setConvs).catch(() => {});
+    const refresh = () => conversationRepository().list().then(setConvs).catch(() => {});
+    refresh();
+    // Le titre d'une conversation est posé côté serveur après le 1er échange :
+    // on rafraîchit la liste (dérive du serveur, jamais d'un état local périmé).
+    window.addEventListener("noreon:conversations-changed", refresh);
+    return () => window.removeEventListener("noreon:conversations-changed", refresh);
   }, [caps.askQuestions, pathname]);
 
   if (pathname.startsWith("/login")) return null;

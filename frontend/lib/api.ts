@@ -369,10 +369,20 @@ export interface ChatResponse {
     subject_label?: string;
     measure_label_concept?: string;
     lineage?: {
-      measure: { concept: string; physical_label: string };
-      dimensions: { concept: string; physical: string | null; physical_label: string }[];
+      measure: {
+        concept: string; concept_id: string; table: string | null; column: string | null;
+        aggregation: string | null; physical_label: string;
+        definition_version: number | null; scope: string;
+      };
+      dimensions: {
+        concept: string; concept_id: string; physical: string | null; physical_label: string;
+        definition_version: number | null; scope: string;
+      }[];
     };
-    concepts?: { kind: string; label: string; physical?: string | null; physical_label?: string }[];
+    concepts?: {
+      kind: string; id: string; label: string; definition_version: number | null;
+      scope: string; physical?: string | null; physical_label?: string;
+    }[];
   } | null;
   deep: {
     subject: string;

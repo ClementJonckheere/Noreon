@@ -1,32 +1,32 @@
 "use client";
 
 import { ChatResponse } from "@/lib/api";
+import Icon from "@/components/ui/Icon";
 
 // Evidence Graph — toute la chaîne logique en un seul arbre :
 // Question → Hypothèses → Tables → Jointures → SQL → Résultat → Conclusion.
-// Chaque maillon porte son NIVEAU DE PREUVE (🟢 forte / 🟡 moyenne / 🔴 faible).
-const LEVEL: Record<string, { dot: string; cls: string }> = {
-  strong: { dot: "🟢", cls: "text-emerald-700" },
-  medium: { dot: "🟡", cls: "text-amber-700" },
-  weak: { dot: "🔴", cls: "text-red-600" },
-};
+// La FORCE DE PREUVE se lit au poids du repère (violet raisonnement → neutre →
+// creux), jamais en vert/rouge : le vert reste la validation externe, le rouge
+// le blocage. La force n'est ni une validation ni un blocage.
+type Strength = "strong" | "medium" | "weak";
 
-type Node = { label: string; detail?: string; level?: "strong" | "medium" | "weak"; children?: Node[] };
+function Mark({ level }: { level?: Strength }) {
+  if (!level) return <span className="w-2 h-2 shrink-0" />;
+  if (level === "strong") return <span className="w-2 h-2 rounded-full bg-reasoning shrink-0" title="preuve forte" />;
+  if (level === "medium") return <span className="w-2 h-2 rounded-full bg-line-strong shrink-0" title="preuve moyenne" />;
+  return <span className="w-2 h-2 rounded-full border border-line-strong shrink-0" title="preuve faible" />;
+}
+
+type Node = { label: string; detail?: string; level?: Strength; children?: Node[] };
 
 function buildTree(r: ChatResponse): Node[] {
   const nodes: Node[] = [];
 
-  // Hypothèses (contexte + mesure), niveau = celui de la preuve de table.
   const hyps = r.validation?.hypotheses ?? [];
   if (hyps.length > 0) {
-    nodes.push({
-      label: "Hypothèses",
-      level: r.proof?.level,
-      children: hyps.map((h) => ({ label: h })),
-    });
+    nodes.push({ label: "Hypothèses", level: r.proof?.level, children: hyps.map((h) => ({ label: h })) });
   }
 
-  // Tables mobilisées (avec leur niveau de preuve).
   if (r.sources?.length > 0) {
     nodes.push({
       label: "Tables",
@@ -38,7 +38,6 @@ function buildTree(r: ChatResponse): Node[] {
     });
   }
 
-  // Jointures (si plusieurs tables).
   if ((r.sources?.length ?? 0) > 1) {
     const join = r.validation?.checks.find((c) => c.key === "join_fanout");
     nodes.push({
@@ -48,13 +47,8 @@ function buildTree(r: ChatResponse): Node[] {
     });
   }
 
-  // Preuve du choix de table (couverture / qualité / concept).
   if (r.proof) {
-    nodes.push({
-      label: "Preuve",
-      level: r.proof.level,
-      children: r.proof.steps.map((s) => ({ label: s })),
-    });
+    nodes.push({ label: "Preuve", level: r.proof.level, children: r.proof.steps.map((s) => ({ label: s })) });
   }
 
   if (r.sql) nodes.push({ label: "SQL", detail: r.sql, level: "strong" });
@@ -72,15 +66,13 @@ function buildTree(r: ChatResponse): Node[] {
 }
 
 function NodeRow({ n, depth }: { n: Node; depth: number }) {
-  const meta = n.level ? LEVEL[n.level] : null;
   return (
     <div>
-      <div className="flex gap-2 items-baseline" style={{ paddingLeft: depth * 14 }}>
-        <span className="text-noreon-border select-none">{depth > 0 ? "└─" : ""}</span>
-        {meta && <span className="select-none">{meta.dot}</span>}
-        <span className={`font-medium ${meta?.cls ?? ""}`}>{n.label}</span>
+      <div className="flex gap-2 items-center" style={{ paddingLeft: depth * 14 }}>
+        <Mark level={n.level} />
+        <span className="text-body font-medium text-ink-primary">{n.label}</span>
         {n.detail && (
-          <span className="text-noreon-soft text-xs truncate max-w-[36ch] mono" title={n.detail}>
+          <span className="text-ink-tertiary text-small truncate max-w-[34ch] mono" title={n.detail}>
             {n.detail}
           </span>
         )}
@@ -94,18 +86,22 @@ export default function EvidenceGraph({ r }: { r: ChatResponse }) {
   const tree = buildTree(r);
   if (tree.length === 0) return null;
   return (
-    <div className="card p-4 space-y-2 border border-indigo-500/25">
-      <div className="text-sm font-semibold text-indigo-700">🕸️ Graphe de preuve</div>
-      <div className="text-[11px] text-noreon-soft flex gap-3">
-        <span>🟢 preuve forte</span>
-        <span>🟡 moyenne</span>
-        <span>🔴 faible</span>
+    <div className="card p-4 space-y-2 border-l-[3px] border-l-reasoning">
+      <div className="flex items-center gap-2">
+        <Icon name="concepts" className="w-4 h-4 text-reasoning" />
+        <span className="text-subhead text-ink-primary">Graphe de preuve</span>
       </div>
-      <div className="text-xs space-y-1">
-        <div className="flex gap-2 items-baseline">
-          <span className="select-none">❓</span>
-          <span className="font-medium">Question</span>
-          <span className="text-noreon-soft truncate max-w-[40ch]">{r.question}</span>
+      {/* Force de preuve = poids du repère, pas une couleur sémantique. */}
+      <div className="text-small text-ink-tertiary flex gap-3 items-center">
+        <span className="flex items-center gap-1.5"><Mark level="strong" />forte</span>
+        <span className="flex items-center gap-1.5"><Mark level="medium" />moyenne</span>
+        <span className="flex items-center gap-1.5"><Mark level="weak" />faible</span>
+      </div>
+      <div className="space-y-1 pt-1">
+        <div className="flex gap-2 items-center">
+          <Icon name="search" className="w-3.5 h-3.5 text-ink-tertiary shrink-0" />
+          <span className="text-body font-medium text-ink-primary">Question</span>
+          <span className="text-ink-tertiary text-small truncate max-w-[40ch]">{r.question}</span>
         </div>
         {tree.map((n, i) => <NodeRow key={i} n={n} depth={1} />)}
       </div>

@@ -113,6 +113,61 @@ def subject_domain(table: str) -> str:
     return (table[:1].upper() + table[1:]) if table else "Analyse"
 
 
+# Identifiants de concept (cible : ConceptReference{id, label, definitionVersion,
+# scope}). Le libellé est l'affichage ; l'id est stable pour l'univers.
+_CONCEPT_IDS = {
+    "Chiffre d'affaires": "revenue", "Chiffre d'affaires (HT)": "revenue_ht",
+    "Région": "region", "Segment client": "customer_segment", "Ville": "city",
+    "Magasin": "store", "Fournisseur": "supplier", "Canal": "channel",
+    "Département": "department", "Produit": "product", "Collaborateur": "employee",
+    "Client": "customer", "Nombre d'enregistrements": "record_count", "Valeur moyenne": "average",
+}
+
+
+def _concept_id(label: str) -> str:
+    if label in _CONCEPT_IDS:
+        return _CONCEPT_IDS[label]
+    return re.sub(r"[^a-z0-9]+", "_", (label or "").lower()).strip("_") or "concept"
+
+
+def _measure_physical(metric_label: str) -> str | None:
+    core = re.sub(r"^(total de|somme de|moyenne de|nombre de)\s+", "", (metric_label or "").lower()).strip()
+    return core or None
+
+
+# Fuite du schéma : tout « libellé (table) » résiduel dans une chaîne destinée à
+# l'utilisateur devient un concept lisible — JAMAIS un nom de table/colonne.
+_LEAK_RE = re.compile(r"[A-Za-zÀ-ÿ'’]+(?:\s[A-Za-zÀ-ÿ'’]+)*\s*\([a-z][a-z0-9_]*\)")
+
+
+def _humanize_leaks(text):
+    if not isinstance(text, str):
+        return text
+    return _LEAK_RE.sub(lambda m: dimension_concept(m.group(0))[0], text)
+
+
+def _rephrase_conclusion(text: str) -> str:
+    """« X est orienté à la baisse ; la baisse est portée à N% par » →
+    « X recule ; N % du recul se concentre sur » (descriptif, non causal)."""
+    text = re.sub(r"est orienté[e]? à la baisse\s*;\s*la baisse est portée à (\d+)\s*% par",
+                  r"recule ; \1 % du recul se concentre sur", text)
+    text = re.sub(r"est orienté[e]? à la hausse\s*;\s*la hausse est portée à (\d+)\s*% par",
+                  r"progresse ; \1 % de la hausse se concentre sur", text)
+    # Retirer la mention de dimension redondante après la valeur (« … » (Région)).
+    text = re.sub(r"(«[^»]+»)\s*\([A-Za-zÀ-ÿ' ]+\)", r"\1", text)
+    return text
+
+
+def _walk_str(node, fn):
+    if isinstance(node, str):
+        return fn(node)
+    if isinstance(node, list):
+        return [_walk_str(x, fn) for x in node]
+    if isinstance(node, dict):
+        return {k: _walk_str(v, fn) for k, v in node.items()}
+    return node
+
+
 def _walk_replace(node, repls: list[tuple[str, str]]):
     if isinstance(node, str):
         out = node
@@ -170,22 +225,48 @@ def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
     # Remplacer les chaînes les plus longues d'abord (évite les recouvrements).
     repls.sort(key=lambda p: len(p[0]), reverse=True)
 
-    # Reformuler les champs texte destinés à l'utilisateur.
-    for field in ("conclusion",):
-        if inv.get(field):
-            inv[field] = _walk_replace(inv[field], repls)
+    # Présentation = remplacements connus PUIS humanisation de toute fuite
+    # résiduelle (« col (table) » d'une étape non-pilote, p. ex.).
+    def _present(text):
+        return _humanize_leaks(_walk_replace(text, repls))
+
+    if inv.get("conclusion"):
+        inv["conclusion"] = _rephrase_conclusion(_present(inv["conclusion"]))
     for field in ("steps", "key_drivers", "recommendations", "revisions"):
         if inv.get(field) is not None:
-            inv[field] = _walk_replace(inv[field], repls)
+            inv[field] = _walk_str(inv[field], _present)
 
-    inv["subject_label"] = subject_domain(inv.get("subject") or "")
+    subject = inv.get("subject") or ""
+    measure_col = _measure_physical(metric_label)
+    aggregation = "COUNT(*)" if measure_lbl.startswith("Nombre") else (f"SUM({measure_col})" if measure_col else None)
+
+    inv["subject_label"] = subject_domain(subject)
     inv["measure_label_concept"] = measure_lbl
+    # Lignage physique (pour la Preuve) — table, colonne, agrégation.
     inv["lineage"] = {
-        "measure": {"concept": measure_lbl, "physical_label": metric_label},
-        "dimensions": lineage_dims,
+        "measure": {
+            "concept": measure_lbl, "concept_id": _concept_id(measure_lbl),
+            "table": subject or None, "column": measure_col,
+            "aggregation": aggregation, "physical_label": metric_label,
+            "definition_version": None, "scope": "proposed",
+        },
+        "dimensions": [
+            {
+                "concept": d["concept"], "concept_id": _concept_id(d["concept"]),
+                "physical": d["physical"], "physical_label": d["physical_label"],
+                "definition_version": None, "scope": "proposed",
+            }
+            for d in lineage_dims
+        ],
     }
+    # ConceptReference (cible d'architecture) : id + libellé + version + portée.
+    # definition_version reste None tant qu'aucun concept n'est validé (le lexique
+    # n'est qu'un pont de migration, pas la couche sémantique définitive).
     inv["concepts"] = (
-        [{"kind": "measure", "label": measure_lbl, "physical_label": metric_label}]
-        + [{"kind": "dimension", "label": d["concept"], "physical": d["physical"]} for d in lineage_dims]
+        [{"kind": "measure", "id": _concept_id(measure_lbl), "label": measure_lbl,
+          "definition_version": None, "scope": "proposed", "physical_label": metric_label}]
+        + [{"kind": "dimension", "id": _concept_id(d["concept"]), "label": d["concept"],
+            "definition_version": None, "scope": "proposed", "physical": d["physical"]}
+           for d in lineage_dims]
     )
     return repls
