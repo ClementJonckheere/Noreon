@@ -752,3 +752,30 @@ beau design sur l'ancienne structure fonctionnelle.
   97 % du recul ») ou retiré du centre quand la chaîne part en Preuve.
 - **Graphe de preuve** : répondre à « qu'est-ce qui soutient la conclusion ? »
   (« orders · source principale · 18 lignes utilisées ») plutôt que la structure.
+
+### Protection du langage métier — fuites de schéma physique résiduelles (suivi commit 6)
+
+Les captures commit 6 montraient trois fuites du schéma physique dans des chaînes
+destinées à l'utilisateur (couche Decision/Understand), là où seuls les *facteurs
+retenus* et le `metric_label` complet étaient traduits :
+
+- `amount_ttc` nu dans « Objectif compris : Diagnostiquer une baisse de amount_ttc »
+  (le remplacement ne couvrait que « total de amount_ttc », pas la colonne nue) ;
+- `loyalty_Points` dans « tranche de loyalty_Points » (dimension explorée mais non
+  retenue comme facteur → hors des remplacements connus) ;
+- `Gender` dans « par « Gender » » (idem : axe exploré, libellé physique brut).
+
+Correctifs dans `services/concepts.py`, tous en **présentation** (l'objet
+Investigation reste intact — benchmark préservé) :
+
+1. La **colonne de mesure nue** est ajoutée à la table de remplacement quand c'est
+   un identifiant physique (`_looks_physical` : underscore ou mot de colonne connu),
+   jamais un mot générique (« commandes »).
+2. **`_detechnify`** : sweep final sur les identifiants physiques nus résiduels
+   dans « … par « X » » et « tranche de X ». On ne traduit QUE ce qui ressemble à
+   du physique (underscore, colonne anglaise connue, axe reconnu par le lexique) —
+   les **valeurs de segment** (« F », « Particulier », « Paris ») sont préservées.
+
+Le physique exact demeure dans la **Preuve** (SQL, lignage). Rappel d'architecture
+inchangé : le lexique reste un pont de migration ; la cible est le `ConceptReference`
+dans le planning/reasoning.

@@ -167,6 +167,58 @@ def _humanize_leaks(text):
     return _LEAK_RE.sub(lambda m: dimension_concept(m.group(0))[0], text)
 
 
+# Jetons physiques NUS (sans « (table) ») restant dans « … par « X » » ou
+# « tranche de X » : une dimension explorée mais non retenue comme facteur n'entre
+# pas dans les remplacements connus et arrive telle quelle (« Gender »,
+# « loyalty_Points »). On ne touche qu'aux jetons qui RESSEMBLENT à du physique —
+# jamais aux VALEURS de segment (« F », « Particulier », « Paris »).
+_ENGLISH_COL = {
+    "gender": "Genre", "sex": "Genre", "age": "Âge", "loyalty": "Fidélité",
+    "points": "points", "name": "Nom", "email": "E-mail", "phone": "Téléphone",
+    "status": "Statut", "type": "Type", "method": "Moyen de paiement",
+    "payment": "Paiement", "channel": "Canal",
+}
+
+
+def _looks_physical(tok: str) -> bool:
+    """Vrai si le jeton est vraisemblablement un identifiant de colonne (et non une
+    valeur de segment) : présence d'un underscore, ou mot de colonne anglais connu,
+    ou reconnu comme axe d'analyse par le lexique."""
+    if "_" in tok:
+        return True
+    low = tok.lower()
+    return low in _ENGLISH_COL or _concept_for_tokens({low}) is not None
+
+
+def _humanize_phys_token(tok: str) -> str:
+    concept = _concept_for_tokens(_tokens(tok))
+    if concept:
+        return concept
+    words = [w for w in re.split(r"[_\s]+", tok.strip()) if w]
+    out = " ".join(_ENGLISH_COL.get(w.lower(), w) for w in words).strip()
+    return out[:1].upper() + out[1:] if out else tok
+
+
+_TRANCHE_RE = re.compile(r"\btranche de ([A-Za-z][A-Za-z0-9_]*)")
+_QUOTED_RE = re.compile(r"«\s*([A-Za-z][A-Za-z0-9_]*)\s*»")
+
+
+def _detechnify(text):
+    """Traduit les identifiants physiques nus résiduels en libellés lisibles,
+    sans jamais altérer les valeurs de segment (« F », « Paris »…)."""
+    if not isinstance(text, str):
+        return text
+    text = _TRANCHE_RE.sub(
+        lambda m: f"tranche de {_humanize_phys_token(m.group(1))}" if _looks_physical(m.group(1)) else m.group(0),
+        text,
+    )
+    text = _QUOTED_RE.sub(
+        lambda m: f"« {_humanize_phys_token(m.group(1))} »" if _looks_physical(m.group(1)) else m.group(0),
+        text,
+    )
+    return text
+
+
 def _rephrase_conclusion(text: str) -> str:
     """« X est orienté à la baisse ; la baisse est portée à N% par » →
     « X recule ; N % du recul se concentre sur » (descriptif, non causal)."""
@@ -266,15 +318,22 @@ def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
         concept, physical = dimension_concept(dl)
         repls.append((dl, concept))
         lineage_dims.append({"concept": concept, "physical": physical, "physical_label": dl})
+    measure_col = _measure_physical(metric_label)
     if metric_label:
         repls.append((metric_label, measure_lbl))
+    # La colonne de mesure NUE (« amount_ttc », sans « total de ») fuit dans
+    # l'objectif reformulé et les décisions : on la mappe aussi vers le concept —
+    # mais seulement si c'est bien un identifiant physique (pas un mot générique
+    # comme « commandes », qu'on ne veut pas remplacer partout).
+    if measure_col and " " not in measure_col and _looks_physical(measure_col):
+        repls.append((measure_col, measure_lbl))
     # Remplacer les chaînes les plus longues d'abord (évite les recouvrements).
     repls.sort(key=lambda p: len(p[0]), reverse=True)
 
-    # Présentation = remplacements connus PUIS humanisation de toute fuite
-    # résiduelle (« col (table) » d'une étape non-pilote, p. ex.).
+    # Présentation = remplacements connus, PUIS humanisation des fuites « col
+    # (table) », PUIS de-technification des identifiants physiques nus résiduels.
     def _present(text):
-        return _humanize_leaks(_walk_replace(text, repls))
+        return _detechnify(_humanize_leaks(_walk_replace(text, repls)))
 
     if inv.get("conclusion"):
         inv["conclusion"] = _rephrase_conclusion(humanize_presentation(_present(inv["conclusion"])))
@@ -283,7 +342,6 @@ def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
             inv[field] = _walk_str(inv[field], _present)
 
     subject = inv.get("subject") or ""
-    measure_col = _measure_physical(metric_label)
     aggregation = "COUNT(*)" if measure_lbl.startswith("Nombre") else (f"SUM({measure_col})" if measure_col else None)
 
     inv["subject_label"] = subject_domain(subject)
