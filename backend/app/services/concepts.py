@@ -11,6 +11,27 @@ l'objet Investigation, reste inchangé).
 
 Le vocabulaire vient d'un lexique métier (c'est le rôle d'une Semantic Layer) —
 et non d'un `if column == "amount_ttc"` codé dans le frontend.
+
+--------------------------------------------------------------------------------
+NOTE D'ARCHITECTURE (à ne pas perdre)
+
+Ce module est aujourd'hui la couche de projection sémantique de PRÉSENTATION :
+
+    Investigation physique  →  projection sémantique  →  UI métier
+
+Il n'altère pas l'objet Investigation (benchmark intact), mais cela signifie que
+le moteur RAISONNE encore sur « amount_ttc » puis remplace le libellé à la sortie.
+Ce n'est pas encore une Semantic Layer complète.
+
+Cible (hors de ce commit) — les ConceptReference doivent entrer dans le
+planning/reasoning, pas seulement dans le rendu :
+
+    Schéma physique → Concepts métier → Reasoning/planning → Investigation → Evidence
+
+Le moteur devra pouvoir raisonner sur `concept_id = "revenue"`. On préservera le
+benchmark en conservant DEUX représentations : `investigation.raw` (ce que le
+moteur a exécuté) et `investigation.semantic` (les concepts rattachés). Objectif :
+que Noreon ne soit pas « un moteur SQL avec un excellent traducteur de labels ».
 """
 from __future__ import annotations
 

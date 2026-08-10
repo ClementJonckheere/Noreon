@@ -703,3 +703,52 @@ justesse (propriété **V-01**).
 - **Coûts LLM** : jetons/coût réels à 0 tant que le provider heuristique
   hors-ligne est utilisé ; le remplissage devient effectif dès qu'une clé
   OpenAI/Anthropic/Mistral est branchée (l'instrumentation est déjà en place).
+
+---
+
+## Refonte UI (handoff design) — passe d'alignement architectural
+
+Refonte du frontend selon le handoff design (« Precision editorial »). D'abord la
+**machine à états** et la **navigation**, avant les écrans — pour ne pas plaquer un
+beau design sur l'ancienne structure fonctionnelle.
+
+- **Machine à états (`frontend/lib/state/`)** — 7 objets de la Carte v2 + l'objet
+  **Conclusion** (distinct de Réponse et Rapport). `transitions.ts` (local) séparé
+  de `propagations.ts` (E1–E4, orchestration → `Effect[]`). Garde-fous : **8
+  interdits = 7 invariants (R1,R2,R3,R4,R6,R7,R8) + 1 règle d'interaction (Q3)** —
+  la Carte v2 ne définit pas de R5. 22 tests (vitest).
+- **Navigation par capabilities** — la sidebar/actions/CTA dérivent d'un ensemble
+  de permissions, pas d'un `if (role===…)`. Gouvernance hors nav, Espaces →
+  switcher, Concepts/Qualité en domaines de 1er niveau, Journal → `/settings/audit`.
+- **Conversation objet racine** (`/conversations/[id]`) via `ConversationRepository`
+  (adapter sur `conv*` aujourd'hui, `spaceConv*`/API dédiée demain). Dossiers à
+  gauche, panneau droit contextuel Comprendre/Preuve/Sources.
+- **Semantic Layer** (`backend/app/services/concepts.py`) — projection **de
+  présentation** : concept en couche Decision, physique en Preuve (lignage
+  `ConceptReference` + `PhysicalLineage`). Ne touche pas l'objet Investigation
+  (benchmark intact).
+
+### Cible (à ne pas perdre)
+
+- **Semantic Layer complète** : les `ConceptReference` doivent entrer dans le
+  **planning/reasoning**, pas seulement le rendu (raisonner sur `concept_id`).
+  Conserver `investigation.raw` (exécuté) et `investigation.semantic` (concepts).
+  Sinon Noreon reste « un moteur SQL avec un excellent traducteur de labels ».
+
+### Backlog commit 6 (AnswerView sur le contrat)
+
+- **Chaîne établie** quitte le centre → Preuve. Centre = Question → Observation
+  initiale → Résultat → graphe → Recommandation ; Comprendre = hypothèses/limites.
+- **Confiance** : 4 dimensions métier (Qualité des données · Certitude sémantique ·
+  Couverture analytique · Robustesse des comparaisons) ; SQL/relations/contrôles →
+  Preuve → Contrôles techniques. **Règle de publication** : `confiance ≥ seuil ET
+  aucun bloqueur critique` (qualité non évaluée + 77 % → « 77 % · vérification
+  requise », pas publiable) — via `canPublishAnswer` de la machine à états.
+- **Certitude sémantique conséquente** : N concepts *proposés* / 0 validé doit
+  réellement peser (p. ex. ~50 %), pas seulement s'afficher.
+- **Humanisation Decision/Understand** : pluriels (« 4 périodes consécutives »),
+  dates (« novembre 2024 »), unités ; le physique exact reste en Preuve.
+- **« Facteurs classés »** reformulé (« Concentration principale · Région : … ·
+  97 % du recul ») ou retiré du centre quand la chaîne part en Preuve.
+- **Graphe de preuve** : répondre à « qu'est-ce qui soutient la conclusion ? »
+  (« orders · source principale · 18 lignes utilisées ») plutôt que la structure.
