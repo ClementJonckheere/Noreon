@@ -33,7 +33,15 @@ const STATUS_BLOCK: Record<string, { cls: string; title: string }> = {
   error: { cls: "state-blocker", title: "Blocage" },
 };
 
-export default function AnswerView({ r, connectionId }: { r: ChatResponse; connectionId?: number }) {
+// mode « centre » : la conversation sort « Comprendre » et « Preuve » vers le
+// panneau droit contextuel — le centre reste Question → Réponse → Recommandation.
+export default function AnswerView({
+  r, connectionId, mode = "full",
+}: {
+  r: ChatResponse;
+  connectionId?: number;
+  mode?: "full" | "centre";
+}) {
   const subject = r.investigation?.subject ?? r.tables_used?.[0];
   const block = STATUS_BLOCK[r.status];
 
@@ -84,13 +92,16 @@ export default function AnswerView({ r, connectionId }: { r: ChatResponse; conne
         </div>
       )}
 
+      {/* Réponse avant conseil : le raisonnement (Résultat + chaîne) d'abord… */}
+      {r.investigation && <InvestigationView inv={r.investigation} />}
+
+      {/* …puis seulement les décisions / recommandations qui en découlent. */}
       {r.decisions && <DecisionView d={r.decisions} connectionId={connectionId} subject={subject} />}
 
       {/* Sérendipité : une découverte adjacente produite par le raisonnement. */}
       {r.serendipity && <SerendipityCard s={r.serendipity} />}
 
       {r.simulation && <SimulationView s={r.simulation} />}
-      {r.investigation && <InvestigationView inv={r.investigation} />}
       {r.deep && <DeepReportView d={r.deep} />}
       {r.measure_options && <MeasureChoice m={r.measure_options} />}
 
@@ -106,8 +117,9 @@ export default function AnswerView({ r, connectionId }: { r: ChatResponse; conne
         </div>
       )}
 
-      {/* Niveau 2 — Comprendre (équilibré, déplié à la demande). */}
-      {(r.validation || r.confidence || r.explanations?.length > 0 || r.proof ||
+      {/* Niveau 2 — Comprendre (équilibré, déplié à la demande). En mode
+          « centre », déplacé vers le panneau droit contextuel. */}
+      {mode === "full" && (r.validation || r.confidence || r.explanations?.length > 0 || r.proof ||
         r.sources?.length > 0 || r.self_critique?.length > 0) && (
         <details className="card px-4 py-3 density-even" open={r.status !== "answered"}>
           <summary className="cursor-pointer text-subhead text-ink-2 hover:text-ink">
@@ -134,8 +146,9 @@ export default function AnswerView({ r, connectionId }: { r: ChatResponse; conne
         </details>
       )}
 
-      {/* Niveau 3 — Preuve (dense) : graphe de preuve, données, SQL. */}
-      {(r.sql || r.columns.length > 0) && (
+      {/* Niveau 3 — Preuve (dense) : graphe de preuve, données, SQL. En mode
+          « centre », déplacé vers le panneau droit contextuel. */}
+      {mode === "full" && (r.sql || r.columns.length > 0) && (
         <details className="card px-4 py-3 density-dense">
           <summary className="cursor-pointer text-subhead text-ink-2 hover:text-ink">
             Preuve & raisonnement — graphe, données, SQL

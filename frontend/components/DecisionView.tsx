@@ -9,17 +9,6 @@ import { ChatResponse, api } from "@/lib/api";
 // vert ne dit JAMAIS une hausse ni un impact favorable — un impact projeté se
 // lit en neutre, avec son signe.
 
-// Priorité effort/impact — le remplissage est neutre (magnitude), pas un jugement.
-function Stars({ n }: { n: number }) {
-  const full = Math.max(1, Math.min(5, n));
-  return (
-    <span className="shrink-0 tracking-tight meta" title={`Priorité effort/impact : ${full}/5`}>
-      <span className="text-ink">{"★".repeat(full)}</span>
-      <span className="text-line-strong">{"★".repeat(5 - full)}</span>
-    </span>
-  );
-}
-
 type Decision = NonNullable<ChatResponse["decisions"]>["decisions"][number];
 
 // Retours d'un décideur (human-in-the-loop). Bleu = geste, violet = en cours,
@@ -55,7 +44,6 @@ function DecisionCard(
     <div className="rounded-card border border-line bg-raised p-3 space-y-1.5">
       <div className="flex items-center gap-2">
         <span className="flex-1 text-subhead text-ink">{x.role}</span>
-        <Stars n={x.stars} />
       </div>
 
       {/* Mémoire métier : recommandation déjà éprouvée ailleurs — résultat mesuré. */}
@@ -145,7 +133,7 @@ export default function DecisionView(
       )}
 
       <div className="text-small text-ink-3">
-        Priorité par ★ = rapport effort/impact. Les données sont identiques ; les priorités changent selon le métier.
+        Les données sont identiques ; l'arbitrage effort/impact change selon le métier.
       </div>
     </div>
   );

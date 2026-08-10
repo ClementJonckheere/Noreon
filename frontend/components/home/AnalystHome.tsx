@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, Connection, ReportSummary } from "@/lib/api";
 import Icon from "@/components/ui/Icon";
+import { conversationRepository } from "@/lib/conversation/repository";
 
 // Écran 02 — Accueil analyste (densité équilibrée). Même architecture que 01,
 // priorité inversée : « l'analyste voit d'abord ce qui est fragile, pas ce qui
@@ -23,15 +24,20 @@ export default function AnalystHome({ name }: { name: string }) {
     api.reports().then(setReports).catch(() => {});
   }, []);
 
-  function ask(question?: string) {
-    const target = conns[0];
-    if (!target) return router.push("/sources");
+  async function ask(question?: string) {
+    const repo = conversationRepository();
+    if (!(await repo.hasSource())) return router.push("/data");
     const qs = question ?? q;
-    router.push(`/connections/${target.id}${qs ? `?q=${encodeURIComponent(qs)}` : ""}`);
+    try {
+      const c = await repo.create();
+      router.push(`/conversations/${c.id}${qs ? `?q=${encodeURIComponent(qs)}` : ""}`);
+    } catch {
+      router.push("/data");
+    }
   }
 
   const firstConn = conns[0];
-  const cx = (p: string) => (firstConn ? `/connections/${firstConn.id}` : "/sources");
+  const cx = (p: string) => (firstConn ? `/connections/${firstConn.id}` : "/data");
   const checklist: CheckRow[] = [
     { count: "2", title: "analyses à vérifier", detail: "Réponses publiées avec une confiance sous 70 %", action: "Ouvrir", href: cx("chat") },
     { count: "3", title: "concepts à valider", detail: "t_clients.a3 · 2 relations inférées", action: "Réviser", href: cx("concepts") },

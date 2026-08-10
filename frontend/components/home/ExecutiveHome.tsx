@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, Connection, ReportSummary } from "@/lib/api";
+import { api, ReportSummary } from "@/lib/api";
 import Icon from "@/components/ui/Icon";
+import { conversationRepository } from "@/lib/conversation/repository";
 
 // Écran 01 — Accueil dirigeant (densité aérée). « Le dirigeant n'ouvre jamais
 // une liste : il ouvre des décisions déjà instruites, avec leur impact estimé
@@ -23,25 +24,25 @@ const SUGGESTIONS = [
 
 export default function ExecutiveHome({ name }: { name: string }) {
   const router = useRouter();
-  const [conns, setConns] = useState<Connection[]>([]);
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    api.listConnections().then(setConns).catch(() => {});
     api.reports().then(setReports).catch(() => {});
   }, []);
 
-  // La question ouvre une analyse sur la première source disponible ; sans
-  // source, on renvoie vers l'ajout de données.
-  function ask(question?: string) {
-    const target = conns[0];
-    if (!target) {
-      router.push("/sources");
-      return;
-    }
+  // La question ouvre une CONVERSATION (objet racine) ; la source est résolue
+  // par le repository. Sans source, on renvoie vers les données.
+  async function ask(question?: string) {
+    const repo = conversationRepository();
+    if (!(await repo.hasSource())) return router.push("/data");
     const qs = question ?? q;
-    router.push(`/connections/${target.id}${qs ? `?q=${encodeURIComponent(qs)}` : ""}`);
+    try {
+      const c = await repo.create();
+      router.push(`/conversations/${c.id}${qs ? `?q=${encodeURIComponent(qs)}` : ""}`);
+    } catch {
+      router.push("/data");
+    }
   }
 
   const reviewReport = reports[0];
