@@ -32,6 +32,10 @@ class MeasurementPlan(Base):
 
     scope: Mapped[dict] = mapped_column(JSON, default=dict)          # {table, dim, column, values:[...]}
     control_scope: Mapped[dict | None] = mapped_column(JSON, default=None)  # {values:[...]}
+    # Sélection des témoins FIGÉE avant l'observation (jamais choisie à J+30 pour
+    # produire un beau résultat) : {control_ids, matching_features, matching_score,
+    # pretrend_score, selection_at}. C'est la garantie méthodologique.
+    control_selection: Mapped[dict | None] = mapped_column(JSON, default=None)
     comparison: Mapped[str] = mapped_column(String(24), default="matched_control")
     baseline_window_days: Mapped[int] = mapped_column(Integer, default=30)
     observation_window_days: Mapped[int] = mapped_column(Integer, default=30)

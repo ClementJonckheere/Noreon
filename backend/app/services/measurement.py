@@ -66,16 +66,44 @@ def _sum(adapter, connection_id: int, scope: dict, values: list[str], start, end
     return (float(val) if val is not None else None), getattr(res, "guarded_sql", sql)
 
 
+def _pretrend(adapter, connection_id: int, scope: dict, values: list[str], start, end) -> float | None:
+    """Croissance moitié-1 → moitié-2 de la fenêtre baseline (proxy de tendance)."""
+    mid = start + (end - start) / 2
+    a, _ = _sum(adapter, connection_id, scope, values, start, mid)
+    b, _ = _sum(adapter, connection_id, scope, values, mid, end)
+    if not a:
+        return None
+    return (b - a) / a
+
+
 def freeze_baseline(db: Session, plan: MeasurementPlan, adapter, *, implemented_at: datetime | None = None) -> MeasurementPlan:
-    """À la MISE EN ŒUVRE : fige le baseline pré-action (cible + témoins)."""
+    """À la MISE EN ŒUVRE : fige le baseline pré-action ET la sélection des
+    témoins (avant toute observation post-action — garantie méthodologique)."""
     impl = implemented_at or datetime.now(timezone.utc)
     plan.implemented_at = impl
     if plan.measure_type == "impact" and plan.scope:
         start = impl - timedelta(days=plan.baseline_window_days)
-        bt, sql = _sum(adapter, plan.connection_id, plan.scope, plan.scope.get("values", []), start, impl)
+        tvals = plan.scope.get("values", [])
+        bt, sql = _sum(adapter, plan.connection_id, plan.scope, tvals, start, impl)
         bc = None
-        if plan.control_scope and plan.control_scope.get("values"):
-            bc, _ = _sum(adapter, plan.connection_id, plan.scope, plan.control_scope["values"], start, impl)
+        cvals = (plan.control_scope or {}).get("values") or []
+        if cvals:
+            bc, _ = _sum(adapter, plan.connection_id, plan.scope, cvals, start, impl)
+            # Comparabilité PRÉ-ACTION : niveau (baseline) + pré-tendance. Figée ici,
+            # AVANT de connaître le moindre résultat post-action.
+            n_t = max(1, len(tvals)); n_c = max(1, len(cvals))
+            lvl_t = (bt or 0) / n_t; lvl_c = (bc or 0) / n_c
+            matching = max(0.0, 1 - abs(lvl_t - lvl_c) / lvl_t) if lvl_t else None
+            pt_t = _pretrend(adapter, plan.connection_id, plan.scope, tvals, start, impl)
+            pt_c = _pretrend(adapter, plan.connection_id, plan.scope, cvals, start, impl)
+            pretrend = (max(0.0, 1 - abs(pt_t - pt_c) * 5) if (pt_t is not None and pt_c is not None) else None)
+            plan.control_selection = {
+                "control_ids": cvals,
+                "matching_features": ["niveau de CA (baseline)", "pré-tendance"],
+                "matching_score": round(matching, 3) if matching is not None else None,
+                "pretrend_score": round(pretrend, 3) if pretrend is not None else None,
+                "selection_at": impl.isoformat(),
+            }
         plan.baseline_target = bt
         plan.baseline_control = bc
         plan.baseline_sql = sql
@@ -93,13 +121,18 @@ def run_measurement(db: Session, plan: MeasurementPlan, adapter, *, horizon_days
         baseline_target=plan.baseline_target, baseline_control=plan.baseline_control,
     )
 
+    # Chaque type a SA sémantique de résultat — jamais « inconclusif » par défaut.
     if plan.measure_type != "impact":
-        run.result = "inconclusif"
-        limitations.append(
-            f"Type « {plan.measure_type} » : le résultat ne se mesure pas par l'évolution du "
-            "chiffre d'affaires (audit à livrer, erreur de prévision, hypothèse à trancher). "
-            "À qualifier manuellement."
-        )
+        run.result = "a_qualifier"
+        _MSG = {
+            "completion": "Type « completion » : issue = terminé / non terminé (livrable + facteurs "
+                          "vérifiés). À qualifier — pas mesurable par l'évolution du CA.",
+            "diagnostic": "Type « diagnostic » : issue = hypothèse soutenue / écartée / inconclusive. "
+                          "À qualifier depuis les vérifications de l'audit.",
+            "performance": "Type « performance » : issue = objectif atteint / non atteint sur l'erreur "
+                           "de prévision (MAPE avant/après). Données de prévision requises.",
+        }
+        limitations.append(_MSG.get(plan.measure_type, "Type à qualifier manuellement."))
         run.limitations = limitations
         db.add(run); db.flush()
         return run

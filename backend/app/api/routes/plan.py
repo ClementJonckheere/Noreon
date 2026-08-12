@@ -22,7 +22,7 @@ router = APIRouter(prefix="/plan", tags=["plan"])
 # Cycle de vie d'une action. « successful » ne se pose PAS d'un clic : c'est la
 # mesure qui classe le résultat (objectif atteint / non atteint / inconclusif).
 _ACTIVE = ("retained", "implemented", "measured")
-_ALLOWED = {"retained", "implemented", "abandoned"}
+_ALLOWED = {"retained", "implemented", "abandoned", "closed"}
 
 
 def _plan_of(db: Session, decision_id: int) -> MeasurementPlan | None:
@@ -120,6 +120,73 @@ def update_plan_item(
         d.note = payload.note
     db.commit()
     return _dict(db, d)
+
+
+@router.get("/{item_id}/measurement")
+def measurement_detail(
+    item_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    """Drill-down de PREUVE : protocole figé, fenêtres, valeurs, écart contrôlé,
+    sélection des témoins (avant observation), limites, hash de requête."""
+    import hashlib
+    from datetime import timedelta
+
+    d = db.execute(
+        select(DecisionRecord).where(
+            DecisionRecord.id == item_id, DecisionRecord.tenant_id == principal.tenant_id
+        )
+    ).scalar_one_or_none()
+    if d is None:
+        raise HTTPException(status_code=404, detail="Action introuvable.")
+    plan = _plan_of(db, d.id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Aucun protocole de mesure.")
+
+    def _qhash(sql: str | None) -> str | None:
+        return hashlib.sha256(sql.encode()).hexdigest()[:12] if sql else None
+
+    impl = plan.implemented_at
+    baseline_window = observation_window = None
+    if impl is not None:
+        bstart = impl - timedelta(days=plan.baseline_window_days)
+        baseline_window = {"from": bstart.date().isoformat(), "to": impl.date().isoformat()}
+
+    runs = []
+    for r in plan.runs:
+        obs = None
+        if impl is not None:
+            oend = impl + timedelta(days=r.horizon_days)
+            obs = {"from": impl.date().isoformat(), "to": oend.date().isoformat()}
+        runs.append({
+            "id": r.id, "horizon_days": r.horizon_days,
+            "observation_window": obs,
+            "baseline_target": r.baseline_target, "baseline_control": r.baseline_control,
+            "observed_target": r.observed_target, "observed_control": r.observed_control,
+            "raw_delta": r.raw_delta, "control_delta": r.control_delta,
+            "adjusted_delta": r.adjusted_delta, "result": r.result,
+            "limitations": r.limitations or [], "query_hash": _qhash(r.observation_sql),
+            "measured_at": r.measured_at.isoformat() if r.measured_at else None,
+        })
+
+    return {
+        "action": {"role": d.role, "recommendation": d.recommendation, "status": d.status},
+        "protocol": {
+            "measure_type": plan.measure_type,
+            "metric_label": plan.metric_label, "metric_concept_id": plan.metric_concept_id,
+            "target": (plan.scope or {}).get("values", []),
+            "target_table": (plan.scope or {}).get("table"),
+            "comparison": plan.comparison,
+            "control_selection": plan.control_selection,
+            "threshold": plan.threshold, "protocol_version": plan.protocol_version,
+            "implemented_at": impl.isoformat() if impl else None,
+            "baseline_window": baseline_window,
+            "baseline_target": plan.baseline_target, "baseline_control": plan.baseline_control,
+            "baseline_query_hash": _qhash(plan.baseline_sql),
+        },
+        "runs": runs,
+    }
 
 
 @router.post("/{item_id}/measure")

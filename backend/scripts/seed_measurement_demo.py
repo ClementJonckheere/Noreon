@@ -45,9 +45,11 @@ plan = MeasurementPlan(decision_id=dec.id, tenant_id=conn.tenant_id, connection_
     measure_type="impact", metric_label="Chiffre d'affaires",
     scope={"table":"action_impact","dim_col":"store","metric_col":"revenue","date_col":"day","values":TARGET},
     control_scope={"values":CONTROL}, comparison="matched_control", threshold=0.02,
-    implemented_at=impl_dt, baseline_target=60000.0, baseline_control=60000.0,
-    baseline_frozen_at=impl_dt,
-    baseline_sql="SELECT sum(revenue) FROM action_impact WHERE store IN (cible) AND day IN [IMPL-30, IMPL)")
-db.add(plan); db.commit()
+    )
+db.add(plan); db.flush()
+from app.services.connections import get_source_adapter
+from app.services import measurement as meas
+meas.freeze_baseline(db, plan, get_source_adapter(conn), implemented_at=impl_dt)
+db.commit()
 print("decision:", dec.id, "| plan:", plan.id, "| implemented_at:", IMPL.isoformat())
 db.close()

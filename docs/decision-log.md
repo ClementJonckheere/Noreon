@@ -998,3 +998,26 @@ jamais `created_at`, jamais envoyé par le front), et chaque échéance crée un
 
 Séquence Rapports/versionnement → Plan d'action → **Mesure** complète et cohérente
 avec le principe : résultat contrôlé, jamais de causalité proclamée.
+
+### Mesure — drill-down de preuve + témoins figés avant observation
+
+« Voir la mesure → » ouvre la PREUVE auditable (`/plan/[id]`, `GET /plan/{id}/measurement`) :
+protocole figé, table baseline → observation (valeurs réelles), écart contrôlé,
+résultat, sélection des témoins, limites, empreinte de requête. C'est cette page
+qui transforme « −1,4 pt » en résultat vérifiable, pas en chiffre magique.
+
+- **Témoins figés AVANT l'observation** (`control_selection` : control_ids,
+  matching_features, matching_score, pretrend_score, selection_at = implemented_at,
+  migration `f2a3b4c5d6e7`). Calculés à `freeze_baseline` → Noreon prouve que les
+  témoins ont été choisis avant de connaître le résultat, sur une pré-tendance
+  comparable. « Nouvelle mesure » ne recalcule NI baseline NI témoins NI seuil :
+  un nouveau `MeasurementRun` dans le même protocole (J+30, J+90 comparables).
+- **Sémantique par type** : plus de « inconclusif » forcé pour les non-impact —
+  completion/diagnostic/performance renvoient « à qualifier » avec le vocabulaire
+  et le mécanisme propres à leur type (à brancher).
+- **Actions de carte** : une action mesurée propose « Nouvelle mesure / Ajuster
+  l'action (si objectif non atteint) / Clore le suivi » ; « Abandonner » ne reste
+  que sur Retenue / Mise en œuvre.
+- **En attente vs impossible** : « Mesure non disponible · historique pré-action
+  insuffisant » quand la source ne contient pas l'historique (le temps n'y changera
+  rien), distinct d'une ingestion en cours.

@@ -526,7 +526,7 @@ export interface MeasurementRunView {
   raw_delta: number | null;
   control_delta: number | null;
   adjusted_delta: number | null;
-  result: "objectif_atteint" | "objectif_non_atteint" | "inconclusif";
+  result: "objectif_atteint" | "objectif_non_atteint" | "inconclusif" | "a_qualifier";
   limitations: string[];
   measured_at: string | null;
 }
@@ -540,11 +540,35 @@ export interface MeasurementView {
   latest_run: MeasurementRunView | null;
   runs_count: number;
 }
+export interface MeasurementDetail {
+  action: { role: string; recommendation: string; status: string };
+  protocol: {
+    measure_type: string; metric_label: string; metric_concept_id: string;
+    target: string[]; target_table: string | null; comparison: string;
+    control_selection: {
+      control_ids: string[]; matching_features: string[];
+      matching_score: number | null; pretrend_score: number | null; selection_at: string | null;
+    } | null;
+    threshold: number; protocol_version: number;
+    implemented_at: string | null;
+    baseline_window: { from: string; to: string } | null;
+    baseline_target: number | null; baseline_control: number | null;
+    baseline_query_hash: string | null;
+  };
+  runs: {
+    id: number; horizon_days: number;
+    observation_window: { from: string; to: string } | null;
+    baseline_target: number | null; baseline_control: number | null;
+    observed_target: number | null; observed_control: number | null;
+    raw_delta: number | null; control_delta: number | null; adjusted_delta: number | null;
+    result: string; limitations: string[]; query_hash: string | null; measured_at: string | null;
+  }[];
+}
 export interface PlanItem {
   id: number;
   role: string;
   recommendation: string;
-  status: "retained" | "implemented" | "measured" | "abandoned";
+  status: "retained" | "implemented" | "measured" | "abandoned" | "closed";
   note: string | null;
   connection_id: number;
   analysis_label: string;
@@ -904,6 +928,7 @@ export const api = {
   planUpdate: (id: number, body: { status?: string; note?: string }) =>
     request<PlanItem>(`/plan/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   planMeasure: (id: number) => request<PlanItem>(`/plan/${id}/measure`, { method: "POST" }),
+  measurementDetail: (id: number) => request<MeasurementDetail>(`/plan/${id}/measurement`),
 
   reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
   reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),

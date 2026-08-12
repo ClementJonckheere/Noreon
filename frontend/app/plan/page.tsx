@@ -16,6 +16,7 @@ const STATUS = {
   implemented: { label: "Mise en œuvre", cls: "text-brand-700 bg-brand-50 border-brand-300" },
   measured: { label: "Mesurée", cls: "text-ink-secondary bg-bg-secondary border-line-subtle" },
   abandoned: { label: "Abandonnée", cls: "text-ink-tertiary bg-bg-secondary border-line-subtle" },
+  closed: { label: "Suivi clos", cls: "text-ink-tertiary bg-bg-secondary border-line-subtle" },
 } as const;
 
 export default function PlanPage() {
@@ -42,7 +43,7 @@ export default function PlanPage() {
   }
 
   const active = (items ?? []).filter((i) => i.status === "retained" || i.status === "implemented" || i.status === "measured");
-  const closed = (items ?? []).filter((i) => i.status === "abandoned");
+  const closed = (items ?? []).filter((i) => i.status === "abandoned" || i.status === "closed");
 
   return (
     <div className="space-y-6 fade-in">
@@ -95,11 +96,12 @@ export default function PlanPage() {
 }
 
 const pct = (x: number | null, unit = "%") => (x == null ? "—" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)} ${unit}`);
-const RESULT = {
+const RESULT: Record<string, { label: string; cls: string }> = {
   objectif_atteint: { label: "atteint", cls: "text-success-hover" },
   objectif_non_atteint: { label: "non atteint", cls: "text-warning-hover" },
   inconclusif: { label: "inconclusif", cls: "text-ink-tertiary" },
-} as const;
+  a_qualifier: { label: "à qualifier", cls: "text-ink-tertiary" },
+};
 
 function PlanCard({
   it, busy, onAdvance, onMeasure, canDecide,
@@ -107,7 +109,7 @@ function PlanCard({
   it: PlanItem; busy: boolean; onAdvance: (it: PlanItem, s: string) => void; onMeasure: (it: PlanItem) => void; canDecide: boolean;
 }) {
   const st = STATUS[it.status];
-  const closed = it.status === "abandoned";
+  const closed = it.status === "abandoned" || it.status === "closed";
   const m = it.measurement;
   const run = m?.latest_run ?? null;
   return (
@@ -144,14 +146,19 @@ function PlanCard({
               <span className={`font-medium ${RESULT[run.result].cls}`}>{RESULT[run.result].label}</span>
             </span>
           </div>
-          <div className="meta">Mesuré à J+{run.horizon_days}{m!.has_control ? " · groupe témoin apparié" : " · sans témoin"}.</div>
-          {run.limitations.length > 0 && (
-            <ul className="meta list-disc pl-4">{run.limitations.map((l, i) => <li key={i}>{l}</li>)}</ul>
-          )}
+          <div className="flex items-center justify-between gap-2">
+            <span className="meta">Mesuré à J+{run.horizon_days}{m!.has_control ? " · groupe témoin apparié" : " · sans témoin"}.</span>
+            <Link href={`/plan/${it.id}`} className="text-small text-brand-700 hover:text-brand-800">Voir la mesure →</Link>
+          </div>
         </div>
       )}
-      {run && run.result === "inconclusif" && (
-        <div className="state state-limit"><div className="state-body">{run.limitations[0] ?? "Mesure inconclusive."}</div></div>
+      {run && (run.result === "inconclusif" || run.result === "a_qualifier") && (
+        <div className="state state-limit">
+          <div className="state-body flex items-center justify-between gap-2">
+            <span>{run.limitations[0] ?? "Mesure à qualifier."}</span>
+            <Link href={`/plan/${it.id}`} className="text-brand-700 hover:text-brand-800 underline shrink-0">Voir la mesure →</Link>
+          </div>
+        </div>
       )}
 
       {canDecide && !closed && (
@@ -161,18 +168,37 @@ function PlanCard({
               Passer en mise en œuvre
             </button>
           )}
-          {(it.status === "implemented" || it.status === "measured") && m?.baseline_frozen && (
+          {it.status === "implemented" && m?.baseline_frozen && (
             <button disabled={busy} onClick={() => onMeasure(it)} className="btn-secondary btn-sm"
               title="Le résultat est classé par la mesure, jamais déclaré d'un clic">
-              {busy ? "Mesure en cours…" : it.status === "measured" ? "Nouvelle mesure" : "Mesurer le résultat"}
+              {busy ? "Mesure en cours…" : "Mesurer le résultat"}
             </button>
           )}
-          {it.status === "implemented" && !m?.baseline_frozen && (
-            <span className="meta">Baseline en attente : la source ne couvre pas encore la fenêtre pré-action.</span>
+          {/* Une action mesurée : nouvelle échéance (même protocole), ajuster, clore. */}
+          {it.status === "measured" && (
+            <>
+              <button disabled={busy} onClick={() => onMeasure(it)} className="btn-secondary btn-sm"
+                title="Nouvelle échéance dans le MÊME protocole (baseline et témoins inchangés)">
+                {busy ? "Mesure en cours…" : "Nouvelle mesure"}
+              </button>
+              {run?.result === "objectif_non_atteint" && (
+                <Link href="/conversations" className="btn-secondary btn-sm">Ajuster l'action</Link>
+              )}
+              <button disabled={busy} onClick={() => onAdvance(it, "closed")} className="btn-ghost btn-sm text-ink-tertiary">
+                Clore le suivi
+              </button>
+            </>
           )}
-          <button disabled={busy} onClick={() => onAdvance(it, "abandoned")} className="btn-ghost btn-sm text-ink-tertiary">
-            Abandonner
-          </button>
+          {/* Pas de protocole mesurable pour cette action (audit, prévision…) :
+              on ne fabrique pas de chiffre — l'écoulement du temps n'y changera rien. */}
+          {it.status === "implemented" && it.measurement && !m?.baseline_frozen && (
+            <span className="meta">Mesure non disponible · historique pré-action insuffisant.</span>
+          )}
+          {(it.status === "retained" || it.status === "implemented") && (
+            <button disabled={busy} onClick={() => onAdvance(it, "abandoned")} className="btn-ghost btn-sm text-ink-tertiary">
+              Abandonner
+            </button>
+          )}
         </div>
       )}
     </div>
