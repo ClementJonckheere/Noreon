@@ -42,12 +42,12 @@ export default function QualityPage() {
       ) : (
         <div className="space-y-2.5">
           {conns.map((c) => (
-            <Link key={c.id} href={`/connections/${c.id}`} className="card p-4 flex items-center justify-between hover:border-line-strong transition-colors">
+            <Link key={c.id} href={`/quality/${c.id}`} className="card p-4 flex items-center justify-between hover:border-line-strong transition-colors">
               <div className="min-w-0">
                 <div className="text-subhead text-ink-primary truncate">{c.name}</div>
                 <div className="meta mt-0.5 truncate">{c.engine}</div>
               </div>
-              <span className="btn-secondary btn-sm shrink-0">Vérifier la qualité</span>
+              <span className="btn-secondary btn-sm shrink-0">Voir la confiance →</span>
             </Link>
           ))}
         </div>

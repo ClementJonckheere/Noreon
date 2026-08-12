@@ -848,3 +848,32 @@ Recommandations (hiérarchie Observe → Démontre → Recommande).
 Reste (mineur, différé) : clipping/scroll de la sidebar sous « Nouveau dossier »
 (à inspecter visuellement). La colonne physique d'une alerte QUALITÉ (sérendipité
 « customers.email ») est CONSERVÉE : précision actionnable, comme la Preuve.
+
+### Commit 7 — Data / Trust (drill-down de confiance de source)
+
+Dernière étape de la passe d'alignement : remplacer le « Score qualité » global
+opaque (retiré du panneau Confiance au commit 6) par une **fiche de confiance par
+source**, auditable.
+
+- **`/quality/[id]`** (nouveau) : confiance globale + **dimensions auditables**
+  (Fraîcheur, Complétude, Cohérence, Validité, Unicité — agrégées côté client à
+  partir des scores colonne de l'API `GET /connections/{id}/quality`), **incidents**
+  concrets (colonnes/relations sous le seuil, détail chiffré), et **conclusions
+  impactées** (tables sous le seuil → réserve de confiance sur les réponses qui s'y
+  appuient — le pont Trust → Décision).
+- **Action** « Lancer les contrôles » / « Relancer les contrôles » (`POST
+  /quality`), dérivée de la capacité `inspectQuality` (pas de `if role===`).
+- **Drill-down depuis la Preuve** : `RightPanel` reçoit `connectionId` ; chaque
+  source de l'onglet Sources mène à `/quality/{id}?table=…` (la source est
+  surlignée), et « Confiance de la source → » ouvre la fiche.
+- **Couleur** : c'est le seul endroit où le VERT est légitime — un contrôle qui
+  passe est une **validation externe de la donnée**, pas une estimation machine
+  (violet). Orange = à surveiller, rouge = à corriger.
+- `/quality` (liste) pointe désormais vers `/quality/{id}` (« Voir la confiance »),
+  plus vers l'ancienne page de connexion.
+
+Note : « stabilité » de la cible handoff est couverte par Validité + Unicité (les
+dimensions réellement auditables du backend), plus précises qu'un libellé unique.
+
+**Fin de la passe d'alignement architectural** (machine à états → nav → Conversation
+racine → Semantic Layer → demo/live → AnswerView sur le contrat → Data/Trust).

@@ -11,7 +11,7 @@ import { InvestigationChain } from "@/components/InvestigationView";
 // Source, Limite qualité — et non une seconde navigation de conversations.
 type Tab = "comprendre" | "preuve" | "source";
 
-export default function RightPanel({ r }: { r: ChatResponse }) {
+export default function RightPanel({ r, connectionId }: { r: ChatResponse; connectionId?: number }) {
   const [tab, setTab] = useState<Tab>("comprendre");
   const hasProof = !!r.sql || (r.columns?.length ?? 0) > 0;
   const hasSources = (r.sources?.length ?? 0) > 0 || (r.tables_used?.length ?? 0) > 0;
@@ -94,17 +94,25 @@ export default function RightPanel({ r }: { r: ChatResponse }) {
           <>
             <div className="text-label uppercase text-ink-tertiary">Sources utilisées</div>
             <div className="space-y-1.5">
-              {(r.sources ?? []).map((s) => (
-                <div key={s.table} className="flex items-center justify-between rounded-field border border-line-subtle px-3 py-2">
-                  <span className="mono text-body text-ink-primary">{s.table}</span>
-                  <span className="meta">{s.role}{s.quality_pct !== null ? ` · ${s.quality_pct}%` : ""}</span>
-                </div>
-              ))}
+              {(r.sources ?? []).map((s) => {
+                const row = (
+                  <div className="flex items-center justify-between rounded-field border border-line-subtle px-3 py-2 hover:border-line-strong transition-colors">
+                    <span className="mono text-body text-ink-primary">{s.table}</span>
+                    <span className="meta">{s.role}{s.quality_pct !== null ? ` · qualité ${s.quality_pct}%` : ""}</span>
+                  </div>
+                );
+                // Drill-down : chaque source mène à sa fiche de confiance (Qualité).
+                return connectionId ? (
+                  <Link key={s.table} href={`/quality/${connectionId}?table=${encodeURIComponent(s.table)}`}>{row}</Link>
+                ) : <div key={s.table}>{row}</div>;
+              })}
               {(r.sources?.length ?? 0) === 0 && r.tables_used?.map((t) => (
                 <div key={t} className="rounded-field border border-line-subtle px-3 py-2 mono text-body text-ink-primary">{t}</div>
               ))}
             </div>
-            <Link href="/data" className="btn-secondary btn-sm w-full">Détail des sources</Link>
+            <Link href={connectionId ? `/quality/${connectionId}` : "/quality"} className="btn-secondary btn-sm w-full">
+              Confiance de la source →
+            </Link>
           </>
         )}
       </div>

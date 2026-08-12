@@ -148,7 +148,7 @@ export default function ConversationScreen({ id }: { id: string }) {
       </section>
 
       {/* Droite — panneau contextuel (dès qu'une réponse existe). */}
-      {lastAnswered && <RightPanel r={lastAnswered} />}
+      {lastAnswered && <RightPanel r={lastAnswered} connectionId={detail?.summary.sourceId} />}
     </div>
   );
 }
