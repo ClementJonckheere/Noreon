@@ -108,7 +108,11 @@ export default function AnswerView({
       {r.deep && <DeepReportView d={r.deep} />}
       {r.measure_options && <MeasureChoice m={r.measure_options} />}
 
-      {r.chart && r.chart.type !== "table" && r.columns.length > 0 && (
+      {/* Graphique détaillé/exportable — évité au CENTRE quand l'investigation
+          montre déjà sa mini-courbe (Résultat → Vérification) : pas deux fois la
+          même série, pas de « gros dashboard » dans le fil de lecture. */}
+      {r.chart && r.chart.type !== "table" && r.columns.length > 0 &&
+        !(mode === "centre" && (r.investigation?.trend_rows?.length ?? 0) >= 2) && (
         <ChartBlock columns={r.columns} rows={r.rows} suggestion={r.chart} />
       )}
 

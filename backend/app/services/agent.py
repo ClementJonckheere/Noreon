@@ -237,6 +237,10 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
             continue
         gross = sum(abs(d) for _, d, _, _ in same)
         total_prior = sum(max(pri, 0) for _, _, _, pri in deltas)
+        # Variation NETTE totale de la période (récent − précédent) : identique quel
+        # que soit l'axe (c'est une partition du même total). Sert de dénominateur
+        # COMMUN à tous les axes → une seule échelle « part du recul total ».
+        net_total = sum(d for _, d, _, _ in deltas)
         if gross < 1e-9:
             continue
         samples = [g[0] for g in groups][:12]
@@ -247,17 +251,24 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
         segs = []
         for lbl, d, rec, pri in same:
             share = abs(d) / gross * 100.0
+            # contribution_to_change : part de la VARIATION NETTE TOTALE portée par
+            # ce segment — même mesure, même dénominateur pour tous les axes (bornée
+            # à 100 quand des contre-mouvements réduisent le net).
+            ctc = min(100.0, abs(d) / abs(net_total) * 100.0) if abs(net_total) > 1e-9 else share
             base_share = (max(pri, 0) / total_prior) if total_prior > 1e-9 else 0.0
             lift = (share / 100.0) / base_share if base_share > 1e-9 else 99.0
             segs.append({"dimension": dim.label, "segment": lbl,
-                         "contribution_pct": round(share, 1), "lift": round(lift, 2),
+                         "contribution_pct": round(share, 1),
+                         "contribution_to_change": round(ctc, 1), "lift": round(lift, 2),
                          "recent": rec, "prior": pri, "samples": samples,
                          "sql": res.guarded_sql, "window": len(recent_labels)})
         segs.sort(key=lambda s: s["contribution_pct"], reverse=True)
-        # Trace d'audit : force explicative de CET axe (segment le plus mouvant),
-        # qu'il soit retenu ou non → alimente la Vérification automatique.
+        # Trace d'audit : part du recul concentrée par le segment le plus mouvant de
+        # CET axe — même mesure que la conclusion (« N % du recul se concentre sur… »),
+        # jamais une part de CA. `contribution_to_change` reste disponible pour audit.
         tested.append({"dimension": dim.label, "segment": segs[0]["segment"],
-                       "pct": round(segs[0]["contribution_pct"])})
+                       "pct": round(segs[0]["contribution_pct"]),
+                       "contribution_to_change": round(segs[0]["contribution_to_change"])})
         # Segments réellement causals de cette dimension (notables + disproportionnés).
         causal = [s for s in segs if s["contribution_pct"] >= 15 and s["lift"] >= 1.3][:3]
         explained = sum(s["contribution_pct"] for s in causal)
@@ -554,6 +565,10 @@ def run_investigation(
                     f"piste la plus explicative.")
             inv.verification = {
                 "text": _verif_text,
+                # Contrat explicite : toutes les valeurs `tested[].pct` sont la MÊME
+                # mesure (contribution_to_change) — jamais une part de CA.
+                "metric": "contribution_to_change",
+                "measure_label": (f"part du {_sens_noun} concentrée par axe"),
                 "winner": {"dimension": a["dimension"], "segment": a["segment"],
                            "pct": round(a["contribution_pct"])},
                 "tested": _tested,

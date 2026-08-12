@@ -28,8 +28,14 @@ export function publishability(c: NonNullable<ChatResponse["confidence"]>, _r?: 
   const bd = (c.breakdown ?? []) as Factor[];
   const st = (k: string): State => bd.find((f) => f.factor === k)?.state ?? "evaluated";
   const gaps: string[] = [];
-  if (st("qualité") !== "evaluated") gaps.push("la qualité des données n'est pas encore entièrement évaluée");
-  if (st("concepts") !== "evaluated") gaps.push("certains concepts métier ne sont pas validés");
+  // « Non évaluée » (aucun contrôle) ≠ « partielle » (partiellement évaluée) :
+  // la phrase doit dire exactement ce qui s'est passé.
+  const q = st("qualité");
+  if (q === "not_evaluated") gaps.push("la qualité des données n'a pas encore été évaluée");
+  else if (q === "partial") gaps.push("la qualité des données n'est pas encore entièrement évaluée");
+  const cc = st("concepts");
+  if (cc === "not_evaluated") gaps.push("aucune résolution sémantique des concepts n'a encore eu lieu");
+  else if (cc === "partial") gaps.push("certains concepts métier ne sont pas validés");
   const aboveThreshold = c.percent >= THRESHOLD;
   const publishable = aboveThreshold && gaps.length === 0;
   return { publishable, gaps, aboveThreshold };

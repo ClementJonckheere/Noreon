@@ -349,6 +349,31 @@ def humanize_decision_text(obj):
     return _walk_str(obj, fix)
 
 
+def annotate_semantic_confidence(conf_dict: dict, inv: dict) -> dict:
+    """Aligne la dimension « Certitude sémantique » de la confiance sur l'état
+    RÉEL de résolution sémantique (concepts proposés par la Semantic Layer), et
+    non sur la seule table de validation en base.
+
+    « NON ÉVALUÉE » ⇔ aucune résolution sémantique. Dès qu'un concept est proposé,
+    l'état est « partielle » (proposé ≠ validé) — jamais « non évaluée ».
+    """
+    concs = (inv or {}).get("concepts") or []
+    n_prop = sum(1 for c in concs if c.get("scope") == "proposed")
+    n_val = sum(1 for c in concs if c.get("scope") in ("validated", "corrected"))
+    for f in (conf_dict or {}).get("breakdown") or []:
+        if f.get("factor") != "concepts":
+            continue
+        if n_prop == 0 and n_val == 0:
+            f["state"], f["detail"] = "not_evaluated", "aucune résolution sémantique"
+        elif n_val == 0:
+            f["state"] = "partial"
+            f["detail"] = f"{n_prop} concept{'s' if n_prop > 1 else ''} proposé{'s' if n_prop > 1 else ''} · 0 validé"
+        else:
+            f["state"] = "evaluated" if n_prop == 0 else "partial"
+            f["detail"] = f"{n_prop} proposé{'s' if n_prop > 1 else ''} · {n_val} validé{'s' if n_val > 1 else ''}"
+    return conf_dict
+
+
 def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
     """Enrichit et reformule un dict d'investigation en langage métier.
 
@@ -456,7 +481,10 @@ def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
             if t.get("segment"):
                 t["segment"] = _humval(t.get("dimension", ""), t["segment"])
             t["dimension"] = _norm_dim(t.get("dimension"))
-            key = (t.get("dimension"), t.get("segment"))
+            # Clé sémantique : ConceptReference.id + segment normalisé (deux colonnes
+            # physiques distinctes projetées sur le même concept = un seul axe).
+            key = (_concept_id(t.get("dimension") or ""),
+                   (t.get("segment") or "").strip().lower())
             if key in seen_keys:
                 continue
             seen_keys.add(key)

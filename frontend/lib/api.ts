@@ -368,6 +368,8 @@ export interface ChatResponse {
     // Vérification automatique : ce qui a été testé, chiffré (pas un journal introspectif).
     verification?: {
       text: string;
+      metric?: string;            // « contribution_to_change » : échelle unique
+      measure_label?: string;     // légende de la colonne (« part du recul concentrée »)
       winner: { dimension: string; segment: string; pct: number };
       tested: { dimension: string; segment: string; pct: number }[];
     } | null;

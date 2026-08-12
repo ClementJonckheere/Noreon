@@ -16,7 +16,9 @@ export default function InvestigationView({
       {/* Résumé d'investigation — barre repliée par défaut. */}
       <details className="group">
         <summary className="flex items-center gap-2 cursor-pointer list-none rounded-card border border-line-subtle bg-bg-secondary px-4 py-2.5">
-          <span className="grid place-items-center w-4 h-4 rounded-full bg-success text-white text-[9px]">✓</span>
+          {/* Violet, pas vert : c'est un PROCESSUS machine terminé, pas une
+              conclusion validée par un tiers (le vert = validation externe). */}
+          <span className="grid place-items-center w-4 h-4 rounded-full bg-reasoning text-white text-[9px]">✓</span>
           <span className="text-label uppercase text-ink-tertiary flex-1">
             Investigation terminée · {inv.steps.length} étape{inv.steps.length > 1 ? "s" : ""} · {inv.subject_label ?? inv.subject}
           </span>
@@ -74,6 +76,11 @@ export default function InvestigationView({
         <div className="text-title text-ink-primary max-w-reading">{inv.conclusion}</div>
       </div>
 
+      {/* Graphique principal — Observer avant de démontrer : la courbe de la
+          mesure rend la conclusion tangible (rythme Résultat → Vérification →
+          Recommandations). Compact, pas un dashboard. */}
+      <MiniTrend inv={inv} />
+
       {/* VÉRIFICATION AUTOMATIQUE — factuelle et chiffrée : ce qui a été testé et
           pourquoi une piste a été écartée. Pas un journal introspectif (« à
           première vue… mais en isolant… ») : des vérifications auditables. */}
@@ -93,6 +100,50 @@ export default function InvestigationView({
   );
 }
 
+// Mini-courbe temporelle de la mesure — SVG inline (offline, sans dépendance).
+// Neutre (observation), jamais verte/violette : c'est la donnée brute. La fenêtre
+// récente est mise en avant en encre pleine ; l'historique reste estompé.
+const _MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+function fmtMonth(label: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(label);
+  return m ? `${_MONTHS_FR[parseInt(m[2], 10) - 1]} ${m[1]}` : label;
+}
+function fmtNum(v: number): string {
+  return Math.round(v).toLocaleString("fr-FR").replace(/ |,/g, " ");
+}
+
+function MiniTrend({ inv }: { inv: NonNullable<ChatResponse["investigation"]> }) {
+  const rows = (inv.trend_rows ?? []) as any[][];
+  if (rows.length < 2) return null;
+  const pts = rows.map((r) => ({ label: String(r[0]), v: Number(r[1]) || 0 }));
+  const vals = pts.map((p) => p.v);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const W = 100, H = 30, pad = 1.5;
+  const x = (i: number) => pad + (i / (pts.length - 1)) * (W - 2 * pad);
+  const y = (v: number) => pad + (1 - (v - min) / span) * (H - 2 * pad);
+  const path = (from: number) => pts.slice(from).map((p, i) => `${i ? "L" : "M"}${x(from + i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
+  const wStart = Math.max(0, pts.length - 4);           // fenêtre récente (4 pas)
+  const first = pts[0], last = pts[pts.length - 1];
+  const metricLabel = inv.measure_label_concept ?? "Chiffre d'affaires";
+  return (
+    <div className="rounded-card border border-line-subtle bg-bg-secondary p-3 space-y-1.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-label uppercase text-ink-tertiary">{metricLabel} · évolution</span>
+        <span className="meta">{fmtMonth(first.label)} → {fmtMonth(last.label)}</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-16" role="img" aria-label={`Évolution de ${metricLabel}`}>
+        <path d={path(0)} fill="none" stroke="var(--border-strong)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        <path d={path(wStart)} fill="none" stroke="var(--text-primary)" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <div className="flex justify-between meta">
+        <span>{fmtNum(first.v)}</span>
+        <span className="text-ink-secondary font-medium">{fmtNum(last.v)}</span>
+      </div>
+    </div>
+  );
+}
+
 function VerificationBlock({ v }: { v: NonNullable<NonNullable<ChatResponse["investigation"]>["verification"]> }) {
   const max = Math.max(1, ...(v.tested ?? []).map((t) => t.pct));
   const isWinner = (t: { dimension: string; segment: string }) =>
@@ -102,7 +153,11 @@ function VerificationBlock({ v }: { v: NonNullable<NonNullable<ChatResponse["inv
       <div className="text-label uppercase text-reasoning-hover">Vérification automatique</div>
       <div className="text-body text-ink-secondary max-w-reading">{v.text}</div>
       {(v.tested?.length ?? 0) > 0 && (
-        <ul className="space-y-1 pt-0.5">
+        <>
+        {/* Légende explicite : toutes les valeurs sont la MÊME mesure
+            (contribution à la variation), jamais une part de CA. */}
+        <div className="meta pt-0.5">{v.measure_label ?? "part de la variation concentrée par axe"}</div>
+        <ul className="space-y-1">
           {v.tested.map((t, i) => {
             const win = isWinner(t);
             return (
@@ -119,6 +174,7 @@ function VerificationBlock({ v }: { v: NonNullable<NonNullable<ChatResponse["inv
             );
           })}
         </ul>
+        </>
       )}
     </div>
   );

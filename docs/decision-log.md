@@ -813,3 +813,38 @@ dans le planning/reasoning.
 
 Reste en backlog (non bloquant) : graphique principal entre Résultat et
 Recommandations (hiérarchie Observe → Démontre → Recommande).
+
+### Mini-commit AnswerView final — 8 points de relecture
+
+1. **Métriques de Vérification comparables (contrat backend, pas que l'affichage)**
+   Toutes les valeurs de `verification.tested[]` proviennent d'UNE seule mesure
+   (`contribution_pct` de `_attribute_variation` : part de la variation concentrée
+   par le segment le plus mouvant de l'axe) — jamais une part de CA (qui vit dans
+   les étapes de segmentation). Contrat explicité : `verification.metric =
+   "contribution_to_change"` + `measure_label` affiché en légende. La valeur du
+   pilote (97 %) correspond exactement à la conclusion. `contribution_to_change`
+   (dénominateur commun = variation nette totale) est aussi calculé et exposé pour
+   l'audit.
+2. **Dédoublonnage APRÈS résolution sémantique** : clé = `ConceptReference.id +
+   segment normalisé` (deux colonnes physiques → un concept = un seul axe), plus
+   sur le nom physique avant transformation.
+3. **« Non évalué » ≠ « non validé »** : `annotate_semantic_confidence` aligne la
+   dimension « Certitude sémantique » sur les concepts RÉELLEMENT proposés par la
+   Semantic Layer → « 50 % · PARTIELLE · 2 concepts proposés · 0 validé ». NON
+   ÉVALUÉE ⇔ aucune résolution sémantique.
+4. **Qualité NON ÉVALUÉE** : la phrase de publication distingue « n'a pas encore
+   été évaluée » (aucun contrôle) de « n'est pas encore entièrement évaluée »
+   (partielle).
+5. **Graphique principal** entre Résultat et Vérification (mini-courbe SVG inline,
+   offline) — rythme Observer → Démontrer → Recommander. Le gros graphique
+   exportable n'est plus doublonné au centre (évité quand la mini-courbe existe).
+6. **« Décisions » → « Recommandations »** (Noreon propose des options ; l'humain
+   décide).
+7. **« Investigation terminée »** : pastille violette (processus machine terminé),
+   plus verte (le vert = validation externe).
+8. **Grain temporel** : « 4 mois consécutifs » au lieu de « 4 période(s) » (lu du
+   format des libellés). Sérendipité passée par la Semantic Layer (pluriels/dates).
+
+Reste (mineur, différé) : clipping/scroll de la sidebar sous « Nouveau dossier »
+(à inspecter visuellement). La colonne physique d'une alerte QUALITÉ (sérendipité
+« customers.email ») est CONSERVÉE : précision actionnable, comme la Preuve.

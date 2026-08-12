@@ -108,7 +108,8 @@ export default function DecisionView(
   return (
     <div className="card p-4 space-y-3 border-l-[3px] border-l-reason">
       <div className="flex items-center gap-2">
-        <span className="tag tag-reason">Décisions</span>
+        {/* Noreon formule des OPTIONS ; l'humain retient la décision. */}
+        <span className="tag tag-reason">Recommandations</span>
         <span className="text-heading text-ink">Selon le rôle</span>
       </div>
       {d.restated && (

@@ -129,17 +129,35 @@ def build(columns: list[str], rows: list[list], *, metric_label: str = "la mesur
     return ch
 
 
+def _grain_words(periods, n: int) -> tuple[str, str]:
+    """Grain temporel LU dans le format des libellés (« 2024-11 » → mois), pour
+    dire « 4 mois consécutifs » plutôt que « 4 période(s) consécutive(s) »."""
+    labs = [str(p) for p in (periods or [])]
+    match = lambda pat: bool(labs) and all(re.match(pat, l) for l in labs)  # noqa: E731
+    plur = n != 1
+    if match(r"^\d{4}-\d{2}$"):
+        return "mois", ("consécutifs" if plur else "consécutif")
+    if match(r"^\d{4}-\d{2}-\d{2}$"):
+        return ("jours" if plur else "jour"), ("consécutifs" if plur else "consécutif")
+    if match(r"^\d{4}$"):
+        return ("ans" if plur else "an"), ("consécutifs" if plur else "consécutif")
+    if match(r"^\d{4}-W?\d{1,2}$"):
+        return ("semaines" if plur else "semaine"), ("consécutives" if plur else "consécutive")
+    return ("périodes" if plur else "période"), ("consécutives" if plur else "consécutive")
+
+
 def _narrate(ch: Chronicle, metric_label: str) -> str:
     """Raconte le RYTHME, pas seulement le fait : phase initiale → mouvement →
     accélération / ralentissement."""
     if ch.streak >= 2:
         verb = "recule" if ch.direction == "baisse" else "progresse"
         noun = "baisse" if ch.direction == "baisse" else "hausse"
+        grain, adj = _grain_words(ch.periods, ch.streak)
         lead = ""
         if ch.stable_prefix:
             lead = f"Après une stabilité jusqu'en {ch.stable_prefix}, "
         story = (f"{metric_label} {verb} progressivement pendant "
-                 f"{ch.streak} période(s) consécutive(s)")
+                 f"{ch.streak} {grain} {adj}")
         if ch.tempo == "accélération":
             story += f", avec une accélération de la {noun} en {ch.periods[-1]}"
         elif ch.tempo == "ralentissement":

@@ -298,7 +298,8 @@ def answer_question(
                     rationale="Investigation multi-étapes (planification → sous-questions → synthèse).",
                     tables_used=[inv.subject],
                     columns=inv.trend_columns, rows=inv.trend_rows, row_count=len(inv.trend_rows),
-                    investigation=inv_dict, confidence=conf.as_dict(),
+                    investigation=inv_dict,
+                    confidence=concepts_svc.annotate_semantic_confidence(conf.as_dict(), inv_dict),
                     validation=inv_validation,
                     sources=_sources([inv.subject], inv.trend_columns, {}),
                     self_critique=inv_critique,
@@ -308,9 +309,16 @@ def answer_question(
                     intent=decision_svc.detect_intent(question),
                     intent_restated=intent_restated_val,
                     decisions=decisions_dict,
-                    serendipity=disc_svc.top_side_finding(
-                        db, conn, exclude_table=inv.subject,
-                        hidden_tables=hidden_tables, hidden_columns=hidden_columns),
+                    # Sérendipité = consommateur du résultat : on humanise (pluriels,
+                    # dates) et on traduit les concepts connus. La colonne physique
+                    # d'une alerte QUALITÉ est conservée (précision actionnable, comme
+                    # dans la Preuve : « quelle colonne a des e-mails non conformes »).
+                    serendipity=concepts_svc.humanize_presentation_deep(
+                        concepts_svc.translate(
+                            disc_svc.top_side_finding(
+                                db, conn, exclude_table=inv.subject,
+                                hidden_tables=hidden_tables, hidden_columns=hidden_columns),
+                            _repls)),
                     chart=chart.as_dict() if chart else None,
                 )
 
