@@ -377,6 +377,13 @@ class DecisionFeedback(BaseModel):
     note: str | None = None
 
 
+class PlanItemUpdate(BaseModel):
+    """Mise à jour d'une action du plan (statut / note)."""
+
+    status: str | None = None   # retained | implemented | abandoned (pas successful)
+    note: str | None = None
+
+
 # ---- Historique de conversations (côté serveur) ----
 class FolderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)

@@ -962,3 +962,14 @@ est masqué pendant la consultation d'une version figée.
 L'**incident postérieur** s'ancre désormais sur la dernière VERSION validée si
 elle existe (sinon la création du rapport) : valider une version acquitte l'état
 qualité connu ; seul un contrôle exécuté APRÈS la validation devient « postérieur ».
+
+### Plan d'action (les décisions retenues, suivies)
+
+`/plan` n'est plus un placeholder : les `DecisionRecord` retenus depuis les
+analyses deviennent un vrai plan. Route tenant `GET /plan` (+ `include_closed`)
+et `PATCH /plan/{id}` (retenue → mise en œuvre → abandonnée). Cartes groupées
+« En cours » / « Closes », capability-driven (`decideAction`).
+
+Règle de responsabilité conservée : le statut « **réussie** » ne se pose pas d'un
+clic (`PATCH` le refuse) — c'est la **mesure du résultat** qui le posera. Le bouton
+« Mesurer le résultat → » est le point d'entrée du prochain morceau (Mesure).

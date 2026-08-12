@@ -520,6 +520,17 @@ export interface ReportSummary {
   created_at: string | null;
   updated_at: string | null;
 }
+export interface PlanItem {
+  id: number;
+  subject: string;
+  role: string;
+  recommendation: string;
+  status: "retained" | "implemented" | "successful" | "abandoned";
+  note: string | null;
+  connection_id: number;
+  source_name: string | null;
+  created_at: string | null;
+}
 export interface ReportVersionSummary {
   version: number;
   title: string;
@@ -867,6 +878,12 @@ export const api = {
     }),
   reportExportUrl: (rid: number, format: "docx" | "pdf" | "md") =>
     `${API_BASE}/reports/${rid}/export?format=${format}`,
+  // --- Plan d'action ---
+  plan: (includeClosed = false) =>
+    request<PlanItem[]>(`/plan${includeClosed ? "?include_closed=true" : ""}`),
+  planUpdate: (id: number, body: { status?: string; note?: string }) =>
+    request<PlanItem>(`/plan/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
   reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
   reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),
   reportVersion: (rid: number, v: number) => request<ReportVersionFull>(`/reports/${rid}/versions/${v}`),
