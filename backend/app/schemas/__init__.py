@@ -153,6 +153,7 @@ class QualityScoreOut(BaseModel):
     score: float
     detail: str
     dimensions: list = []
+    computed_at: datetime | None = None
 
     class Config:
         from_attributes = True

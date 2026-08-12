@@ -11,12 +11,14 @@ import { ChatResponse, api } from "@/lib/api";
 
 type Decision = NonNullable<ChatResponse["decisions"]>["decisions"][number];
 
-// Retours d'un décideur (human-in-the-loop). Bleu = geste, violet = en cours,
-// vert = résultat mesuré (validation externe — le seul emploi légitime du vert).
+// Retours d'un décideur (human-in-the-loop) — des GESTES, pas des résultats.
+// « A porté ses fruits » est un RÉSULTAT : il ne se déclare pas arbitrairement.
+// Il réapparaîtra sous la forme « Résultat mesuré · +N % » quand le protocole de
+// mesure (action → mesure contrôlée) sera branché — posé par le système, jamais
+// par un clic. En attendant, on ne garde que les deux vrais gestes.
 const FEEDBACK = [
   { status: "retained", label: "Je retiens", cls: "text-brand-700 border-brand-200 hover:bg-brand-50" },
   { status: "implemented", label: "Mise en œuvre", cls: "text-reason border-reason/30 hover:bg-reason-subtle" },
-  { status: "successful", label: "A porté ses fruits", cls: "text-success-hover border-success/30 hover:bg-success-subtle" },
 ];
 
 function DecisionCard(

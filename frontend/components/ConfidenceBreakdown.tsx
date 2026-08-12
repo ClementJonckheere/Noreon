@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ChatResponse } from "@/lib/api";
 
 // Confiance de l'analyse — TOUJOURS violette (la machine estime sa propre
@@ -28,11 +29,16 @@ export function publishability(c: NonNullable<ChatResponse["confidence"]>, _r?: 
   const bd = (c.breakdown ?? []) as Factor[];
   const st = (k: string): State => bd.find((f) => f.factor === k)?.state ?? "evaluated";
   const gaps: string[] = [];
-  // « Non évaluée » (aucun contrôle) ≠ « partielle » (partiellement évaluée) :
-  // la phrase doit dire exactement ce qui s'est passé.
+  // « Non évaluée » (aucun contrôle) ≠ « en réserve » (contrôlée, une dimension
+  // faible) : la phrase doit dire exactement ce qui s'est passé.
   const q = st("qualité");
+  const weak = c.quality?.weak ?? [];
   if (q === "not_evaluated") gaps.push("la qualité des données n'a pas encore été évaluée");
-  else if (q === "partial") gaps.push("la qualité des données n'est pas encore entièrement évaluée");
+  else if (q === "partial") {
+    gaps.push(weak.length
+      ? `une réserve de qualité subsiste (${weak.join(", ").toLowerCase()} à surveiller)`
+      : "une réserve de qualité subsiste sur les tables utilisées");
+  }
   const cc = st("concepts");
   if (cc === "not_evaluated") gaps.push("aucune résolution sémantique des concepts n'a encore eu lieu");
   else if (cc === "partial") gaps.push("certains concepts métier ne sont pas validés");
@@ -41,10 +47,11 @@ export function publishability(c: NonNullable<ChatResponse["confidence"]>, _r?: 
   return { publishable, gaps, aboveThreshold };
 }
 
-export default function ConfidenceBreakdown({ c, r }: { c: NonNullable<ChatResponse["confidence"]>; r?: ChatResponse }) {
+export default function ConfidenceBreakdown({ c, r, connectionId }: { c: NonNullable<ChatResponse["confidence"]>; r?: ChatResponse; connectionId?: number }) {
   const bd = (c.breakdown ?? []) as Factor[];
   const factor = (k: string) => bd.find((f) => f.factor === k);
   const pub = publishability(c, r);
+  const qIncident = c.quality?.incidents?.[0];
 
   return (
     <div className="card p-4 space-y-3">
@@ -94,11 +101,15 @@ export default function ConfidenceBreakdown({ c, r }: { c: NonNullable<ChatRespo
                   <div className="h-full rounded-full bg-reasoning" style={{ width: `${f.subscore_pct}%` }} />
                 )}
               </div>
-              {f.detail && state !== "not_evaluated" && (
-                <div className="meta">{f.detail}</div>
-              )}
-              {state === "not_evaluated" && f.detail && (
-                <div className="meta">{f.detail}</div>
+              {f.detail && <div className="meta">{f.detail}</div>}
+              {/* Lien vers l'incident réel — la Qualité branchée sur l'analyse. */}
+              {d.key === "qualité" && qIncident && connectionId && (
+                <Link
+                  href={`/quality/${connectionId}?table=${encodeURIComponent(qIncident.table)}`}
+                  className="text-small text-brand-700 hover:text-brand-800"
+                >
+                  Voir l'incident · {qIncident.dimension.toLowerCase()} →
+                </Link>
               )}
             </li>
           );

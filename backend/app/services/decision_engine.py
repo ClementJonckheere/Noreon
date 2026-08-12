@@ -192,27 +192,31 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
     pct_txt = f" ({trend_pct:+.0f}%)" if trend_pct else ""
     sens = "baisse" if down else "hausse"
 
-    # Finance : présent quelle que soit l'analyse d'une mesure monétaire.
+    # Finance : présent quelle que soit l'analyse d'une mesure monétaire. Noreon
+    # ne recommande PAS d'actions marge/trésorerie tant que ces mesures ne sont pas
+    # dans l'analyse : il cadre au périmètre réellement diagnostiqué et l'assume.
     if trend_direction in ("baisse", "hausse"):
-        just = (f"parce que {metric_label} évolue de {trend_pct:+.0f}%, "
-                "ce qui pèse directement sur la marge." if trend_pct
-                else f"parce que {metric_label} est orienté à la {sens}.")
+        just = (f"parce que {metric_label} évolue de {trend_pct:+.0f}%, mais l'effet sur "
+                "la rentabilité dépend de données de marge/coûts absentes de ce diagnostic."
+                if trend_pct
+                else f"parce que {metric_label} est orienté à la {sens} ; l'impact marge n'est pas couvert ici.")
         fin_impact = "Élevé" if trend_pct and abs(trend_pct) >= 10 else "Moyen"
         if down:
             ds.decisions.append(Decision(
                 role="Directeur financier",
-                priority=f"{metric_label} en {sens}{pct_txt} — préserver la marge et cadrer les coûts.",
-                recommendation="Sécuriser la trésorerie, arbitrer les dépenses non essentielles, "
-                               "réviser les prévisions.",
+                priority=f"{metric_label} en {sens}{pct_txt} — cadrer l'impact avant tout arbitrage.",
+                recommendation=(f"Réviser les prévisions de {metric_label} sur le périmètre concerné. "
+                                "L'effet sur la marge et la trésorerie n'est pas quantifiable ici : ces "
+                                "mesures ne font pas partie de l'analyse."),
                 justification=just, effort="Moyen", impact_level=fin_impact,
                 stars=_stars(fin_impact, "Moyen"),
             ).as_dict())
         else:
             ds.decisions.append(Decision(
                 role="Directeur financier",
-                priority=f"{metric_label} en {sens}{pct_txt} — sécuriser et rentabiliser la dynamique.",
-                recommendation="Vérifier que la hausse ne dégrade pas la marge ; réinvestir là où le "
-                               "retour est prouvé.",
+                priority=f"{metric_label} en {sens}{pct_txt} — confirmer la rentabilité avant d'investir.",
+                recommendation=(f"Vérifier que la dynamique de {metric_label} se traduit en rentabilité "
+                                "avant réinvestissement : l'effet sur la marge n'est pas mesuré par cette analyse."),
                 justification=just, effort="Moyen", impact_level=fin_impact,
                 stars=_stars(fin_impact, "Moyen"),
             ).as_dict())

@@ -36,6 +36,9 @@ class Confidence:
     score: float  # 0..1
     factors: list[str] = field(default_factory=list)
     breakdown: list[dict] = field(default_factory=list)  # [{factor, weight_pct, subscore_pct, contribution_pct}]
+    # État de confiance des tables RÉELLEMENT utilisées (dimensions + incidents),
+    # pour la dimension « Qualité des données » du panneau Comprendre.
+    quality: dict | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -43,6 +46,7 @@ class Confidence:
             "percent": round(self.score * 100),
             "factors": self.factors,
             "breakdown": self.breakdown,
+            "quality": self.quality,
         }
 
 
@@ -62,26 +66,31 @@ def compute(
     # chiffré — pour lever la contradiction « 70 % » vs « non évaluée » côté UI.
     meta: dict[str, dict] = {}
 
-    # --- Composante QUALITÉ : score qualité auditable des tables (Module 4) ---
+    # --- Composante QUALITÉ : contrôles des tables RÉELLEMENT utilisées (Module 4) ---
+    # On branche l'analyse sur les contrôles pertinents : dimensions + incidents des
+    # tables utilisées seulement. Une colonne obsolète ailleurs ne pénalise pas.
     q_sub = 0.7  # neutre si inconnu
+    quality_trust: dict | None = None
     if table_names:
-        from app.services.quality import table_scores_map  # import local (évite cycle)
+        from app.services.quality import table_scores_map, tables_trust  # local (évite cycle)
 
         tscores = table_scores_map(db, connection_id)
         used = [tscores[t] for t in table_names if t in tscores]
+        quality_trust = tables_trust(db, connection_id, table_names)
+        st = quality_trust["state"]
         if used:
             q_sub = sum(used) / len(used)
-            if len(used) < len(table_names):
-                meta["qualité"] = {"state": "partial",
-                                   "detail": f"{len(used)}/{len(table_names)} tables évaluées"}
-                factors.append(f"qualité partiellement évaluée : {len(used)}/{len(table_names)} tables")
-            else:
-                meta["qualité"] = {"state": "evaluated", "detail": None}
-            if q_sub < 0.95:
-                factors.append(f"score qualité moyen des tables utilisées : {q_sub*100:.0f}%")
+        if st == "not_evaluated":
+            meta["qualité"] = {"state": "not_evaluated", "detail": "aucun contrôle sur les tables utilisées"}
+            factors.append("tables utilisées non évaluées (contrôles qualité absents)")
+        elif st == "partial":
+            weak = ", ".join(quality_trust["weak"])
+            detail = f"{quality_trust['conform_count']}/{quality_trust['total']} dimensions conformes · {weak} à surveiller"
+            meta["qualité"] = {"state": "partial", "detail": detail}
+            factors.append(f"qualité en réserve sur les tables utilisées : {weak}")
         else:
-            meta["qualité"] = {"state": "not_evaluated", "detail": "aucune table évaluée"}
-            factors.append("tables utilisées non évaluées (qualité inconnue)")
+            meta["qualité"] = {"state": "evaluated",
+                               "detail": f"{quality_trust['conform_count']}/{quality_trust['total']} dimensions conformes"}
     else:
         meta["qualité"] = {"state": "not_evaluated", "detail": None}
 
@@ -175,7 +184,7 @@ def compute(
     if not factors:
         factors.append("tous les signaux de confiance sont au vert")
 
-    return Confidence(score=score, factors=factors, breakdown=breakdown)
+    return Confidence(score=score, factors=factors, breakdown=breakdown, quality=quality_trust)
 
 
 def _relation_subscore(

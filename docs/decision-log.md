@@ -877,3 +877,48 @@ dimensions réellement auditables du backend), plus précises qu'un libellé uni
 
 **Fin de la passe d'alignement architectural** (machine à états → nav → Conversation
 racine → Semantic Layer → demo/live → AnswerView sur le contrat → Data/Trust).
+
+### Passe de cohérence « confiance » (avant de figer Conversation + Qualité)
+
+Sept corrections issues des captures, plus deux ajustements — la sémantique de
+« confiance » ne devait plus désigner trois choses différentes.
+
+1. **Plus de note globale de source** : la fiche Qualité affiche un ÉTAT
+   multidimensionnel (« 4 dimensions conformes · 1 à surveiller · réserve :
+   Fraîcheur ») au lieu d'un « 98 % » qu'on ne peut pas reconstruire depuis les
+   dimensions et qui masque une fraîcheur à 33 %.
+2. **Taxonomie du vocabulaire** — chaque notion garde sa sémantique :
+   Analyse → **Confiance** ; Source → **Qualité** (« Qualité de la source »,
+   plus « Confiance de la source ») ; Concept → statut proposé/validé ;
+   Incident → sévérité réserve/bloquant. Liste `/quality` : « Voir les contrôles ».
+3. **Header réconcilié** : « Synchronisé · HH:MM » (technique) par défaut ;
+   « Données à jour » UNIQUEMENT si la fraîcheur est contrôlée ET conforme ;
+   sinon « Fraîcheur à vérifier » / « N sources à surveiller » (dérivé des
+   contrôles réels, plus d'un « à jour » codé en dur).
+4. **Qualité branchée sur l'analyse** (fondamental) : `tables_trust(tables
+   utilisées)` calcule les dimensions + incidents des SEULES tables employées.
+   Le panneau Comprendre affiche « Qualité des données · partielle · 3/4
+   dimensions conformes · Fraîcheur à surveiller · Voir l'incident → ». Une
+   colonne CRM obsolète ne pénalise plus une conclusion sur les ventes.
+   Pipeline : analyse → tables utilisées → contrôles pertinents → incidents →
+   dimension « Qualité » → confiance + réserves.
+5. **Incidents = objets** (quoi · dimension · sévérité · depuis), plus de simple
+   score : « customers.signup_date — FRAÎCHEUR · RÉSERVE — dernière valeur : 3
+   nov. 2023 ».
+6. **Recommandations Finance honnêtes** : plus de « sécuriser la trésorerie /
+   arbitrer les dépenses » génériques quand la marge n'est pas connectée →
+   « L'effet sur la marge et la trésorerie n'est pas quantifiable ici : ces
+   mesures ne font pas partie de l'analyse ». Noreon est meilleur quand il dit ce
+   qu'il ne peut pas conclure.
+7. **« A porté ses fruits » retiré** : un RÉSULTAT ne se déclare pas d'un clic.
+   Il reviendra sous « Résultat mesuré · +N % » quand le protocole de mesure sera
+   branché — posé par le système, jamais par l'utilisateur.
+
+Extras : **couleur** — la fraîcheur médiocre est ORANGE (réserve / obsolescence),
+jamais rouge (le rouge = blocage opérationnel réel). **Graphique** — l'annotation
+illustre exactement la comparaison de la conclusion (premier → dernier point,
+« −8 % »), le trait renforcé mettant en avant le recul récent.
+
+Portée assumée : la qualité de l'analyse est calculée sur la table-sujet
+(`inv.subject`) ; un lignage « colonnes exactes de la conclusion » reste un
+raffinement futur. Conversation + Qualité peuvent maintenant être figés.

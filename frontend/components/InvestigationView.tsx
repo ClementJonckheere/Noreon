@@ -123,22 +123,32 @@ function MiniTrend({ inv }: { inv: NonNullable<ChatResponse["investigation"]> })
   const x = (i: number) => pad + (i / (pts.length - 1)) * (W - 2 * pad);
   const y = (v: number) => pad + (1 - (v - min) / span) * (H - 2 * pad);
   const path = (from: number) => pts.slice(from).map((p, i) => `${i ? "L" : "M"}${x(from + i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
-  const wStart = Math.max(0, pts.length - 4);           // fenêtre récente (4 pas)
+  // L'annotation illustre EXACTEMENT la comparaison de la conclusion : le total
+  // de la période (premier → dernier point = « −8 % au total »). Le trait renforcé
+  // met en avant le recul récent (du sommet à la fin), sans changer le chiffre.
   const first = pts[0], last = pts[pts.length - 1];
+  const from = first;
+  const deltaPct = first.v ? Math.round(((last.v - first.v) / first.v) * 100) : 0;
+  let peak = 0;
+  for (let i = 1; i < pts.length; i++) if (pts[i].v > pts[peak].v) peak = i;
+  const wStart = peak < pts.length - 1 ? peak : Math.max(0, pts.length - 4);
   const metricLabel = inv.measure_label_concept ?? "Chiffre d'affaires";
   return (
     <div className="rounded-card border border-line-subtle bg-bg-secondary p-3 space-y-1.5">
       <div className="flex items-baseline justify-between">
         <span className="text-label uppercase text-ink-tertiary">{metricLabel} · évolution</span>
-        <span className="meta">{fmtMonth(first.label)} → {fmtMonth(last.label)}</span>
+        <span className="meta">séquence étudiée</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-16" role="img" aria-label={`Évolution de ${metricLabel}`}>
         <path d={path(0)} fill="none" stroke="var(--border-strong)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         <path d={path(wStart)} fill="none" stroke="var(--text-primary)" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
       </svg>
-      <div className="flex justify-between meta">
-        <span>{fmtNum(first.v)}</span>
-        <span className="text-ink-secondary font-medium">{fmtNum(last.v)}</span>
+      <div className="flex justify-between items-baseline meta">
+        <span>{fmtMonth(from.label)} · {fmtNum(from.v)}</span>
+        <span className="text-ink-secondary">
+          {fmtMonth(last.label)} · <span className="font-medium text-ink-primary">{fmtNum(last.v)}</span>
+          {deltaPct !== 0 && <span className={deltaPct < 0 ? "text-ink-secondary" : "text-ink-secondary"}> · {deltaPct > 0 ? "+" : ""}{deltaPct} %</span>}
+        </span>
       </div>
     </div>
   );

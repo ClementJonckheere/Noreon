@@ -171,6 +171,7 @@ export interface QualityScore {
   score: number;
   detail: string;
   dimensions: QualityDimension[];
+  computed_at?: string | null;
 }
 
 export interface ConceptMapping {
@@ -418,6 +419,16 @@ export interface ChatResponse {
     percent: number;
     factors: string[];
     breakdown?: { factor: string; weight_pct: number; subscore_pct: number; contribution_pct: number; state?: "evaluated" | "partial" | "not_evaluated"; detail?: string | null }[];
+    // Confiance des tables RÉELLEMENT utilisées (dimensions + incidents).
+    quality?: {
+      state: "evaluated" | "partial" | "not_evaluated";
+      dimensions: { name: string; score: number; conform: boolean; detail: string | null }[];
+      conform_count: number;
+      total: number;
+      weak: string[];
+      incidents: { ref: string; table: string; dimension: string; severity: "reserve" | "bloquant"; score: number; detail: string | null; since: string | null }[];
+      tables: string[];
+    } | null;
   } | null;
   table_quality: Record<string, number>;
   chart: {

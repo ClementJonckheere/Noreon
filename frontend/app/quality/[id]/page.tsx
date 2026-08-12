@@ -6,20 +6,19 @@ import { useParams, useSearchParams } from "next/navigation";
 import { api, Connection, QualityScore } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
-// Fiche de confiance d'une SOURCE — remplace le « Score qualité » global opaque
-// par des dimensions auditables (fraîcheur, complétude, cohérence, validité,
-// unicité), les incidents concrets et les conclusions qu'ils fragilisent.
-// Ici le VERT est légitime : un contrôle qui passe est une validation externe
-// de la donnée (pas une estimation de la machine).
+// Qualité d'une SOURCE — un ÉTAT explicable, pas une note globale opaque. Une
+// source n'a pas besoin d'une « note » ; elle a un état, dimension par dimension.
+// Couleur : le VERT = contrôle passé (validation externe de la donnée). L'ORANGE
+// = réserve / obsolescence (jamais bloquant). Le ROUGE est réservé à l'opérationnel
+// (source indisponible, accès refusé) — hors de ces contrôles.
 
-const GOOD = 0.9, WARN = 0.75;
-// Ordre d'affichage métier (le backend expose ces libellés).
+const CONFORM = 0.9;
 const DIM_ORDER = ["Fraîcheur", "Complétude", "Cohérence", "Validité", "Unicité"];
 
-function tone(score: number) {
-  if (score >= GOOD) return { cls: "text-success", bar: "bg-success", label: "conforme" };
-  if (score >= WARN) return { cls: "text-warning", bar: "bg-warning", label: "à surveiller" };
-  return { cls: "text-blocker", bar: "bg-blocker", label: "à corriger" };
+function dimTone(conform: boolean) {
+  return conform
+    ? { cls: "text-success", bar: "bg-success", label: "conforme" }
+    : { cls: "text-warning", bar: "bg-warning", label: "à surveiller" };
 }
 const pct = (s: number) => `${Math.round(s * 100)}%`;
 
@@ -61,10 +60,10 @@ export default function QualitySourcePage() {
             <span>/</span>
             <span className="text-ink-secondary truncate">{conn?.name ?? `Source ${connId}`}</span>
           </div>
-          <h1 className="text-title text-ink-primary">Confiance de la source</h1>
+          <h1 className="text-title text-ink-primary">Qualité de la source</h1>
           <p className="text-body text-ink-secondary max-w-reading">
-            Les contrôles auditables qui tournent avant chaque réponse — jusqu'où Noreon
-            peut se fier à cette source, dimension par dimension.
+            Les contrôles auditables qui tournent avant chaque réponse. Une source n'a pas
+            de « note » — elle a un état, dimension par dimension.
           </p>
         </div>
         {caps.inspectQuality && scores !== null && (
@@ -93,35 +92,48 @@ export default function QualitySourcePage() {
         </div>
       ) : (
         <>
-          {/* Confiance globale — moyenne des tables profilées. */}
-          <div className="card p-4 flex items-center gap-4">
-            <div className={`metric text-[28px] ${tone(model.base).cls}`}>{pct(model.base)}</div>
-            <div className="min-w-0">
-              <div className="text-subhead text-ink-primary">Confiance globale de la source</div>
-              <div className="meta">{model.tablesScored} table(s) profilée(s) · {model.columnsScored} colonne(s) contrôlée(s)</div>
+          {/* État multidimensionnel — PAS de note globale. */}
+          <div className="card p-4 space-y-1">
+            <div className="text-label uppercase text-ink-tertiary">État de la source</div>
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              <span className="text-heading text-ink-primary">
+                {model.conformCount} dimension{model.conformCount > 1 ? "s" : ""} conforme{model.conformCount > 1 ? "s" : ""}
+              </span>
+              {model.weak.length > 0 && (
+                <span className="text-heading text-warning-hover">
+                  {model.weak.length} à surveiller
+                </span>
+              )}
+            </div>
+            <div className="meta">
+              {model.tablesScored} table(s) profilée(s) · {model.columnsScored} colonne(s) contrôlée(s)
+              {model.weak.length > 0 ? ` · réserve : ${model.weak.join(", ")}` : " · tout est conforme"}
             </div>
           </div>
 
           {/* Dimensions auditables. */}
           <section className="space-y-2">
-            <h2 className="text-label uppercase text-ink-tertiary">Dimensions de confiance</h2>
+            <h2 className="text-label uppercase text-ink-tertiary">Dimensions</h2>
             <div className="grid gap-2 md:grid-cols-2">
-              {model.dims.map((d) => (
-                <div key={d.name} className="card p-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-subhead text-ink-primary">{d.name}</span>
-                    <span className={`meta ${tone(d.score).cls}`}>{pct(d.score)} · {tone(d.score).label}</span>
+              {model.dims.map((d) => {
+                const t = dimTone(d.conform);
+                return (
+                  <div key={d.name} className="card p-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-subhead text-ink-primary">{d.name}</span>
+                      <span className={`meta ${t.cls}`}>{pct(d.score)} · {t.label}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-line-inset overflow-hidden">
+                      <div className={`h-full rounded-full ${t.bar}`} style={{ width: pct(d.score) }} />
+                    </div>
+                    {d.worst && <div className="meta">{d.worst}</div>}
                   </div>
-                  <div className="h-1.5 rounded-full bg-line-inset overflow-hidden">
-                    <div className={`h-full rounded-full ${tone(d.score).bar}`} style={{ width: pct(d.score) }} />
-                  </div>
-                  {d.worst && <div className="meta">{d.worst}</div>}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 
-          {/* Incidents concrets — ce qui tire la confiance vers le bas. */}
+          {/* Incidents = OBJETS (quoi · sévérité · depuis), pas des scores. */}
           <section className="space-y-2">
             <h2 className="text-label uppercase text-ink-tertiary">Incidents</h2>
             {model.incidents.length === 0 ? (
@@ -130,15 +142,15 @@ export default function QualitySourcePage() {
                 Aucun incident : tous les contrôles passent au-dessus du seuil.
               </div>
             ) : (
-              <div className="card divide-y divide-line-inset">
+              <div className="space-y-2">
                 {model.incidents.map((it, i) => (
-                  <div key={i} className={`px-4 py-2.5 flex items-start gap-3 ${highlightTable && it.table === highlightTable ? "bg-warning-subtle" : ""}`}>
-                    <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${tone(it.score).bar}`} />
-                    <div className="min-w-0 flex-1">
-                      <div className="mono text-small text-ink-primary">{it.ref}</div>
-                      <div className="text-body text-ink-secondary">{it.detail}</div>
+                  <div key={i} className={`card p-3 space-y-1 ${highlightTable && it.table === highlightTable ? "border-warning-border" : ""}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="mono text-body text-ink-primary">{it.ref}</span>
+                      <span className="tag tag-warning shrink-0">{it.dimension} · réserve</span>
                     </div>
-                    <span className={`meta shrink-0 ${tone(it.score).cls}`}>{pct(it.score)}</span>
+                    <div className="text-body text-ink-secondary">{it.detail}</div>
+                    {it.since && <div className="meta">Dernière valeur observée : {it.since}</div>}
                   </div>
                 ))}
               </div>
@@ -155,7 +167,7 @@ export default function QualitySourcePage() {
                   {model.impacted.map((t, i) => (
                     <span key={t}><span className="mono">{t}</span>{i < model.impacted.length - 1 ? ", " : ""}</span>
                   ))}{" "}
-                  portent une réserve de confiance tant que ces contrôles ne repassent pas au-dessus du seuil.
+                  portent une réserve tant que ces contrôles ne repassent pas au-dessus du seuil.
                 </div>
               </div>
             </section>
@@ -166,23 +178,28 @@ export default function QualitySourcePage() {
   );
 }
 
+type Incident = { ref: string; table: string; dimension: string; detail: string; since: string | null; score: number };
 type Model = {
   hasScores: boolean;
-  base: number;
+  conformCount: number;
+  weak: string[];
   tablesScored: number;
   columnsScored: number;
-  dims: { name: string; score: number; worst?: string }[];
-  incidents: { ref: string; table: string; detail: string; score: number }[];
+  dims: { name: string; score: number; conform: boolean; worst?: string }[];
+  incidents: Incident[];
   impacted: string[];
 };
 
+const MONTHS = ["", "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+function sinceOf(detail: string): string | null {
+  const m = /(\d{4})-(\d{2})-(\d{2})/.exec(detail || "");
+  return m ? `${parseInt(m[3], 10)} ${MONTHS[parseInt(m[2], 10)]} ${m[1]}` : null;
+}
+
 function buildModel(scores: QualityScore[]): Model {
   const cols = scores.filter((s) => s.level === "column");
-  const rels = scores.filter((s) => s.level === "relation");
   const tables = scores.filter((s) => s.level === "table");
-  const base = scores.find((s) => s.level === "base");
 
-  // Agrégation des dimensions colonne → dimension source.
   const agg: Record<string, { sum: number; n: number; worst?: { detail: string; score: number } }> = {};
   for (const c of cols) {
     for (const d of c.dimensions ?? []) {
@@ -192,32 +209,33 @@ function buildModel(scores: QualityScore[]): Model {
       if (!a.worst || d.score < a.worst.score) a.worst = { detail: d.detail, score: d.score };
     }
   }
-  const dims = DIM_ORDER
-    .filter((name) => agg[name]?.n)
-    .map((name) => ({
-      name,
-      score: agg[name].sum / agg[name].n,
-      worst: agg[name].worst && agg[name].worst.score < GOOD ? agg[name].worst.detail : undefined,
-    }));
+  const dims = DIM_ORDER.filter((name) => agg[name]?.n).map((name) => {
+    const score = agg[name].sum / agg[name].n;
+    return { name, score, conform: score >= CONFORM, worst: agg[name].worst && agg[name].worst!.score < CONFORM ? agg[name].worst!.detail : undefined };
+  });
 
-  // Incidents : colonnes/relations sous le seuil, les plus faibles d'abord.
-  const incidents = [
-    ...cols.map((c) => ({
-      ref: `${c.table_name}.${c.column_name}`, table: c.table_name ?? "", detail: c.detail, score: c.score,
-    })),
-    ...rels.map((r) => ({
-      ref: r.relation_ref ?? "relation", table: r.table_name ?? "", detail: r.detail, score: r.score,
-    })),
-  ].filter((x) => x.score < GOOD).sort((a, b) => a.score - b.score).slice(0, 10);
-
-  // Conclusions impactées : tables dont le score passe sous le seuil.
-  const impacted = tables.filter((t) => t.score < WARN && t.table_name).map((t) => t.table_name as string);
+  // Incidents = objets : dimension la plus faible de chaque colonne sous le seuil.
+  const incidents: Incident[] = [];
+  for (const c of cols) {
+    const applicable = (c.dimensions ?? []).filter((d) => d.applicable && d.score != null);
+    if (!applicable.length) continue;
+    const worst = applicable.reduce((a, b) => (b.score! < a.score! ? b : a));
+    if (worst.score! >= CONFORM) continue;
+    incidents.push({
+      ref: `${c.table_name}.${c.column_name}`, table: c.table_name ?? "",
+      dimension: worst.name, detail: worst.detail, since: sinceOf(worst.detail), score: worst.score!,
+    });
+  }
+  incidents.sort((a, b) => a.score - b.score);
 
   return {
     hasScores: cols.length > 0 || tables.length > 0,
-    base: base?.score ?? (tables.length ? tables.reduce((s, t) => s + t.score, 0) / tables.length : 1),
+    conformCount: dims.filter((d) => d.conform).length,
+    weak: dims.filter((d) => !d.conform).map((d) => d.name),
     tablesScored: tables.length,
     columnsScored: cols.length,
-    dims, incidents, impacted,
+    dims,
+    incidents: incidents.slice(0, 12),
+    impacted: tables.filter((t) => t.score < 0.75 && t.table_name).map((t) => t.table_name as string),
   };
 }

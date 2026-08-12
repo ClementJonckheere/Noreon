@@ -361,3 +361,103 @@ def table_scores_map(db: Session, connection_id: int) -> dict[str, float]:
         )
     ).all()
     return {tn: sc for tn, sc in rows if tn}
+
+
+# Seuils d'état d'une dimension (pas une note globale).
+_DIM_CONFORM = 0.90
+_DIM_RESERVE = 0.60   # sous ce niveau : à corriger ; entre les deux : réserve
+_DIM_ORDER = ["Fraîcheur", "Complétude", "Cohérence", "Validité", "Unicité"]
+
+
+def tables_trust(db: Session, connection_id: int, table_names: list[str]) -> dict:
+    """État de confiance des TABLES réellement utilisées — par dimension, avec
+    incidents. Cœur du branchement Analyse → contrôles pertinents → « Qualité des
+    données ». Ne calcule RIEN sur les tables non utilisées : une colonne CRM
+    obsolète ne doit pas pénaliser une conclusion sur les ventes.
+
+    Un incident est un OBJET (pas un score) : quoi, quelle dimension, quelle
+    sévérité (réserve | bloquant), depuis quand. Sévérité « bloquant » réservée à
+    un contrôle réellement cassé (score ~0) ; l'obsolescence est une « réserve ».
+    """
+    names = [t.split(".")[-1] for t in (table_names or [])]
+    if not names:
+        return {"state": "not_evaluated", "dimensions": [], "conform_count": 0,
+                "total": 0, "weak": [], "incidents": [], "tables": []}
+    rows = db.execute(
+        select(QualityScore).where(
+            QualityScore.connection_id == connection_id,
+            QualityScore.level == "column",
+            QualityScore.table_name.in_(names),
+        )
+    ).scalars().all()
+    if not rows:
+        return {"state": "not_evaluated", "dimensions": [], "conform_count": 0,
+                "total": 0, "weak": [], "incidents": [], "tables": []}
+
+    # Agrégation par dimension sur les colonnes des tables utilisées.
+    agg: dict[str, dict] = {}
+    for r in rows:
+        for d in r.dimensions or []:
+            if not d.get("applicable") or d.get("score") is None:
+                continue
+            a = agg.setdefault(d["name"], {"sum": 0.0, "n": 0, "worst": None})
+            a["sum"] += d["score"]; a["n"] += 1
+            if a["worst"] is None or d["score"] < a["worst"]["score"]:
+                a["worst"] = {"score": d["score"], "detail": d["detail"]}
+
+    dims = []
+    for name, a in agg.items():
+        score = a["sum"] / a["n"]
+        dims.append({
+            "name": name, "score": round(score, 4),
+            "conform": score >= _DIM_CONFORM,
+            "detail": a["worst"]["detail"] if a["worst"] and a["worst"]["score"] < _DIM_CONFORM else None,
+        })
+    dims.sort(key=lambda d: _DIM_ORDER.index(d["name"]) if d["name"] in _DIM_ORDER else 99)
+
+    weak = [d["name"] for d in dims if not d["conform"]]
+    conform_count = sum(1 for d in dims if d["conform"])
+
+    # Incidents = objets, la dimension la plus faible de chaque colonne sous le seuil.
+    incidents = []
+    for r in rows:
+        applicable = [d for d in (r.dimensions or []) if d.get("applicable") and d.get("score") is not None]
+        if not applicable:
+            continue
+        worst = min(applicable, key=lambda d: d["score"])
+        if worst["score"] >= _DIM_CONFORM:
+            continue
+        # Un incident QUALITÉ est une RÉSERVE (orange), jamais un blocage (rouge) :
+        # une donnée obsolète ou partielle n'empêche pas l'exécution. Le « bloquant »
+        # est réservé à l'opérationnel (source indisponible, accès refusé) — hors
+        # périmètre de ces contrôles.
+        incidents.append({
+            "ref": f"{r.table_name}.{r.column_name}", "table": r.table_name,
+            "dimension": worst["name"], "severity": "reserve",
+            "score": round(worst["score"], 4), "detail": worst["detail"],
+            "since": _since_from_detail(worst["detail"]),
+        })
+    incidents.sort(key=lambda x: x["score"])
+
+    state = "not_evaluated" if not dims else ("partial" if weak else "evaluated")
+    return {
+        "state": state, "dimensions": dims, "conform_count": conform_count,
+        "total": len(dims), "weak": weak, "incidents": incidents[:12],
+        "tables": sorted({r.table_name for r in rows if r.table_name}),
+    }
+
+
+import re as _re
+
+
+def _since_from_detail(detail: str | None) -> str | None:
+    """Extrait une date lisible du détail d'un contrôle (« dernière valeur
+    2023-11-03 ») → « 3 nov. 2023 » quand c'est présent."""
+    if not detail:
+        return None
+    m = _re.search(r"(\d{4})-(\d{2})-(\d{2})", detail)
+    if not m:
+        return None
+    months = ["", "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+    y, mo, d = m.group(1), int(m.group(2)), int(m.group(3))
+    return f"{int(d)} {months[mo]} {y}"

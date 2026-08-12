@@ -27,7 +27,7 @@ export default function RightPanel({ r, connectionId }: { r: ChatResponse; conne
       <div className="flex-1 overflow-y-auto p-4 space-y-4 density-dense">
         {tab === "comprendre" && (
           <>
-            {r.confidence && <ConfidenceBreakdown c={r.confidence} r={r} />}
+            {r.confidence && <ConfidenceBreakdown c={r.confidence} r={r} connectionId={connectionId} />}
             {r.self_critique?.length > 0 && (
               <div className="state state-limit">
                 <div className="state-title">Ce qui pourrait remettre en question cette conclusion</div>
