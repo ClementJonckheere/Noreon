@@ -365,6 +365,12 @@ export interface ChatResponse {
     trend_rows: any[][];
     journal: { t: string; phase: string; status: string; detail: string }[];
     revisions: string[];
+    // Vérification automatique : ce qui a été testé, chiffré (pas un journal introspectif).
+    verification?: {
+      text: string;
+      winner: { dimension: string; segment: string; pct: number };
+      tested: { dimension: string; segment: string; pct: number }[];
+    } | null;
     // Semantic Layer : concept métier + lignage physique (pour la Preuve).
     subject_label?: string;
     measure_label_concept?: string;
@@ -409,7 +415,7 @@ export interface ChatResponse {
   confidence: {
     percent: number;
     factors: string[];
-    breakdown?: { factor: string; weight_pct: number; subscore_pct: number; contribution_pct: number }[];
+    breakdown?: { factor: string; weight_pct: number; subscore_pct: number; contribution_pct: number; state?: "evaluated" | "partial" | "not_evaluated"; detail?: string | null }[];
   } | null;
   table_quality: Record<string, number>;
   chart: {

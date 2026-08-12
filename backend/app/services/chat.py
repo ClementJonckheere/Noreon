@@ -282,14 +282,16 @@ def answer_question(
                 _subj = inv_dict.get("subject_label") or inv.subject
                 message = (f"J'ai mené une investigation en {_n} étape{'s' if _n > 1 else ''} "
                            f"sur « {_subj} ». {inv_dict.get('conclusion') or ''}").strip()
-                decisions_dict = (concepts_svc.translate(decisions.as_dict(), _repls)
+                decisions_dict = (concepts_svc.humanize_decision_text(
+                                      concepts_svc.translate(decisions.as_dict(), _repls))
                                   if decisions is not None else None)
-                intent_restated_val = concepts_svc.translate(
-                    (decisions.restated if decisions is not None
-                     else decision_svc.restate_intent(
-                         question, metric_label=inv.metric_label,
-                         trend_direction=inv_chron.direction if inv_chron else None)),
-                    _repls)
+                intent_restated_val = concepts_svc.humanize_decision_text(
+                    concepts_svc.translate(
+                        (decisions.restated if decisions is not None
+                         else decision_svc.restate_intent(
+                             question, metric_label=inv.metric_label,
+                             trend_direction=inv_chron.direction if inv_chron else None)),
+                        _repls))
                 return ChatResponse(
                     status="answered", question=question,
                     message=message,

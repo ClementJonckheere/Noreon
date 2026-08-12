@@ -131,6 +131,10 @@ class Investigation:
     journal: list[dict] = field(default_factory=list)       # {t, phase, detail, status}
     # « Le moteur change d'avis » : hypothèse initiale vs. ce que disent les données.
     revisions: list[str] = field(default_factory=list)
+    # VÉRIFICATION AUTOMATIQUE : ce qui a été testé et pourquoi une piste a été
+    # écartée — factuel et chiffré, pas un journal introspectif.
+    # {text, winner:{dimension,segment,pct}, tested:[{dimension,segment,pct}]}
+    verification: dict | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -204,6 +208,7 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
     rec_in, pri_in = _in(recent_labels), _in(prior_labels)
     down = trend_dir == "baisse"
     candidates: list[dict] = []   # une entrée par dimension exploitable
+    tested: list[dict] = []       # chaque axe examiné + sa force explicative (audit)
 
     for dim in dims:
         # Les tranches numériques (« tranche de … ») produisent des libellés de
@@ -249,6 +254,10 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
                          "recent": rec, "prior": pri, "samples": samples,
                          "sql": res.guarded_sql, "window": len(recent_labels)})
         segs.sort(key=lambda s: s["contribution_pct"], reverse=True)
+        # Trace d'audit : force explicative de CET axe (segment le plus mouvant),
+        # qu'il soit retenu ou non → alimente la Vérification automatique.
+        tested.append({"dimension": dim.label, "segment": segs[0]["segment"],
+                       "pct": round(segs[0]["contribution_pct"])})
         # Segments réellement causals de cette dimension (notables + disproportionnés).
         causal = [s for s in segs if s["contribution_pct"] >= 15 and s["lift"] >= 1.3][:3]
         explained = sum(s["contribution_pct"] for s in causal)
@@ -257,6 +266,7 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
         candidates.append({"dimension": dim.label, "causal": causal, "explained": explained,
                            "top": causal[0]["contribution_pct"], "top_lift": causal[0]["lift"]})
 
+    tested.sort(key=lambda t: t["pct"], reverse=True)
     if not candidates:
         return None   # aucune cause exploitable → variation GÉNÉRALISÉE (diffuse)
 
@@ -267,12 +277,12 @@ def _attribute_variation(adapter, conn_id: int, guard_args: dict, fact, dims,
     top = best["causal"][0]
     # Une cause UNIQUE domine si son segment porte ≥ 55 % avec un lift franc.
     if top["contribution_pct"] >= 55 and top["lift"] >= 1.5:
-        return {"mode": "single", "best": top, "ranked": [top]}
+        return {"mode": "single", "best": top, "ranked": [top], "tested": tested}
     # Sinon, plusieurs foyers concentrés se partagent la variation → CAUSES MULTIPLES.
     if len(best["causal"]) >= 2:
         return {"mode": "multi", "dimension": best["dimension"],
-                "causes": best["causal"], "explained": round(best["explained"], 1)}
-    return {"mode": "single", "best": top, "ranked": [top]}
+                "causes": best["causal"], "explained": round(best["explained"], 1), "tested": tested}
+    return {"mode": "single", "best": top, "ranked": [top], "tested": tested}
 
 
 def run_investigation(
@@ -501,6 +511,53 @@ def run_investigation(
         if attribution is not None and attribution["mode"] == "single":
             attribution_ranked = attribution["ranked"]
             inv.attribution = a = attribution["best"]
+            # VÉRIFICATION AUTOMATIQUE : ce qui a été testé, chiffré et auditable —
+            # remplace le journal introspectif « à première vue… mais en isolant… ».
+            _sens_noun = "recul" if trend_dir == "baisse" else "progression"
+
+            def _is_temporal(lbl: str) -> bool:
+                l = (lbl or "").lower()
+                return any(w in l for w in (
+                    "date", "mois", "month", "jour", "day", "année", "annee",
+                    "year", "semaine", "week", "trimestre", "quarter"))
+
+            # Axes de comparaison présentables : on écarte le temporel (une date
+            # n'est pas une cause métier), on dédoublonne par axe, on ignore le
+            # bruit (< 12 %) et on cap à quelques pistes fortes.
+            _seen: set[str] = set()
+            _tested: list[dict] = []
+            for t in attribution.get("tested") or []:
+                d = t["dimension"]
+                if _is_temporal(d) or d in _seen:
+                    continue
+                if t["pct"] < 12 and d != a["dimension"]:
+                    continue
+                _seen.add(d)
+                _tested.append(t)
+            _tested = _tested[:4]
+            if not any(t["dimension"] == a["dimension"] for t in _tested):
+                _tested.insert(0, {"dimension": a["dimension"], "segment": a["segment"],
+                                   "pct": round(a["contribution_pct"])})
+
+            _init_lbl = initial.label if initial else None
+            _init_row = next((t for t in _tested if t["dimension"] == _init_lbl), None)
+            if _init_row and _init_lbl and _init_lbl != a["dimension"]:
+                _verif_text = (
+                    f"Le découpage par « {_init_lbl} » a d'abord été testé ; il explique "
+                    f"moins la variation que « {a['dimension']} ». Après comparaison des "
+                    f"facteurs, « {a['segment']} » concentre {a['contribution_pct']:.0f}% "
+                    f"du {_sens_noun} observé.")
+            else:
+                _verif_text = (
+                    f"Plusieurs axes ont été comparés. « {a['segment']} » concentre "
+                    f"{a['contribution_pct']:.0f}% du {_sens_noun} observé — c'est la "
+                    f"piste la plus explicative.")
+            inv.verification = {
+                "text": _verif_text,
+                "winner": {"dimension": a["dimension"], "segment": a["segment"],
+                           "pct": round(a["contribution_pct"])},
+                "tested": _tested,
+            }
             finding = (f"Sur les {w} derniers mois, « {a['segment']} » "
                        f"({a['dimension']}) porte {a['contribution_pct']:.0f}% "
                        f"de la {sens} : {metric} y passe de {_fmt(a['prior'])} à "
@@ -571,20 +628,23 @@ def run_investigation(
         # Auto-révision : le moteur change d'avis si les données contredisent
         # l'hypothèse de départ. Quand l'attribution existe, elle prime — la
         # cause du CHANGEMENT l'emporte sur la structure du total.
+        # Révisions FACTUELLES (pour les rapports/historique) : un constat de
+        # comparaison, jamais un « à première vue… mais en isolant… » introspectif.
+        # L'UI, elle, s'appuie sur inv.verification (Vérification automatique).
         if inv.attribution is not None and inv.attribution["dimension"] != getattr(initial, "label", None):
             a = inv.attribution
             sens_word = "baisse" if trend_dir == "baisse" else "hausse"
-            revision = (f"À première vue, la structure du chiffre pointait « "
-                        f"{(initial.label if initial else winner.label)} » ; mais en isolant "
-                        f"la variation, la {sens_word} vient surtout de « {a['segment']} » "
-                        f"({a['dimension']}).")
+            init_lbl = initial.label if initial else winner.label
+            revision = (f"Le découpage par « {init_lbl} » explique moins la variation "
+                        f"que « {a['dimension']} » : « {a['segment']} » y concentre "
+                        f"{a['contribution_pct']:.0f}% de la {sens_word}.")
             inv.revisions.append(revision)
             inv.journal.append({"t": _now(), "phase": "revision", "status": "info",
                                 "detail": revision})
         elif (inv.attribution is None and not inv.broad_based
               and initial is not None and initial.label != winner.label):
-            revision = (f"Je pensais que « {initial.label} » portait la variation ; "
-                        f"finalement ce sont les écarts de « {winner.label} » qui structurent le plus {noun}.")
+            revision = (f"Le découpage par « {initial.label} » explique moins la structure "
+                        f"{noun} que « {winner.label} », retenu comme facteur dominant.")
             inv.revisions.append(revision)
             inv.journal.append({"t": _now(), "phase": "revision", "status": "info",
                                 "detail": revision})

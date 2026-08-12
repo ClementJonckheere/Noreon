@@ -779,3 +779,37 @@ Investigation reste intact — benchmark préservé) :
 Le physique exact demeure dans la **Preuve** (SQL, lignage). Rappel d'architecture
 inchangé : le lexique reste un pont de migration ; la cible est le `ConceptReference`
 dans le planning/reasoning.
+
+### Finition AnswerView — 4 corrections (suite feedback commit 6)
+
+1. **Semantic Layer généralisée à tous les consommateurs** (plus seulement la
+   conclusion et la chaîne) : la colonne de mesure nue (`amount_ttc`) et les axes
+   physiques nus (`loyalty_points`, `Gender`, `tranche de age`) sont traduits dans
+   l'objectif reformulé, les décisions, les révisions et la Vérification.
+   Nouveaux concepts au lexique : **Niveau de fidélité**, **Genre**, **Tranche
+   d'âge**. Contraction grammaticale Decision (`humanize_decision_text` :
+   « une baisse de Chiffre d'affaires » → « une baisse du chiffre d'affaires »).
+   Humanisation des VALEURS codées par axe (`F` → `Femmes`, `M` → `Hommes`) —
+   uniquement sous un axe dont le codage est connu (jamais en aveugle).
+
+2. **« J'ai revu mon analyse » → « Vérification automatique »** : plus de journal
+   introspectif (« à première vue… mais en isolant… »). Le moteur expose ce qui a
+   été **testé et chiffré** — `Investigation.verification` = {text, winner, tested[]}
+   construit dans `_attribute_variation` (chaque axe examiné + sa force explicative).
+   L'UI affiche un texte factuel + un tableau comparatif (axe · segment · %),
+   pilote « retenu » en violet. Axes temporels exclus, dédoublonnage par concept,
+   bruit (< 12 %) écarté, cap à 4 pistes.
+
+3. **Contradiction « 70 % / non évaluée » levée** : chaque dimension de confiance
+   porte un `state` (`evaluated` | `partial` | `not_evaluated`) + `detail` chiffré.
+   L'UI affiche « NON ÉVALUÉE » (barre hachurée neutre) ou « N % · PARTIELLE » ou
+   le score, jamais un score qui contredit l'état. Concepts : « N proposés, M
+   validés ». Phrase de publication reformulée en énumération des vérifications
+   restantes. La **règle de publication** (≥ seuil ET 0 bloqueur) est conservée.
+
+4. **Humanisation de la Preuve terminée** : `Gender` → « Genre », segment `F` →
+   « Femmes », `tranche de age` → « Tranche d'âge ». Le SQL et les noms physiques
+   restent accessibles derrière chaque étape.
+
+Reste en backlog (non bloquant) : graphique principal entre Résultat et
+Recommandations (hiérarchie Observe → Démontre → Recommande).

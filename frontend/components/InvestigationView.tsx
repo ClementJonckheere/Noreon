@@ -74,14 +74,51 @@ export default function InvestigationView({
         <div className="text-title text-ink-primary max-w-reading">{inv.conclusion}</div>
       </div>
 
-      {/* « Le moteur change d'avis » — révision d'hypothèse (raisonnement). */}
-      {inv.revisions?.length > 0 && (
-        <div className="rounded-card bg-reasoning-subtle border border-reasoning/20 p-2.5 space-y-1">
-          <div className="text-label uppercase text-reasoning-hover">J'ai revu mon analyse</div>
-          {inv.revisions.map((r, i) => (
-            <div key={i} className="text-body text-ink-secondary">{r}</div>
-          ))}
-        </div>
+      {/* VÉRIFICATION AUTOMATIQUE — factuelle et chiffrée : ce qui a été testé et
+          pourquoi une piste a été écartée. Pas un journal introspectif (« à
+          première vue… mais en isolant… ») : des vérifications auditables. */}
+      {inv.verification ? (
+        <VerificationBlock v={inv.verification} />
+      ) : (
+        inv.revisions?.length > 0 && (
+          <div className="rounded-card border border-line-subtle bg-bg-secondary p-3 space-y-1">
+            <div className="text-label uppercase text-reasoning-hover">Vérification automatique</div>
+            {inv.revisions.map((r, i) => (
+              <div key={i} className="text-body text-ink-secondary">{r}</div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+function VerificationBlock({ v }: { v: NonNullable<NonNullable<ChatResponse["investigation"]>["verification"]> }) {
+  const max = Math.max(1, ...(v.tested ?? []).map((t) => t.pct));
+  const isWinner = (t: { dimension: string; segment: string }) =>
+    t.dimension === v.winner.dimension && t.segment === v.winner.segment;
+  return (
+    <div className="rounded-card border border-line-subtle bg-bg-secondary p-3 space-y-2.5">
+      <div className="text-label uppercase text-reasoning-hover">Vérification automatique</div>
+      <div className="text-body text-ink-secondary max-w-reading">{v.text}</div>
+      {(v.tested?.length ?? 0) > 0 && (
+        <ul className="space-y-1 pt-0.5">
+          {v.tested.map((t, i) => {
+            const win = isWinner(t);
+            return (
+              <li key={i} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-0.5">
+                <span className={`text-small ${win ? "text-ink-primary font-medium" : "text-ink-secondary"}`}>
+                  {t.dimension}{t.segment ? ` · ${t.segment}` : ""}
+                  {win && <span className="ml-2 tag text-reasoning border-reasoning/30">retenu</span>}
+                </span>
+                <span className={`mono text-small tabular-nums text-right ${win ? "text-reasoning" : "text-ink-tertiary"}`}>{t.pct}%</span>
+                <div className="col-span-2 h-1 rounded-full bg-line-inset overflow-hidden">
+                  <div className={`h-full rounded-full ${win ? "bg-reasoning" : "bg-line-strong"}`} style={{ width: `${(t.pct / max) * 100}%` }} />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

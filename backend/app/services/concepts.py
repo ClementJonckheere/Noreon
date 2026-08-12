@@ -48,6 +48,9 @@ _SEGMENT = ("segment", "tier", "categorie_client")
 _DEPARTMENT = ("department", "departement", "département", "service", "equipe", "équipe", "team")
 _CUSTOMER = ("customer", "client", "clients", "customers")
 _EMPLOYEE = ("employee", "salarie", "salarié", "agent", "collaborateur")
+_LOYALTY = ("loyalty", "loyal", "fidelite", "fidélité", "fidelity")
+_GENDER = ("gender", "sexe", "sex", "genre")
+_AGE = ("age", "âge", "ages")
 
 # Domaines (table racine → intitulé d'analyse).
 _DOMAINS = [
@@ -90,6 +93,14 @@ def measure_concept(metric_label: str) -> str:
 
 
 def _concept_for_tokens(toks: set[str]) -> str | None:
+    # Fidélité / genre / âge testés AVANT le générique : ce sont des axes
+    # d'analyse fréquents dont le libellé physique fuit sinon (« loyalty_points »).
+    if _any(toks, _LOYALTY):
+        return "Niveau de fidélité"
+    if _any(toks, _GENDER):
+        return "Genre"
+    if _any(toks, _AGE):
+        return "Tranche d'âge"
     if _any(toks, _REGION):
         return "Région"
     if _any(toks, _SEGMENT):
@@ -142,6 +153,7 @@ _CONCEPT_IDS = {
     "Magasin": "store", "Fournisseur": "supplier", "Canal": "channel",
     "Département": "department", "Produit": "product", "Collaborateur": "employee",
     "Client": "customer", "Nombre d'enregistrements": "record_count", "Valeur moyenne": "average",
+    "Niveau de fidélité": "loyalty_tier", "Genre": "gender", "Tranche d'âge": "age_band",
 }
 
 
@@ -172,11 +184,11 @@ def _humanize_leaks(text):
 # pas dans les remplacements connus et arrive telle quelle (« Gender »,
 # « loyalty_Points »). On ne touche qu'aux jetons qui RESSEMBLENT à du physique —
 # jamais aux VALEURS de segment (« F », « Particulier », « Paris »).
+# Mots de colonne génériques sans concept propre (le reste — fidélité, genre, âge,
+# canal — est désormais un vrai concept du lexique).
 _ENGLISH_COL = {
-    "gender": "Genre", "sex": "Genre", "age": "Âge", "loyalty": "Fidélité",
-    "points": "points", "name": "Nom", "email": "E-mail", "phone": "Téléphone",
-    "status": "Statut", "type": "Type", "method": "Moyen de paiement",
-    "payment": "Paiement", "channel": "Canal",
+    "name": "Nom", "email": "E-mail", "phone": "Téléphone", "status": "Statut",
+    "type": "Type", "method": "Moyen de paiement", "payment": "Paiement",
 }
 
 
@@ -203,20 +215,50 @@ _TRANCHE_RE = re.compile(r"\btranche de ([A-Za-z][A-Za-z0-9_]*)")
 _QUOTED_RE = re.compile(r"«\s*([A-Za-z][A-Za-z0-9_]*)\s*»")
 
 
+def _tranche_repl(m) -> str:
+    tok = m.group(1)
+    if not _looks_physical(tok):
+        return m.group(0)
+    # « tranche de age » / « tranche de loyalty_points » : le concept porte déjà la
+    # notion de tranche (« Tranche d'âge », « Niveau de fidélité ») → on absorbe.
+    concept = _concept_for_tokens(_tokens(tok))
+    if concept:
+        return concept
+    return f"tranche de {_humanize_phys_token(tok)}"
+
+
 def _detechnify(text):
     """Traduit les identifiants physiques nus résiduels en libellés lisibles,
     sans jamais altérer les valeurs de segment (« F », « Paris »…)."""
     if not isinstance(text, str):
         return text
-    text = _TRANCHE_RE.sub(
-        lambda m: f"tranche de {_humanize_phys_token(m.group(1))}" if _looks_physical(m.group(1)) else m.group(0),
-        text,
-    )
+    text = _TRANCHE_RE.sub(_tranche_repl, text)
     text = _QUOTED_RE.sub(
         lambda m: f"« {_humanize_phys_token(m.group(1))} »" if _looks_physical(m.group(1)) else m.group(0),
         text,
     )
     return text
+
+
+# Valeurs de segment CODÉES → libellé métier, appliquées seulement dans le CONTEXTE
+# d'un axe connu (le genre : « F » n'a de sens que sous « Genre »). Jamais en
+# aveugle — « F » pourrait être une note, une taille, une région.
+_VALUE_MAPS = {
+    "gender": {"f": "Femmes", "m": "Hommes", "h": "Hommes",
+               "female": "Femmes", "male": "Hommes", "femme": "Femmes", "homme": "Hommes"},
+}
+
+
+def humanize_segment_values(text: str, concept_id: str) -> str:
+    """Dans une chaîne rattachée à un axe donné, remplace ses valeurs codées entre
+    guillemets (« F » → « Femmes ») — uniquement pour les axes dont on connaît le
+    codage."""
+    vm = _VALUE_MAPS.get(concept_id)
+    if not vm or not isinstance(text, str):
+        return text
+    return re.sub(r"«\s*([A-Za-zÀ-ÿ]+)\s*»",
+                  lambda m: f"« {vm[m.group(1).lower()]} »" if m.group(1).lower() in vm else m.group(0),
+                  text)
 
 
 def _rephrase_conclusion(text: str) -> str:
@@ -285,6 +327,28 @@ def translate(obj, repls: list[tuple[str, str]]):
     return _walk_replace(obj, repls)
 
 
+# Contraction grammaticale des mesures dans la couche Decision : « une baisse de
+# Chiffre d'affaires » se lit « une baisse du chiffre d'affaires ».
+_MEASURE_CONTRACT = {
+    "Chiffre d'affaires (HT)": "du chiffre d'affaires (HT)",
+    "Chiffre d'affaires": "du chiffre d'affaires",
+    "Nombre d'enregistrements": "du nombre d'enregistrements",
+    "Valeur moyenne": "de la valeur moyenne",
+}
+
+
+def humanize_decision_text(obj):
+    """Fluidifie le langage de la couche Decision (« de Chiffre d'affaires » →
+    « du chiffre d'affaires ») une fois les concepts substitués."""
+    def fix(t):
+        if not isinstance(t, str):
+            return t
+        for concept, contracted in _MEASURE_CONTRACT.items():
+            t = re.sub(r"\bde " + re.escape(concept), contracted, t)
+        return t
+    return _walk_str(obj, fix)
+
+
 def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
     """Enrichit et reformule un dict d'investigation en langage métier.
 
@@ -337,9 +401,68 @@ def apply_semantic_layer(inv: dict) -> list[tuple[str, str]]:
 
     if inv.get("conclusion"):
         inv["conclusion"] = _rephrase_conclusion(humanize_presentation(_present(inv["conclusion"])))
-    for field in ("steps", "key_drivers", "recommendations", "revisions"):
+
+    # Étapes : présentation générique, PUIS humanisation des VALEURS codées selon
+    # l'axe de chaque étape (« F » ne devient « Femmes » que sous « Genre »).
+    if isinstance(inv.get("steps"), list):
+        for st in inv["steps"]:
+            if not isinstance(st, dict):
+                continue
+            for k, v in list(st.items()):
+                st[k] = _walk_str(v, _present)
+            # Le titre d'étape est souvent le libellé d'axe NU (« Gender ») : s'il
+            # correspond à un concept, on l'affiche en concept (« Genre »).
+            title_concept = _concept_for_tokens(_tokens(st.get("title") or ""))
+            if title_concept:
+                st["title"] = title_concept
+            cid = _concept_id(title_concept or "")
+            if cid in _VALUE_MAPS:
+                for f in ("finding", "question", "title"):
+                    if isinstance(st.get(f), str):
+                        st[f] = humanize_segment_values(st[f], cid)
+                for fig in st.get("figures") or []:
+                    lbl = (fig or {}).get("label")
+                    if isinstance(lbl, str) and lbl.lower() in _VALUE_MAPS[cid]:
+                        fig["label"] = _VALUE_MAPS[cid][lbl.lower()]
+
+    for field in ("key_drivers", "recommendations", "revisions", "verification"):
         if inv.get(field) is not None:
             inv[field] = _walk_str(inv[field], _present)
+
+    # Vérification automatique : humaniser les VALEURS de segment selon leur axe
+    # (« Genre · M » → « Genre · Hommes »), une fois l'axe traduit en concept.
+    verif = inv.get("verification")
+    if isinstance(verif, dict):
+        def _humval(dim: str, seg):
+            if not isinstance(seg, str):
+                return seg
+            vm = _VALUE_MAPS.get(_concept_id(_concept_for_tokens(_tokens(dim)) or ""))
+            return vm.get(seg.lower(), seg) if vm else seg
+        def _norm_dim(d):
+            return _concept_for_tokens(_tokens(d or "")) or d
+
+        w = verif.get("winner")
+        if isinstance(w, dict):
+            if w.get("segment"):
+                w["segment"] = _humval(w.get("dimension", ""), w["segment"])
+            w["dimension"] = _norm_dim(w.get("dimension"))
+        # Deux colonnes physiques distinctes peuvent se projeter sur le MÊME concept
+        # (« city » et « billing_city » → « Ville ») : on normalise l'axe en concept
+        # PUIS on dédoublonne par (axe, segment) — pas deux lignes identiques.
+        deduped, seen_keys = [], set()
+        for t in verif.get("tested") or []:
+            if not isinstance(t, dict):
+                continue
+            if t.get("segment"):
+                t["segment"] = _humval(t.get("dimension", ""), t["segment"])
+            t["dimension"] = _norm_dim(t.get("dimension"))
+            key = (t.get("dimension"), t.get("segment"))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped.append(t)
+        if "tested" in verif:
+            verif["tested"] = deduped
 
     subject = inv.get("subject") or ""
     aggregation = "COUNT(*)" if measure_lbl.startswith("Nombre") else (f"SUM({measure_col})" if measure_col else None)
