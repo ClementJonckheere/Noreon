@@ -9,10 +9,12 @@ import { useSession } from "@/lib/session";
 // analyses, suivies dans le temps : retenue → mise en œuvre → (mesure du résultat).
 // « Réussie » ne se déclare pas d'un clic : c'est la mesure qui la pose.
 
+// Une action HUMAINE mise en œuvre se lit en BLEU (« on agit »), jamais en violet
+// (réservé au raisonnement machine). « Résultat mesuré » est posé par la mesure.
 const STATUS = {
   retained: { label: "Retenue", cls: "text-brand-700 bg-brand-50 border-brand-200" },
-  implemented: { label: "Mise en œuvre", cls: "text-reason bg-reason-subtle border-reason/30" },
-  successful: { label: "Résultat mesuré", cls: "text-success-hover bg-success-subtle border-success-border" },
+  implemented: { label: "Mise en œuvre", cls: "text-brand-700 bg-brand-50 border-brand-300" },
+  successful: { label: "Résultat mesuré", cls: "text-ink-secondary bg-bg-secondary border-line-subtle" },
   abandoned: { label: "Abandonnée", cls: "text-ink-tertiary bg-bg-secondary border-line-subtle" },
 } as const;
 
@@ -43,7 +45,7 @@ export default function PlanPage() {
           <h1 className="text-title text-ink-primary">Plan d'action</h1>
           <p className="text-body text-ink-secondary max-w-reading">
             Ce qu'on décide de faire — les décisions retenues depuis les analyses, leur mise
-            en œuvre et l'effet mesuré.
+            en œuvre et le résultat mesuré.
           </p>
         </div>
         <label className="text-small text-ink-tertiary flex items-center gap-1.5 shrink-0 mt-1">
@@ -99,7 +101,7 @@ function PlanCard({
         <div className="min-w-0 space-y-0.5">
           <div className="flex items-center gap-2 text-small text-ink-tertiary">
             <span>{it.role}</span>
-            {it.source_name && <><span>·</span><span className="mono">{it.source_name}</span></>}
+            {it.analysis_label && <><span>·</span><span>Analyse : {it.analysis_label}</span></>}
           </div>
           <div className="text-body text-ink-primary">{it.recommendation}</div>
         </div>

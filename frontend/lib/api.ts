@@ -522,13 +522,12 @@ export interface ReportSummary {
 }
 export interface PlanItem {
   id: number;
-  subject: string;
   role: string;
   recommendation: string;
   status: "retained" | "implemented" | "successful" | "abandoned";
   note: string | null;
   connection_id: number;
-  source_name: string | null;
+  analysis_label: string;
   created_at: string | null;
 }
 export interface ReportVersionSummary {

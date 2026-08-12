@@ -51,6 +51,9 @@ export default function ReportEditor() {
 
   if (!report) return <div className="text-noreon-soft">Chargement…</div>;
 
+  // versions triées décroissant côté API → [0] est la dernière.
+  const nextVersion = (report.versions?.[0]?.version ?? 0) + 1;
+
   async function generate() {
     if (!prompt.trim()) return;
     setBusy(true);
@@ -108,15 +111,25 @@ export default function ReportEditor() {
           </h1>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <button className="btn-secondary btn-sm" disabled={validating || report.blocks.length === 0} onClick={validate}>
-            {validating ? "Validation…" : "Valider cette version"}
-          </button>
+          {/* On ne valide QUE le brouillon courant — jamais une version déjà figée. */}
+          {!viewing && (
+            <button className="btn-secondary btn-sm" disabled={validating || report.blocks.length === 0} onClick={validate}>
+              {validating ? "Validation…" : `Valider comme v${nextVersion}`}
+            </button>
+          )}
           <span className="w-px h-5 bg-line-subtle" />
           <button className="btn-ghost" onClick={() => download("docx")}>Word</button>
           <button className="btn-ghost" onClick={() => download("pdf")}>PDF</button>
           <button className="btn-ghost" onClick={() => download("md")}>Markdown</button>
         </div>
       </div>
+
+      {/* État courant : brouillon (future vN) vs consultation d'une version figée. */}
+      {!viewing && (report.versions?.length ?? 0) > 0 && (
+        <div className="text-label uppercase text-ink-tertiary">
+          Brouillon · future v{nextVersion}
+        </div>
+      )}
 
       {/* Historique des versions validées — instantanés immuables. */}
       {(report.versions?.length ?? 0) > 0 && (
@@ -147,7 +160,7 @@ export default function ReportEditor() {
             <div className="state-body flex items-center gap-3">
               <span>Lecture seule : cette version ne change plus.</span>
               <button className="text-brand-700 hover:text-brand-800 underline" onClick={() => setViewing(null)}>
-                Revenir au brouillon
+                Revenir au brouillon actuel
               </button>
             </div>
           </div>

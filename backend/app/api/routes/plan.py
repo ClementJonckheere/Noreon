@@ -25,10 +25,14 @@ _ALLOWED = {"retained", "implemented", "successful", "abandoned"}
 
 
 def _dict(d: DecisionRecord, conn_name: str | None) -> dict:
+    # Libellé d'analyse MÉTIER (« Ventes ») — jamais le nom physique de la source
+    # (« quicktest-retail-14568 »), qui n'a pas sa place dans cette couche.
+    from app.services.concepts import subject_domain
     return {
-        "id": d.id, "subject": d.subject, "role": d.role,
+        "id": d.id, "role": d.role,
         "recommendation": d.recommendation, "status": d.status, "note": d.note,
-        "connection_id": d.connection_id, "source_name": conn_name,
+        "connection_id": d.connection_id,
+        "analysis_label": subject_domain(d.subject or ""),
         "created_at": d.created_at.isoformat() if d.created_at else None,
     }
 
