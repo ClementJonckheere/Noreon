@@ -520,15 +520,36 @@ export interface ReportSummary {
   created_at: string | null;
   updated_at: string | null;
 }
+export interface MeasurementRunView {
+  id: number;
+  horizon_days: number;
+  raw_delta: number | null;
+  control_delta: number | null;
+  adjusted_delta: number | null;
+  result: "objectif_atteint" | "objectif_non_atteint" | "inconclusif";
+  limitations: string[];
+  measured_at: string | null;
+}
+export interface MeasurementView {
+  measure_type: "impact" | "performance" | "completion" | "diagnostic";
+  metric_label: string;
+  threshold: number;
+  implemented_at: string | null;
+  baseline_frozen: boolean;
+  has_control: boolean;
+  latest_run: MeasurementRunView | null;
+  runs_count: number;
+}
 export interface PlanItem {
   id: number;
   role: string;
   recommendation: string;
-  status: "retained" | "implemented" | "successful" | "abandoned";
+  status: "retained" | "implemented" | "measured" | "abandoned";
   note: string | null;
   connection_id: number;
   analysis_label: string;
   created_at: string | null;
+  measurement: MeasurementView | null;
 }
 export interface ReportVersionSummary {
   version: number;
@@ -882,6 +903,7 @@ export const api = {
     request<PlanItem[]>(`/plan${includeClosed ? "?include_closed=true" : ""}`),
   planUpdate: (id: number, body: { status?: string; note?: string }) =>
     request<PlanItem>(`/plan/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  planMeasure: (id: number) => request<PlanItem>(`/plan/${id}/measure`, { method: "POST" }),
 
   reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
   reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),

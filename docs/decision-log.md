@@ -973,3 +973,28 @@ et `PATCH /plan/{id}` (retenue → mise en œuvre → abandonnée). Cartes group
 Règle de responsabilité conservée : le statut « **réussie** » ne se pose pas d'un
 clic (`PATCH` le refuse) — c'est la **mesure du résultat** qui le posera. Le bouton
 « Mesurer le résultat → » est le point d'entrée du prochain morceau (Mesure).
+
+### Mesure d'une action — approche C (baseline figé à la mise en œuvre)
+
+Le protocole est défini à la RÉTENTION (`MeasurementPlan`, sans valeur), le
+baseline est calculé et FIGÉ au moment réel de la MISE EN ŒUVRE (`implemented_at`,
+jamais `created_at`, jamais envoyé par le front), et chaque échéance crée un
+`MeasurementRun` (jamais d'écrasement — J+30, J+90…).
+
+- Modèles `MeasurementPlan` (1 par décision) / `MeasurementRun` (N), migration
+  `e1f2a3b4c5d6`. `services/measurement.py` : `classify_action` (impact /
+  performance / completion / diagnostic — le KPI de l'ACTION, pas du diagnostic),
+  `freeze_baseline`, `run_measurement` (SQL réel via l'adaptateur, auditable).
+- **Résultat CONTRÔLÉ** : `raw_delta` (cible) vs `control_delta` (témoins) →
+  `adjusted_delta` (points). Classé `objectif_atteint | objectif_non_atteint |
+  inconclusif`. L'action passe à `measured`, **jamais `successful` automatique**.
+  Démo réelle : cible +3,1 % mais témoins +4,5 % → **−1,4 pt → objectif non atteint**.
+- Types non-impact (audit, prévision, hypothèse) → `inconclusif` avec une limite
+  explicite : leur résultat ne se mesure pas par l'évolution du CA.
+- UI Plan : « Résultat mesuré · +3,1 % · Écart vs témoins · −1,4 pts · Objectif
+  +2 % · non atteint » + fenêtre/témoin + limites ; tag MESURÉE neutre.
+- Scénario mesurable seedé (`action_impact` sur la source démo) : action mise en
+  œuvre il y a 45 j, baseline figé, fenêtres cible/témoins comparables.
+
+Séquence Rapports/versionnement → Plan d'action → **Mesure** complète et cohérente
+avec le principe : résultat contrôlé, jamais de causalité proclamée.

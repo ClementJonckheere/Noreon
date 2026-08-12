@@ -14,7 +14,7 @@ import { useSession } from "@/lib/session";
 const STATUS = {
   retained: { label: "Retenue", cls: "text-brand-700 bg-brand-50 border-brand-200" },
   implemented: { label: "Mise en œuvre", cls: "text-brand-700 bg-brand-50 border-brand-300" },
-  successful: { label: "Résultat mesuré", cls: "text-ink-secondary bg-bg-secondary border-line-subtle" },
+  measured: { label: "Mesurée", cls: "text-ink-secondary bg-bg-secondary border-line-subtle" },
   abandoned: { label: "Abandonnée", cls: "text-ink-tertiary bg-bg-secondary border-line-subtle" },
 } as const;
 
@@ -35,8 +35,14 @@ export default function PlanPage() {
     finally { setBusy(null); }
   }
 
-  const active = (items ?? []).filter((i) => i.status === "retained" || i.status === "implemented");
-  const closed = (items ?? []).filter((i) => i.status === "successful" || i.status === "abandoned");
+  async function measure(it: PlanItem) {
+    setBusy(it.id);
+    try { await api.planMeasure(it.id); await load(); }
+    finally { setBusy(null); }
+  }
+
+  const active = (items ?? []).filter((i) => i.status === "retained" || i.status === "implemented" || i.status === "measured");
+  const closed = (items ?? []).filter((i) => i.status === "abandoned");
 
   return (
     <div className="space-y-6 fade-in">
@@ -70,7 +76,7 @@ export default function PlanPage() {
             <section className="space-y-2.5">
               <h2 className="text-label uppercase text-ink-tertiary">En cours ({active.length})</h2>
               {active.map((it) => (
-                <PlanCard key={it.id} it={it} busy={busy === it.id} onAdvance={advance} canDecide={caps.decideAction} />
+                <PlanCard key={it.id} it={it} busy={busy === it.id} onAdvance={advance} onMeasure={measure} canDecide={caps.decideAction} />
               ))}
             </section>
           )}
@@ -78,7 +84,7 @@ export default function PlanPage() {
             <section className="space-y-2.5">
               <h2 className="text-label uppercase text-ink-tertiary">Closes ({closed.length})</h2>
               {closed.map((it) => (
-                <PlanCard key={it.id} it={it} busy={busy === it.id} onAdvance={advance} canDecide={caps.decideAction} />
+                <PlanCard key={it.id} it={it} busy={busy === it.id} onAdvance={advance} onMeasure={measure} canDecide={caps.decideAction} />
               ))}
             </section>
           )}
@@ -88,13 +94,22 @@ export default function PlanPage() {
   );
 }
 
+const pct = (x: number | null, unit = "%") => (x == null ? "—" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)} ${unit}`);
+const RESULT = {
+  objectif_atteint: { label: "atteint", cls: "text-success-hover" },
+  objectif_non_atteint: { label: "non atteint", cls: "text-warning-hover" },
+  inconclusif: { label: "inconclusif", cls: "text-ink-tertiary" },
+} as const;
+
 function PlanCard({
-  it, busy, onAdvance, canDecide,
+  it, busy, onAdvance, onMeasure, canDecide,
 }: {
-  it: PlanItem; busy: boolean; onAdvance: (it: PlanItem, s: string) => void; canDecide: boolean;
+  it: PlanItem; busy: boolean; onAdvance: (it: PlanItem, s: string) => void; onMeasure: (it: PlanItem) => void; canDecide: boolean;
 }) {
   const st = STATUS[it.status];
-  const closed = it.status === "successful" || it.status === "abandoned";
+  const closed = it.status === "abandoned";
+  const m = it.measurement;
+  const run = m?.latest_run ?? null;
   return (
     <div className="card p-4 space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -108,6 +123,37 @@ function PlanCard({
         <span className={`tag border shrink-0 ${st.cls}`}>{st.label}</span>
       </div>
       {it.note && <div className="meta">{it.note}</div>}
+
+      {/* Résultat CONTRÔLÉ — jamais une causalité proclamée : cible, écart vs
+          témoins, objectif atteint/non atteint, puis les limites du protocole. */}
+      {run && run.result !== "inconclusif" && (
+        <div className="rounded-card border border-line-subtle bg-bg-secondary p-3 space-y-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            <span className="text-small">
+              <span className="text-ink-tertiary">Résultat mesuré · </span>
+              <span className="mono text-ink-primary">{pct(run.raw_delta)}</span>
+            </span>
+            {run.adjusted_delta != null && (
+              <span className="text-small">
+                <span className="text-ink-tertiary">Écart vs témoins · </span>
+                <span className="mono text-ink-primary">{pct(run.adjusted_delta, "pts")}</span>
+              </span>
+            )}
+            <span className="text-small">
+              <span className="text-ink-tertiary">Objectif {pct(m!.threshold)} · </span>
+              <span className={`font-medium ${RESULT[run.result].cls}`}>{RESULT[run.result].label}</span>
+            </span>
+          </div>
+          <div className="meta">Mesuré à J+{run.horizon_days}{m!.has_control ? " · groupe témoin apparié" : " · sans témoin"}.</div>
+          {run.limitations.length > 0 && (
+            <ul className="meta list-disc pl-4">{run.limitations.map((l, i) => <li key={i}>{l}</li>)}</ul>
+          )}
+        </div>
+      )}
+      {run && run.result === "inconclusif" && (
+        <div className="state state-limit"><div className="state-body">{run.limitations[0] ?? "Mesure inconclusive."}</div></div>
+      )}
+
       {canDecide && !closed && (
         <div className="flex flex-wrap gap-2 pt-1">
           {it.status === "retained" && (
@@ -115,10 +161,14 @@ function PlanCard({
               Passer en mise en œuvre
             </button>
           )}
-          {it.status === "implemented" && (
-            <Link href={`/conversations`} className="btn-secondary btn-sm" title="La réussite se pose par la mesure, pas d'un clic">
-              Mesurer le résultat →
-            </Link>
+          {(it.status === "implemented" || it.status === "measured") && m?.baseline_frozen && (
+            <button disabled={busy} onClick={() => onMeasure(it)} className="btn-secondary btn-sm"
+              title="Le résultat est classé par la mesure, jamais déclaré d'un clic">
+              {busy ? "Mesure en cours…" : it.status === "measured" ? "Nouvelle mesure" : "Mesurer le résultat"}
+            </button>
+          )}
+          {it.status === "implemented" && !m?.baseline_frozen && (
+            <span className="meta">Baseline en attente : la source ne couvre pas encore la fenêtre pré-action.</span>
           )}
           <button disabled={busy} onClick={() => onAdvance(it, "abandoned")} className="btn-ghost btn-sm text-ink-tertiary">
             Abandonner
