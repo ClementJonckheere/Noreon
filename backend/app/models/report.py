@@ -34,6 +34,11 @@ class Report(Base):
     )
     user_ref: Mapped[str] = mapped_column(String(255), default="", index=True)
     title: Mapped[str] = mapped_column(String(255), default="Nouveau rapport")
+    # Source + tables sur lesquelles le rapport s'appuie — pour signaler un
+    # « incident postérieur » (réserve qualité apparue après validation) sans
+    # jamais réécrire l'instantané publié.
+    source_connection_id: Mapped[int | None] = mapped_column(Integer, default=None)
+    source_tables: Mapped[list | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

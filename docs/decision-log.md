@@ -922,3 +922,31 @@ illustre exactement la comparaison de la conclusion (premier → dernier point,
 Portée assumée : la qualité de l'analyse est calculée sur la table-sujet
 (`inv.subject`) ; un lignage « colonnes exactes de la conclusion » reste un
 raffinement futur. Conversation + Qualité peuvent maintenant être figés.
+
+### Test fonctionnel complet du cycle de vie Trust (avant de figer)
+
+Deux parcours de bout en bout, exécutés en réel (mutation de la fraîcheur d'une
+colonne réellement utilisée + relance des contrôles) :
+
+**Aller** — 86 % · vérification requise · Fraîcheur à surveiller → source corrigée
+→ contrôles relancés → Fraîcheur 100 % conforme → l'incident disparaît
+automatiquement (dérivé, non stocké) → « Qualité des données » passe à 4/4
+dimensions conformes → la réserve est retirée → confiance 86 → **87 %** → il ne
+reste qu'« une vérification » (concepts non validés). Publiable dès qu'aucun autre
+bloqueur. **PASSE.**
+
+**Retour** — analyse publiable sur données fraîches → rapport validé (aucun
+incident) → un incident apparaît sur une table réellement utilisée (obsolescence)
+→ la réserve est ré-ajoutée à l'analyse → le **rapport validé reste inchangé**
+(instantané intact) → mention **« incident postérieur à la validation »**. **PASSE.**
+
+Pour rendre le retour possible : pont **Trust → Rapport** (nouveau). Migration
+`c9d0e1f2a3b4` (reports.source_connection_id + source_tables) ; capture de la
+source à la génération ; `get_report` calcule `posterior_incidents` =
+`tables_trust(tables du rapport)` filtré aux contrôles POSTÉRIEURS à la validation
+(`computed_at > created_at`) ; bandeau orange (réserve) sur la fiche rapport, qui
+ne réécrit jamais la conclusion.
+
+**Conversation + Qualité + Trust sont figés.** Les fondations de confiance sont
+cohérentes de bout en bout ; place aux écrans (Rapports, Plan d'action, Concepts,
+relations, recherche, notifications, responsive).

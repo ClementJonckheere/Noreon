@@ -522,6 +522,8 @@ export interface ReportSummary {
 }
 export interface ReportFull extends ReportSummary {
   blocks: ReportBlock[];
+  // Incidents qualité apparus sur les tables du rapport APRÈS sa validation.
+  posterior_incidents?: { ref: string; table: string; dimension: string; severity: "reserve" | "bloquant"; detail: string | null; since: string | null }[];
 }
 
 // ---- Découvertes (suggestions automatiques) ----

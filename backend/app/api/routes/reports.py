@@ -118,7 +118,34 @@ def get_report(
     principal: Principal = Depends(current_principal),
 ) -> dict:
     r = _get_report(db, principal, report_id)
-    return {**_summary(db, r), "blocks": [_block_dict(b) for b in r.blocks]}
+    return {
+        **_summary(db, r),
+        "blocks": [_block_dict(b) for b in r.blocks],
+        "posterior_incidents": _posterior_incidents(db, r),
+    }
+
+
+def _posterior_incidents(db: Session, r: Report) -> list[dict]:
+    """Incidents de qualité détectés sur les tables du rapport APRÈS sa validation.
+    Le rapport reste tel qu'il a été publié : on ajoute une mention, on ne réécrit
+    rien. « Postérieur » = contrôle exécuté après la création du rapport."""
+    if not r.source_connection_id or not r.source_tables:
+        return []
+    from app.models.quality import QualityScore
+    from app.services.quality import tables_trust
+
+    trust = tables_trust(db, r.source_connection_id, list(r.source_tables))
+    if not trust["incidents"]:
+        return []
+    latest = db.execute(
+        select(func.max(QualityScore.computed_at)).where(
+            QualityScore.connection_id == r.source_connection_id
+        )
+    ).scalar_one_or_none()
+    # Le contrôle qui révèle l'incident doit être postérieur à la validation.
+    if latest is None or (r.created_at and latest <= r.created_at):
+        return []
+    return trust["incidents"]
 
 
 @router.patch("/{report_id}")
@@ -238,6 +265,11 @@ def generate(
         blocks = reports_svc.response_to_blocks(
             reports_svc.default_title(payload.prompt), resp.as_dict()
         )
+        # Mémorise la source + les tables utilisées : socle du signal « incident
+        # postérieur » (sans jamais réécrire l'instantané).
+        r.source_connection_id = conn.id
+        used = list(resp.tables_used or [])
+        r.source_tables = sorted({t.split(".")[-1] for t in used}) or (r.source_tables or [])
     else:
         blocks = reports_svc.skeleton_blocks(payload.prompt)
 

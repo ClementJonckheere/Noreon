@@ -132,6 +132,29 @@ export default function ReportEditor() {
         </div>
       </div>
 
+      {/* Incident POSTÉRIEUR : une réserve de qualité est apparue sur une table
+          du rapport après sa validation. Le rapport reste tel qu'il a été publié
+          — on prévient, on ne réécrit pas la conclusion. */}
+      {(report.posterior_incidents?.length ?? 0) > 0 && (
+        <div className="state state-abstain mb-3">
+          <div className="state-title">Incident postérieur à la validation</div>
+          <div className="state-body space-y-1">
+            <p>
+              Ce rapport reste tel qu'il a été validé. Depuis, un contrôle qualité a relevé
+              une réserve sur les données qu'il utilise :
+            </p>
+            <ul className="space-y-0.5">
+              {report.posterior_incidents!.map((it, i) => (
+                <li key={i}>
+                  <span className="font-mono">{it.ref}</span> — {it.dimension.toLowerCase()} · réserve
+                  {it.since ? ` (dernière valeur : ${it.since})` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       {/* Blocs du rapport */}
       <div className="space-y-3">
         {report.blocks.length === 0 && (
