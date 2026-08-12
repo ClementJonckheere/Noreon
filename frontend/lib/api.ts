@@ -520,10 +520,23 @@ export interface ReportSummary {
   created_at: string | null;
   updated_at: string | null;
 }
+export interface ReportVersionSummary {
+  version: number;
+  title: string;
+  label: string | null;
+  validated_by: string;
+  created_at: string | null;
+  block_count: number;
+}
+export interface ReportVersionFull extends ReportVersionSummary {
+  blocks: ReportBlock[];
+  source_tables: string[];
+}
 export interface ReportFull extends ReportSummary {
   blocks: ReportBlock[];
   // Incidents qualité apparus sur les tables du rapport APRÈS sa validation.
   posterior_incidents?: { ref: string; table: string; dimension: string; severity: "reserve" | "bloquant"; detail: string | null; since: string | null }[];
+  versions?: ReportVersionSummary[];
 }
 
 // ---- Découvertes (suggestions automatiques) ----
@@ -854,6 +867,9 @@ export const api = {
     }),
   reportExportUrl: (rid: number, format: "docx" | "pdf" | "md") =>
     `${API_BASE}/reports/${rid}/export?format=${format}`,
+  reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
+  reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),
+  reportVersion: (rid: number, v: number) => request<ReportVersionFull>(`/reports/${rid}/versions/${v}`),
 
   // --- Conversations d'espace ---
   spaceConvList: (sid: number, archived = false) =>

@@ -950,3 +950,15 @@ ne réécrit jamais la conclusion.
 **Conversation + Qualité + Trust sont figés.** Les fondations de confiance sont
 cohérentes de bout en bout ; place aux écrans (Rapports, Plan d'action, Concepts,
 relations, recherche, notifications, responsive).
+
+### Rapports — versionnement (instantanés validés)
+
+Le rapport de travail reste éditable ; « Valider cette version » fige un
+**instantané immuable** : `ReportVersion` (migration `d0e1f2a3b4c5`) copie les
+blocs + la source + l'horodatage, avec un numéro (v1, v2…). Historique des versions
+sur la fiche, consultation en lecture seule (« Revenir au brouillon »), l'éditeur
+est masqué pendant la consultation d'une version figée.
+
+L'**incident postérieur** s'ancre désormais sur la dernière VERSION validée si
+elle existe (sinon la création du rapport) : valider une version acquitte l'état
+qualité connu ; seul un contrôle exécuté APRÈS la validation devient « postérieur ».

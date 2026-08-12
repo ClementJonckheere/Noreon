@@ -9,8 +9,14 @@ import {
   Connection,
   ReportBlock,
   ReportFull,
+  ReportVersionFull,
 } from "@/lib/api";
 import ChartBlock from "@/components/ChartBlock";
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
 
 export default function ReportEditor() {
   const params = useParams();
@@ -23,9 +29,17 @@ export default function ReportEditor() {
   const [busy, setBusy] = useState(false);
   const [titleEdit, setTitleEdit] = useState(false);
   const [titleVal, setTitleVal] = useState("");
+  const [validating, setValidating] = useState(false);
+  const [viewing, setViewing] = useState<ReportVersionFull | null>(null);
 
   async function refresh() {
     setReport(await api.report(rid));
+  }
+
+  async function validate() {
+    setValidating(true);
+    try { setReport(await api.reportValidate(rid)); }
+    finally { setValidating(false); }
   }
   useEffect(() => {
     refresh();
@@ -93,14 +107,72 @@ export default function ReportEditor() {
             {report.title}
           </h1>
         )}
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          <button className="btn-secondary btn-sm" disabled={validating || report.blocks.length === 0} onClick={validate}>
+            {validating ? "Validation…" : "Valider cette version"}
+          </button>
+          <span className="w-px h-5 bg-line-subtle" />
           <button className="btn-ghost" onClick={() => download("docx")}>Word</button>
           <button className="btn-ghost" onClick={() => download("pdf")}>PDF</button>
           <button className="btn-ghost" onClick={() => download("md")}>Markdown</button>
         </div>
       </div>
 
-      {/* Demander à l'IA */}
+      {/* Historique des versions validées — instantanés immuables. */}
+      {(report.versions?.length ?? 0) > 0 && (
+        <div className="card p-3 space-y-2">
+          <div className="text-label uppercase text-ink-tertiary">Versions validées</div>
+          <div className="flex flex-wrap gap-2">
+            {report.versions!.map((v) => (
+              <button
+                key={v.version}
+                onClick={async () => setViewing(await api.reportVersion(rid, v.version))}
+                className={`text-small rounded-field border px-2.5 py-1 transition-colors ${
+                  viewing?.version === v.version ? "border-brand-300 bg-brand-50 text-brand-700" : "border-line-subtle text-ink-secondary hover:border-line-strong"
+                }`}
+                title={`Validée le ${fmtDate(v.created_at)}`}
+              >
+                v{v.version} · {fmtDate(v.created_at)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Consultation d'une version figée — lecture seule, jamais éditable. */}
+      {viewing && (
+        <div className="space-y-3">
+          <div className="state state-limit">
+            <div className="state-title">Version v{viewing.version} — instantané validé le {fmtDate(viewing.created_at)}</div>
+            <div className="state-body flex items-center gap-3">
+              <span>Lecture seule : cette version ne change plus.</span>
+              <button className="text-brand-700 hover:text-brand-800 underline" onClick={() => setViewing(null)}>
+                Revenir au brouillon
+              </button>
+            </div>
+          </div>
+          {(viewing.blocks as ReportBlock[]).map((b, i) => (
+            <div key={i} className="card p-4">
+              {b.kind === "markdown" && <Markdown text={b.content?.text ?? ""} />}
+              {b.kind === "chart" && (
+                <div className="text-small text-ink-tertiary flex items-center gap-2">
+                  <span className="tag">Graphique</span>
+                  <span>{b.content?.caption ?? "figé dans cette version"}</span>
+                </div>
+              )}
+              {b.kind === "table" && (
+                <div className="text-small text-ink-tertiary flex items-center gap-2">
+                  <span className="tag">Tableau</span>
+                  <span>{b.content?.caption ?? `${(b.content?.rows ?? []).length} ligne(s)`}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Demander à l'IA — masqué quand on consulte une version figée. */}
+      {!viewing && (
       <div className="card p-3 space-y-2">
         <div className="text-sm font-medium">Demander à l'IA</div>
         <textarea
@@ -131,6 +203,7 @@ export default function ReportEditor() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Incident POSTÉRIEUR : une réserve de qualité est apparue sur une table
           du rapport après sa validation. Le rapport reste tel qu'il a été publié
@@ -155,34 +228,38 @@ export default function ReportEditor() {
         </div>
       )}
 
-      {/* Blocs du rapport */}
-      <div className="space-y-3">
-        {report.blocks.length === 0 && (
-          <div className="card p-6 text-sm text-noreon-soft">
-            Rapport vide. Demandez à l'IA ci-dessus, ou ajoutez un bloc de texte.
+      {/* Blocs du rapport (brouillon éditable) — masqués en consultation de version. */}
+      {!viewing && (
+        <>
+          <div className="space-y-3">
+            {report.blocks.length === 0 && (
+              <div className="card p-6 text-sm text-noreon-soft">
+                Rapport vide. Demandez à l'IA ci-dessus, ou ajoutez un bloc de texte.
+              </div>
+            )}
+            {report.blocks.map((b, i) => (
+              <BlockView
+                key={b.id}
+                rid={rid}
+                block={b}
+                first={i === 0}
+                last={i === report.blocks.length - 1}
+                onChange={refresh}
+              />
+            ))}
           </div>
-        )}
-        {report.blocks.map((b, i) => (
-          <BlockView
-            key={b.id}
-            rid={rid}
-            block={b}
-            first={i === 0}
-            last={i === report.blocks.length - 1}
-            onChange={refresh}
-          />
-        ))}
-      </div>
 
-      <button
-        className="btn-ghost"
-        onClick={async () => {
-          await api.reportAddBlock(rid, "markdown", { text: "Nouveau paragraphe." });
-          refresh();
-        }}
-      >
-        + Bloc de texte
-      </button>
+          <button
+            className="btn-ghost"
+            onClick={async () => {
+              await api.reportAddBlock(rid, "markdown", { text: "Nouveau paragraphe." });
+              refresh();
+            }}
+          >
+            + Bloc de texte
+          </button>
+        </>
+      )}
     </div>
   );
 }
