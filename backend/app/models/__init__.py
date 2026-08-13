@@ -24,6 +24,7 @@ from app.models.schema_catalog import (
 )
 from app.models.report import Report, ReportBlock
 from app.models.semantic import BusinessConcept, ConceptMapping
+from app.models.concept_definition import ConceptDefinition
 from app.models.space import (
     Space,
     SpaceColumnAccess,
@@ -50,6 +51,7 @@ __all__ = [
     "ReasoningMemory",
     "BusinessConcept",
     "ConceptMapping",
+    "ConceptDefinition",
     "BusinessDefinition",
     "DecisionRecord",
     "Alert",

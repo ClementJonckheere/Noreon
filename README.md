@@ -18,6 +18,31 @@ rapports, **agent de raisonnement** et **analyste proactif**. Multi-moteurs
 > résultats et aider à décider**. Tout fonctionne **hors-ligne** (provider
 > heuristique) et reste **auditable** de bout en bout.
 
+## Principe fondateur — Noreon est *domain-agnostic*
+
+**Retail est un scénario de démonstration, jamais une primitive du produit.**
+Toute fonctionnalité doit fonctionner avec des **concepts, entités, métriques,
+dimensions et responsabilités arbitraires** découverts ou définis dans les
+données de l'utilisateur. **Aucun comportement métier — aucun `enum`, aucune
+branche `if`, aucune transition d'état — ne doit dépendre de noms tels que
+magasin, produit, client, région, CA ou PACA.**
+
+La machine est la même partout :
+
+```
+Données connectées → concept candidat détecté → définition proposée
+   → validation OU ambiguïté → plusieurs définitions → arbitrage humain
+   → nouvelle définition en vigueur → propagation
+```
+
+Dans `Démo Retail`, le concept candidat s'appelle `Magasin actif`. Dans une
+autre société, `Client actif`, `Mission active`, `Chantier terminé`… Le moteur
+ne fait **aucune** différence architecturale. Un entrepreneur avec une seule
+petite base, sans magasin ni région ni équipe Data, doit rester pleinement
+servi. Voir [`CLAUDE.md`](CLAUDE.md) pour la règle opposable et
+`backend/tests/test_arbitration_domain_agnostic.py` pour la protection
+automatique (le moteur tourne sur un jeu **SaaS** sans aucune table retail).
+
 ### Le pipeline Noreon
 
 L'analyse autonome se déroule en cinq temps — c'est l'identité du produit :
