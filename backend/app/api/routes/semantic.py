@@ -200,3 +200,132 @@ def create_concept(
     db.commit()
     db.refresh(concept)
     return ConceptOut.model_validate(concept)
+
+
+# ---- Arbitrage GÉNÉRIQUE des concepts (aucune fixture métier dans l'API) --------
+# Le concept est l'objet manipulé : « Magasin actif », « Client actif »… ne sont
+# que des données seedées. L'état d'un concept est DÉRIVÉ (rule 5) :
+#   validated | proposed | needs_arbitration ; « sans source » est un état SÉPARÉ
+#   (absence de donnée ≠ ambiguïté de définition).
+def _concept_status(db: Session, concept: BusinessConcept) -> str:
+    from app.services import arbitration
+    live = arbitration.definitions_of(db, concept.id)
+    if len(live) >= 2:
+        return "needs_arbitration"
+    if any(d.is_reference for d in live):
+        return "validated"
+    if len(live) == 1:
+        return "proposed"
+    # Aucune définition : distinguer « proposé mais non défini » de « sans source ».
+    has_mapping = db.execute(
+        select(ConceptMapping.id).where(ConceptMapping.concept_id == concept.id).limit(1)
+    ).scalar_one_or_none() is not None
+    return "proposed" if has_mapping else "sans_source"
+
+
+def _concept_overview(db: Session, concept: BusinessConcept) -> dict:
+    from app.services import arbitration
+    live = arbitration.definitions_of(db, concept.id)
+    ref = next((d for d in live if d.is_reference), None)
+    return {
+        "id": concept.id, "name": concept.name, "description": concept.description,
+        "status": _concept_status(db, concept),
+        "definition_count": len(live),
+        "reference_label": ref.label if ref else None,
+        "reference_version": ref.definition_version if ref else None,
+    }
+
+
+@concepts_router.get("/overview")
+def concepts_overview(
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(current_tenant),
+) -> list[dict]:
+    """Liste enrichie pour l'écran Concepts : statut dérivé + résumé des définitions."""
+    rows = db.execute(
+        select(BusinessConcept).where(BusinessConcept.tenant_id == tenant.id)
+        .order_by(BusinessConcept.name)
+    ).scalars().all()
+    return [_concept_overview(db, c) for c in rows]
+
+
+def _owned_concept(db: Session, concept_id: int, tenant: Tenant) -> BusinessConcept:
+    c = db.get(BusinessConcept, concept_id)
+    if c is None or c.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="Concept introuvable.")
+    return c
+
+
+def _definition_dict(d) -> dict:
+    return {
+        "id": d.id, "label": d.label, "definition_text": d.definition_text,
+        "scope": d.scope, "status": d.status, "is_reference": d.is_reference,
+        "definition_version": d.definition_version,
+        "impact_count": d.impact_count, "entity_label": d.entity_label,
+        "owner_ref": d.owner_ref,
+    }
+
+
+@concepts_router.get("/{concept_id}")
+def concept_detail(
+    concept_id: int,
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(current_tenant),
+) -> dict:
+    from app.services import arbitration
+    c = _owned_concept(db, concept_id, tenant)
+    defs = arbitration.definitions_of(db, concept_id)
+    return {
+        **_concept_overview(db, c),
+        "ambiguous": arbitration.is_ambiguous(db, concept_id),
+        "definitions": [_definition_dict(d) for d in defs],
+    }
+
+
+@concepts_router.get("/{concept_id}/definitions")
+def concept_definitions(
+    concept_id: int,
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(current_tenant),
+) -> list[dict]:
+    from app.services import arbitration
+    _owned_concept(db, concept_id, tenant)
+    return [_definition_dict(d) for d in arbitration.definitions_of(db, concept_id)]
+
+
+@concepts_router.get("/{concept_id}/arbitration-preview")
+def concept_arbitration_preview(
+    concept_id: int,
+    definition_id: int = Query(...),
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(current_tenant),
+) -> dict:
+    """Impact AVANT décision (rules 2 & 6) : options + population de chaque
+    définition, effets de propagation, future version. Aucun effet de bord."""
+    from app.services import arbitration
+    _owned_concept(db, concept_id, tenant)
+    return arbitration.arbitration_preview(db, concept_id, definition_id)
+
+
+@concepts_router.post("/{concept_id}/arbitrate", dependencies=[Depends(require_analyst)])
+def concept_arbitrate(
+    concept_id: int,
+    definition_id: int = Query(...),
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(current_tenant),
+) -> dict:
+    """Arbitrage TRANSACTIONNEL (rule 3) : référence + archivage + version + audit
+    + propagation E1 en une seule opération. Échec ⇒ rollback total."""
+    from app.services import arbitration
+    _owned_concept(db, concept_id, tenant)
+    try:
+        result = arbitration.arbitrate(db, concept_id, definition_id, actor=tenant.name)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+    return {"version": result["version"], "propagation": result["propagation"],
+            **concept_detail(concept_id, db, tenant)}

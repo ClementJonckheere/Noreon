@@ -76,36 +76,52 @@ def refresh_impacts(db: Session, adapter, connection_id: int, concept_id: int) -
     return out
 
 
-def propagation_preview(references: list[dict], concept_id: int) -> dict:
-    """Prévisualise ce qu'un changement de référence IMPACTE, en buckets GÉNÉRIQUES.
+def next_version_for(db: Session, concept_id: int) -> int:
+    defs = definitions_of(db, concept_id, include_archived=True)
+    return max((d.definition_version for d in defs), default=0) + 1
 
-    `references` : les artefacts qui s'appuient sur le concept, chacun
-    `{"concept_id", "kind": "answer"|"discovery"|"report", "immutable": bool}`.
-    Les rapports historiques immuables sont CONSERVÉS tels quels (jamais réécrits) ;
-    les réponses et découvertes sont à revérifier."""
-    rel = [r for r in references if r.get("concept_id") == concept_id]
-    answers = sum(1 for r in rel if r.get("kind") == "answer")
-    discoveries = sum(1 for r in rel if r.get("kind") == "discovery")
-    reports_kept = sum(1 for r in rel if r.get("kind") == "report" and r.get("immutable"))
-    reports_open = sum(1 for r in rel if r.get("kind") == "report" and not r.get("immutable"))
+
+def arbitration_preview(db: Session, concept_id: int, chosen_definition_id: int) -> dict:
+    """Preview COMPLET calculé AVANT toute mutation (rule 2) : définition actuelle,
+    options candidates + impact de chacune, effets de propagation, future version.
+    Aucun effet de bord : « Valider cette définition » n'est jamais un PATCH aveugle."""
+    from app.services import propagation
+
+    defs = definitions_of(db, concept_id)
+    current = next((d for d in defs if d.is_reference), None)
+    chosen = next((d for d in defs if d.id == chosen_definition_id), None)
+    nv = next_version_for(db, concept_id)
     return {
-        "answers_affected": answers,
-        "discoveries_to_recheck": discoveries,
-        "reports_preserved": reports_kept,
-        "reports_to_revise": reports_open,
+        "concept_id": concept_id,
+        "current_definition_id": current.id if current else None,
+        "chosen_definition_id": chosen_definition_id,
+        "options": [
+            {"id": d.id, "label": d.label, "definition_text": d.definition_text,
+             "impact_count": d.impact_count, "entity_label": d.entity_label,
+             "is_reference": d.is_reference}
+            for d in defs
+        ],
+        "propagation": propagation.preview(db, concept_id, next_version=nv),
+        "new_version": nv,
+        "creates_new_version": chosen is not None and not chosen.is_reference,
     }
 
 
 def arbitrate(db: Session, concept_id: int, chosen_definition_id: int,
-              *, actor: str | None = None) -> ConceptDefinition:
-    """La définition choisie devient la RÉFÉRENCE en vigueur ; les concurrentes
-    sont archivées ; la version du concept est incrémentée. Générique : aucune
-    règle ne dépend de la nature du concept."""
+              *, actor: str | None = None) -> dict:
+    """TRANSACTIONNEL (rule 3) : une seule opération passe la définition choisie en
+    référence, archive les concurrentes, incrémente la version, écrit l'audit et
+    déclenche la propagation E1. Le commit relève de l'appelant : si une étape lève,
+    rien n'est validé. Générique : aucune règle ne dépend de la nature du concept."""
+    from app.models.concept_arbitration import ConceptArbitration
+    from app.services import propagation
+
     defs = definitions_of(db, concept_id, include_archived=True)
     chosen = next((d for d in defs if d.id == chosen_definition_id), None)
     if chosen is None:
         raise ValueError("Définition introuvable pour ce concept.")
     next_version = max((d.definition_version for d in defs), default=0) + 1
+    tenant_id = chosen.tenant_id
     for d in defs:
         if d.id == chosen.id:
             d.is_reference = True
@@ -115,5 +131,11 @@ def arbitrate(db: Session, concept_id: int, chosen_definition_id: int,
         elif d.status in _LIVE:
             d.is_reference = False
             d.status = "archived"
+    # Propagation E1 (logique partagée, jamais dupliquée) DANS la même transaction.
+    effects = propagation.apply(db, concept_id, next_version=next_version)
+    db.add(ConceptArbitration(
+        tenant_id=tenant_id, concept_id=concept_id, chosen_definition_id=chosen.id,
+        definition_version=next_version, actor=actor, propagation=effects,
+    ))
     db.flush()
-    return chosen
+    return {"chosen": chosen, "version": next_version, "propagation": effects}

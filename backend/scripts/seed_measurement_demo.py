@@ -115,6 +115,40 @@ prefs = dict(st.preferences or {})
 prefs["business_context"] = "demo_retail"
 st.preferences = prefs
 
+# --- Concept AMBIGU seedé : « Magasin actif » (Démo Retail). Ce n'est QUE de la
+# donnée : le moteur d'arbitrage est générique et traiterait « Client actif »
+# (SaaS) à l'identique. Trois définitions plausibles, une référence en vigueur.
+from app.models.semantic import BusinessConcept
+from app.models.concept_definition import ConceptDefinition
+from app.models.concept_arbitration import ConceptReference
+TID = conn.tenant_id
+db.query(BusinessConcept).filter(BusinessConcept.tenant_id == TID,
+                                 BusinessConcept.name == "Magasin actif").delete()
+db.flush()
+ma = BusinessConcept(tenant_id=TID, name="Magasin actif",
+                     description="Un point de vente considéré comme actif.", origin="system")
+db.add(ma); db.flush()
+_defs = [
+    ("A", "A réalisé au moins une vente sur les 30 derniers jours", 58, "validated", True, 4),
+    ("B", "Est ouvert et rattaché au réseau sur la période", 61, "needs_arbitration", False, 1),
+    ("C", "A un référent réseau assigné et un stock non nul", 54, "needs_arbitration", False, 1),
+]
+for label, text, count, status, is_ref, ver in _defs:
+    db.add(ConceptDefinition(
+        tenant_id=TID, concept_id=ma.id, scope="universe", label=label,
+        definition_text=text, entity_label="magasins", impact_count=count,
+        count_sql=f"SELECT count(*) FROM stores WHERE /* {label} */ TRUE",
+        status=status, is_reference=is_ref, definition_version=ver))
+# Registre de propagation E1 : 6 réponses, 2 découvertes, 1 rapport figé (v4).
+for _ in range(6):
+    db.add(ConceptReference(tenant_id=TID, concept_id=ma.id, kind="answer",
+                            connection_id=CONN_ID))
+for _ in range(2):
+    db.add(ConceptReference(tenant_id=TID, concept_id=ma.id, kind="discovery",
+                            connection_id=CONN_ID))
+db.add(ConceptReference(tenant_id=TID, concept_id=ma.id, kind="report",
+                        ref_label="Rapport v4", immutable=True))
+
 db.commit()
 print("decision:", dec.id, "| plan:", plan.id, "| impl:", IMPL.isoformat(),
       "| retained:", plan.control_selection["control_ids"],

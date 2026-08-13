@@ -572,6 +572,49 @@ export interface MeasurementDetail {
     snapshot_id: string | null; measured_at: string | null;
   }[];
 }
+export type ConceptStatus = "validated" | "proposed" | "needs_arbitration" | "sans_source";
+export interface ConceptOverview {
+  id: number;
+  name: string;
+  description: string;
+  status: ConceptStatus;
+  definition_count: number;
+  reference_label: string | null;
+  reference_version: number | null;
+}
+export interface ConceptDefinitionView {
+  id: number;
+  label: string;
+  definition_text: string;
+  scope: string;
+  status: string;
+  is_reference: boolean;
+  definition_version: number;
+  impact_count: number | null;
+  entity_label: string;
+  owner_ref: string | null;
+}
+export interface ConceptDetail extends ConceptOverview {
+  ambiguous: boolean;
+  definitions: ConceptDefinitionView[];
+}
+export interface ArbitrationPropagation {
+  answers_affected: number;
+  discoveries_to_recheck: number;
+  reports_preserved: number;
+  reports_to_revise: number;
+  preserved_labels: string[];
+  new_version: number | null;
+}
+export interface ArbitrationPreview {
+  concept_id: number;
+  current_definition_id: number | null;
+  chosen_definition_id: number;
+  options: { id: number; label: string; definition_text: string; impact_count: number | null; entity_label: string; is_reference: boolean }[];
+  propagation: ArbitrationPropagation;
+  new_version: number;
+  creates_new_version: boolean;
+}
 export interface PlanItem {
   id: number;
   role: string;
@@ -944,6 +987,14 @@ export const api = {
     request<PlanItem>(`/plan/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   planMeasure: (id: number) => request<PlanItem>(`/plan/${id}/measure`, { method: "POST" }),
   measurementDetail: (id: number) => request<MeasurementDetail>(`/plan/${id}/measurement`),
+
+  // --- Concepts & arbitrage (générique : « Magasin actif » n'est que de la donnée) ---
+  conceptsOverview: () => request<ConceptOverview[]>(`/concepts/overview`),
+  conceptDetail: (id: number) => request<ConceptDetail>(`/concepts/${id}`),
+  conceptArbitrationPreview: (id: number, definitionId: number) =>
+    request<ArbitrationPreview>(`/concepts/${id}/arbitration-preview?definition_id=${definitionId}`),
+  conceptArbitrate: (id: number, definitionId: number) =>
+    request<ConceptDetail>(`/concepts/${id}/arbitrate?definition_id=${definitionId}`, { method: "POST" }),
 
   reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
   reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),

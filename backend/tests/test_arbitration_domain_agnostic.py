@@ -17,10 +17,11 @@ from sqlalchemy.orm import sessionmaker
 
 import app.models  # noqa: F401 — enregistre les tables sur Base.metadata
 from app.core.db import Base
+from app.models.concept_arbitration import ConceptArbitration, ConceptReference
 from app.models.concept_definition import ConceptDefinition
 from app.models.semantic import BusinessConcept
 from app.models.tenant import Tenant
-from app.services import arbitration
+from app.services import arbitration, propagation
 
 # Concept AMBIGU d'un tout autre domaine que Retail : « Client actif », défini de
 # trois manières plausibles — exactement le même problème que « Magasin actif ».
@@ -54,6 +55,7 @@ def db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine, tables=[
         Tenant.__table__, BusinessConcept.__table__, ConceptDefinition.__table__,
+        ConceptReference.__table__, ConceptArbitration.__table__,
     ])
     s = sessionmaker(bind=engine)()
     yield s
@@ -93,28 +95,84 @@ def test_full_chain_runs_on_saas_without_retail_tables(db):
     assert adapter.tables_seen and not (adapter.tables_seen & set(_RETAIL_TABLES))
     assert not any(rt in q for q in [DEF_A, DEF_B, DEF_C] for rt in _RETAIL_TABLES)
 
-    # Propagation d'un changement de référence — buckets génériques.
-    refs = [
-        {"concept_id": concept.id, "kind": "answer"}, {"concept_id": concept.id, "kind": "answer"},
-        {"concept_id": concept.id, "kind": "discovery"},
-        {"concept_id": concept.id, "kind": "report", "immutable": True},
-        {"concept_id": 999, "kind": "answer"},   # autre concept : non concerné
-    ]
-    prop = arbitration.propagation_preview(refs, concept.id)
-    assert prop["answers_affected"] == 2
-    assert prop["discoveries_to_recheck"] == 1
-    assert prop["reports_preserved"] == 1
+    # Registre de propagation (E1) : réponses, découverte, rapport figé.
+    for kind, immutable in [("answer", False), ("answer", False), ("discovery", False),
+                            ("report", True)]:
+        db.add(ConceptReference(tenant_id=1, concept_id=concept.id, kind=kind,
+               ref_label="v4" if kind == "report" else "", immutable=immutable))
+    db.add(ConceptReference(tenant_id=1, concept_id=999, kind="answer"))  # autre concept
+    db.flush()
 
-    # Arbitrage : B devient la référence en vigueur ; A et C archivées ; version +1.
+    # Preview d'arbitrage AVANT toute mutation (rule 2) — buckets génériques.
     b_id = next(i.definition_id for i in impacts if i.label == "B")
-    chosen = arbitration.arbitrate(db, concept.id, b_id, actor="Responsable produit")
-    assert chosen.is_reference and chosen.status == "validated"
-    assert chosen.definition_version == 2
+    prev = arbitration.arbitration_preview(db, concept.id, b_id)
+    assert prev["propagation"]["answers_affected"] == 2
+    assert prev["propagation"]["discoveries_to_recheck"] == 1
+    assert prev["propagation"]["reports_preserved"] == 1
+    assert prev["new_version"] == 2 and prev["creates_new_version"]
+    # Rien n'a été muté par le preview.
+    assert arbitration.is_ambiguous(db, concept.id)
+
+    # Arbitrage TRANSACTIONNEL : B devient référence ; A/C archivées ; version +1 ;
+    # audit écrit ; propagation E1 exécutée sur le registre.
+    res = arbitration.arbitrate(db, concept.id, b_id, actor="Responsable produit")
+    chosen = res["chosen"]
+    assert chosen.is_reference and chosen.status == "validated" and chosen.definition_version == 2
     others = [d for d in arbitration.definitions_of(db, concept.id, include_archived=True)
               if d.id != b_id]
     assert all(not d.is_reference and d.status == "archived" for d in others)
-    # Plus qu'une seule définition en lice → l'ambiguïté est levée.
     assert not arbitration.is_ambiguous(db, concept.id)
+    # E1 : réponses → stale, découverte → en_reverification, rapport figé → preserved.
+    refs = propagation.references_for(db, concept.id)
+    assert {r.status for r in refs if r.kind == "answer"} == {"stale"}
+    assert [r.status for r in refs if r.kind == "discovery"] == ["en_reverification"]
+    assert [r.status for r in refs if r.kind == "report"] == ["preserved"]
+    # Audit d'arbitrage écrit.
+    audit = db.query(ConceptArbitration).filter_by(concept_id=concept.id).all()
+    assert len(audit) == 1 and audit[0].definition_version == 2
+
+
+def _seed_named(db, name: str, entity_label: str, counts: dict) -> BusinessConcept:
+    concept = BusinessConcept(tenant_id=1, name=name, description="", origin="system")
+    db.add(concept); db.flush()
+    for label, cnt in counts.items():
+        db.add(ConceptDefinition(tenant_id=1, concept_id=concept.id, scope="universe",
+               label=label, definition_text=f"définition {label}", entity_label=entity_label,
+               impact_count=cnt, status="needs_arbitration"))
+    for kind in ("answer", "answer", "discovery", "report"):
+        db.add(ConceptReference(tenant_id=1, concept_id=concept.id, kind=kind,
+               immutable=(kind == "report")))
+    db.flush()
+    return concept
+
+
+def test_same_machine_retail_and_saas(db):
+    """La MÊME machine arbitre « Magasin actif » (Démo Retail) et « Client actif »
+    (SaaS) à l'identique — aucune branche métier, aucune isolation cassée."""
+    db.add(Tenant(id=1, name="Acme", slug="acme")); db.flush()
+    retail = _seed_named(db, "Magasin actif", "magasins", {"A": 58, "B": 61, "C": 54})
+    saas = _seed_named(db, "Client actif", "clients", {"A": 4218, "B": 6032})
+
+    for concept in (retail, saas):
+        assert arbitration.is_ambiguous(db, concept.id)
+        defs = arbitration.definitions_of(db, concept.id)
+        chosen = defs[-1]
+        prev = arbitration.arbitration_preview(db, concept.id, chosen.id)
+        # Preview identique en structure quel que soit le domaine.
+        assert prev["propagation"]["answers_affected"] == 2
+        assert prev["propagation"]["reports_preserved"] == 1
+        res = arbitration.arbitrate(db, concept.id, chosen.id, actor="Analyste")
+        assert res["chosen"].is_reference and res["version"] == 2
+        assert not arbitration.is_ambiguous(db, concept.id)
+
+    # Isolation : arbitrer l'un n'a rien touché aux références de l'autre concept.
+    r_refs = propagation.references_for(db, retail.id)
+    s_refs = propagation.references_for(db, saas.id)
+    assert all(r.concept_id == retail.id for r in r_refs)
+    assert all(r.concept_id == saas.id for r in s_refs)
+    # Le libellé d'entité reste celui des données (magasins vs clients), jamais figé.
+    assert {d.entity_label for d in arbitration.definitions_of(db, retail.id, include_archived=True)} == {"magasins"}
+    assert {d.entity_label for d in arbitration.definitions_of(db, saas.id, include_archived=True)} == {"clients"}
 
 
 def test_arbitration_engine_has_no_domain_enum():
