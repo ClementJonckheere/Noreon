@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -54,6 +55,12 @@ class ConceptDefinition(Base):
     # candidate | validated | needs_arbitration | archived
     is_reference: Mapped[bool] = mapped_column(Boolean, default=False)
     impact_count: Mapped[int | None] = mapped_column(Integer, default=None)  # dernier comptage
+    # Fraîcheur du comptage : QUAND il a été calculé, sur QUEL snapshot et QUELLES
+    # sources. Permet d'afficher « calculé il y a 22 h » et de bloquer un arbitrage
+    # sur un impact devenu obsolète (les données ont changé depuis le preview).
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    snapshot_id: Mapped[str | None] = mapped_column(String(128), default=None)
+    source_ids: Mapped[list | None] = mapped_column(JSON, default=None)   # connexions sources
 
     rationale: Mapped[str] = mapped_column(String, default="")
     owner_ref: Mapped[str | None] = mapped_column(String(255), default=None)  # ActorReference (libre)

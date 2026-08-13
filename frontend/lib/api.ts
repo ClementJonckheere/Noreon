@@ -581,12 +581,20 @@ export interface ConceptOverview {
   definition_count: number;
   reference_label: string | null;
   reference_version: number | null;
+  scope_type: "universe" | "space";
 }
-export interface ConceptDefinitionView {
+export interface Freshness {
+  evaluated_at: string | null;
+  snapshot_id: string | null;
+  source_ids: number[];
+  is_stale: boolean;
+}
+export interface ConceptDefinitionView extends Freshness {
   id: number;
   label: string;
   definition_text: string;
   scope: string;
+  space_id: number | null;
   status: string;
   is_reference: boolean;
   definition_version: number;
@@ -606,11 +614,22 @@ export interface ArbitrationPropagation {
   preserved_labels: string[];
   new_version: number | null;
 }
+export interface ArbitrationOption extends Freshness {
+  id: number;
+  label: string;
+  definition_text: string;
+  impact_count: number | null;
+  entity_label: string;
+  is_reference: boolean;
+}
 export interface ArbitrationPreview {
   concept_id: number;
+  scope_type: "universe" | "space";
   current_definition_id: number | null;
   chosen_definition_id: number;
-  options: { id: number; label: string; definition_text: string; impact_count: number | null; entity_label: string; is_reference: boolean }[];
+  options: ArbitrationOption[];
+  chosen_is_stale: boolean;
+  any_stale: boolean;
   propagation: ArbitrationPropagation;
   new_version: number;
   creates_new_version: boolean;
@@ -989,12 +1008,17 @@ export const api = {
   measurementDetail: (id: number) => request<MeasurementDetail>(`/plan/${id}/measurement`),
 
   // --- Concepts & arbitrage (générique : « Magasin actif » n'est que de la donnée) ---
-  conceptsOverview: () => request<ConceptOverview[]>(`/concepts/overview`),
-  conceptDetail: (id: number) => request<ConceptDetail>(`/concepts/${id}`),
-  conceptArbitrationPreview: (id: number, definitionId: number) =>
-    request<ArbitrationPreview>(`/concepts/${id}/arbitration-preview?definition_id=${definitionId}`),
-  conceptArbitrate: (id: number, definitionId: number) =>
-    request<ConceptDetail>(`/concepts/${id}/arbitrate?definition_id=${definitionId}`, { method: "POST" }),
+  // Résolus pour l'espace courant : définition héritée de l'Univers ou surchargée.
+  conceptsOverview: (spaceId?: number | null) =>
+    request<ConceptOverview[]>(`/concepts/overview${spaceId != null ? `?space_id=${spaceId}` : ""}`),
+  conceptDetail: (id: number, spaceId?: number | null) =>
+    request<ConceptDetail>(`/concepts/${id}${spaceId != null ? `?space_id=${spaceId}` : ""}`),
+  conceptArbitrationPreview: (id: number, definitionId: number, spaceId?: number | null) =>
+    request<ArbitrationPreview>(`/concepts/${id}/arbitration-preview?definition_id=${definitionId}${spaceId != null ? `&space_id=${spaceId}` : ""}`),
+  conceptRecomputeImpact: (id: number, definitionId: number) =>
+    request<ConceptDefinitionView>(`/concepts/${id}/definitions/${definitionId}/recompute`, { method: "POST" }),
+  conceptArbitrate: (id: number, definitionId: number, spaceId?: number | null) =>
+    request<ConceptDetail>(`/concepts/${id}/arbitrate?definition_id=${definitionId}${spaceId != null ? `&space_id=${spaceId}` : ""}`, { method: "POST" }),
 
   reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
   reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),

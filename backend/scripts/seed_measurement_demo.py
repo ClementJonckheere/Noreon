@@ -133,12 +133,17 @@ _defs = [
     ("B", "Est ouvert et rattaché au réseau sur la période", 61, "needs_arbitration", False, 1),
     ("C", "A un référent réseau assigné et un stock non nul", 54, "needs_arbitration", False, 1),
 ]
+# Impact calculé « il y a 22 h » sur les sources de l'espace (fraîcheur affichée).
+from app.services import arbitration as _arb
+_evald = datetime.now(timezone.utc) - timedelta(hours=22)
+_snap = _arb._sources_snapshot(db, [CONN_ID]) or "snap_demo_v1"
 for label, text, count, status, is_ref, ver in _defs:
     db.add(ConceptDefinition(
         tenant_id=TID, concept_id=ma.id, scope="universe", label=label,
         definition_text=text, entity_label="magasins", impact_count=count,
         count_sql=f"SELECT count(*) FROM stores WHERE /* {label} */ TRUE",
-        status=status, is_reference=is_ref, definition_version=ver))
+        status=status, is_reference=is_ref, definition_version=ver,
+        evaluated_at=_evald, snapshot_id=_snap, source_ids=[CONN_ID]))
 # Registre de propagation E1 : 6 réponses, 2 découvertes, 1 rapport figé (v4).
 for _ in range(6):
     db.add(ConceptReference(tenant_id=TID, concept_id=ma.id, kind="answer",

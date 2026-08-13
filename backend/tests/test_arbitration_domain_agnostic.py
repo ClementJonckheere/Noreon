@@ -175,6 +175,66 @@ def test_same_machine_retail_and_saas(db):
     assert {d.entity_label for d in arbitration.definitions_of(db, saas.id, include_archived=True)} == {"clients"}
 
 
+def test_universe_space_scope_inheritance(db):
+    """Univers = définition commune ; un espace HÉRITE, sauf s'il SURCHARGE."""
+    db.add(Tenant(id=1, name="Acme", slug="acme")); db.flush()
+    concept = BusinessConcept(tenant_id=1, name="Client actif", description="", origin="system")
+    db.add(concept); db.flush()
+    # Univers : deux définitions concurrentes.
+    for label in ("U-A", "U-B"):
+        db.add(ConceptDefinition(tenant_id=1, concept_id=concept.id, scope="universe",
+               label=label, definition_text="", entity_label="clients", status="needs_arbitration"))
+    db.flush()
+    SPACE = 42
+    # Un espace SANS override hérite de l'Univers (mêmes définitions).
+    inherited = arbitration.definitions_of(db, concept.id, space_id=SPACE)
+    assert {d.label for d in inherited} == {"U-A", "U-B"}
+    assert arbitration.effective_scope(db, concept.id, SPACE) == "universe"
+
+    # L'espace SURCHARGE avec sa propre définition → elle PRIME, l'Univers est masqué.
+    db.add(ConceptDefinition(tenant_id=1, concept_id=concept.id, scope="space", space_id=SPACE,
+           label="S-only", definition_text="propre à cet espace", entity_label="clients",
+           status="validated", is_reference=True, definition_version=1))
+    db.flush()
+    override = arbitration.definitions_of(db, concept.id, space_id=SPACE)
+    assert {d.label for d in override} == {"S-only"}
+    assert arbitration.effective_scope(db, concept.id, SPACE) == "space"
+    # Un AUTRE espace, lui, hérite toujours de l'Univers (isolation des overrides).
+    assert {d.label for d in arbitration.definitions_of(db, concept.id, space_id=99)} == {"U-A", "U-B"}
+    # La vue Univers reste inchangée.
+    assert {d.label for d in arbitration.definitions_of(db, concept.id)} == {"U-A", "U-B"}
+
+
+def test_stale_impact_blocks_arbitration(db):
+    """Un impact obsolète (snapshot changé) bloque l'arbitrage : recalcul requis."""
+    db.add(Tenant(id=1, name="Acme", slug="acme")); db.flush()
+    concept = BusinessConcept(tenant_id=1, name="Commande valide", description="", origin="system")
+    db.add(concept); db.flush()
+    for label, snap in (("A", "snap_now"), ("B", "snap_OLD")):
+        db.add(ConceptDefinition(tenant_id=1, concept_id=concept.id, scope="universe",
+               label=label, definition_text="", entity_label="commandes", impact_count=10,
+               status="needs_arbitration", source_ids=[7], snapshot_id=snap))
+    db.flush()
+
+    # Le snapshot COURANT de la source 7 = « snap_now » : B (snap_OLD) est obsolète.
+    import app.services.arbitration as arb
+    orig = arb._current_snapshot_id
+    arb._current_snapshot_id = lambda _db, cid: "snap_now"
+    try:
+        b = next(d for d in arbitration.definitions_of(db, concept.id) if d.label == "B")
+        a = next(d for d in arbitration.definitions_of(db, concept.id) if d.label == "A")
+        assert arbitration.is_stale(db, b) and not arbitration.is_stale(db, a)
+        with pytest.raises(arbitration.StaleImpactError):
+            arbitration.arbitrate(db, concept.id, b.id, actor="X")
+        # Après recalcul, l'obsolescence est levée → l'arbitrage passe.
+        arbitration.recompute_impact(db, b)
+        assert not arbitration.is_stale(db, b)
+        res = arbitration.arbitrate(db, concept.id, b.id, actor="X")
+        assert res["chosen"].is_reference
+    finally:
+        arb._current_snapshot_id = orig
+
+
 def test_arbitration_engine_has_no_domain_enum():
     """Le moteur ne doit contenir ni enum de concepts ni branche métier codée en dur."""
     import inspect

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ConceptOverview, ConceptStatus } from "@/lib/api";
+import { useCurrentSpace } from "@/lib/space";
 
 // Concepts — le vocabulaire partagé et ses désaccords. On distingue clairement
 // quatre états : validé (une définition en vigueur), proposé (Noreon suggère),
@@ -21,8 +22,13 @@ const STATUS: Record<ConceptStatus, { label: string; cls: string; hint: string }
 const ORDER: ConceptStatus[] = ["needs_arbitration", "proposed", "validated", "sans_source"];
 
 export default function ConceptsPage() {
+  const { space, ready } = useCurrentSpace();
   const [concepts, setConcepts] = useState<ConceptOverview[] | null>(null);
-  useEffect(() => { api.conceptsOverview().then(setConcepts).catch(() => setConcepts([])); }, []);
+  // Résolu pour l'espace courant : définition commune de l'Univers, ou surcharge.
+  useEffect(() => {
+    if (!ready) return;
+    api.conceptsOverview(space?.id ?? null).then(setConcepts).catch(() => setConcepts([]));
+  }, [ready, space?.id]);
 
   const groups = ORDER
     .map((s) => [s, (concepts ?? []).filter((c) => c.status === s)] as const)
@@ -75,6 +81,9 @@ function ConceptCard({ c }: { c: ConceptOverview }) {
         <div className="flex items-center gap-2">
           <span className="text-subhead text-ink-primary truncate">{c.name}</span>
           <span className={`tag border shrink-0 ${st.cls}`}>{st.label}</span>
+          {c.scope_type === "space" && (
+            <span className="tag border shrink-0 text-ink-tertiary bg-bg-secondary border-line-subtle">propre à cet espace</span>
+          )}
         </div>
         {c.description && <div className="text-body text-ink-secondary truncate">{c.description}</div>}
         <div className="meta">
