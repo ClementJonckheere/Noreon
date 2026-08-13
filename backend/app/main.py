@@ -18,6 +18,7 @@ from app.api.routes import (
     plan,
     profiling,
     quality,
+    relations,
     reports,
     schema,
     semantic,
@@ -64,6 +65,7 @@ app.include_router(conversations.router)
 app.include_router(spaces.router)
 app.include_router(space_conversations.router)
 app.include_router(reports.router)
+app.include_router(relations.router)
 app.include_router(plan.router)
 app.include_router(metrics.router)
 

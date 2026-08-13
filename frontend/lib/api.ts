@@ -572,6 +572,38 @@ export interface MeasurementDetail {
     snapshot_id: string | null; measured_at: string | null;
   }[];
 }
+export interface FieldRef { schema: string; table: string; column: string; label: string }
+export type RelationStatus = "candidate" | "needs_validation" | "validated" | "archived" | "rejected";
+export type RelationOrigin = "constraint" | "inferred" | "declared";
+export interface RelationAlternative { table: string; column: string; coverage: number }
+export interface RelationCandidateView extends Freshness {
+  id: number;
+  connection_id: number;
+  left: FieldRef;
+  right: FieldRef;
+  direction: string;
+  cardinality: string | null;
+  coverage: number | null;
+  target_uniqueness: number | null;
+  type_compatibility: string | null;
+  exceptions_count: number | null;
+  exceptions_note: string | null;
+  alternatives: RelationAlternative[];
+  origin: RelationOrigin;
+  valid_from: string | null;
+  valid_to: string | null;
+  status: RelationStatus;
+  validated_by: string | null;
+  validated_at: string | null;
+  validation_window: { from: string | null; to: string | null } | null;
+  evidence: Record<string, unknown> | null;
+}
+export interface RelationPreview {
+  analyses_possible: number;
+  concepts_linkable: number;
+  linkable_labels: string[];
+  examples: string[];
+}
 export type ConceptStatus = "validated" | "proposed" | "needs_arbitration" | "sans_source";
 export interface ConceptOverview {
   id: number;
@@ -1019,6 +1051,14 @@ export const api = {
     request<ConceptDefinitionView>(`/concepts/${id}/definitions/${definitionId}/recompute`, { method: "POST" }),
   conceptArbitrate: (id: number, definitionId: number, spaceId?: number | null) =>
     request<ConceptDetail>(`/concepts/${id}/arbitrate?definition_id=${definitionId}${spaceId != null ? `&space_id=${spaceId}` : ""}`, { method: "POST" }),
+
+  // --- Relations candidates (générique : évaluées sur des faits, jamais un nom métier) ---
+  relationCandidates: (connectionId?: number | null) =>
+    request<RelationCandidateView[]>(`/relations${connectionId != null ? `?connection_id=${connectionId}` : ""}`),
+  relationDetail: (id: number) => request<RelationCandidateView>(`/relations/${id}`),
+  relationPreview: (id: number) => request<RelationPreview>(`/relations/${id}/preview`),
+  relationValidate: (id: number) => request<RelationCandidateView>(`/relations/${id}/validate`, { method: "POST" }),
+  relationReject: (id: number) => request<RelationCandidateView>(`/relations/${id}/reject`, { method: "POST" }),
 
   reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
   reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),

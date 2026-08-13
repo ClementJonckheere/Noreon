@@ -22,6 +22,7 @@ const PATHS: Record<string, JSX.Element> = {
   spaces: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
   concepts: <><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="12" cy="18" r="2.5" /><path d="M7.6 7.9L11 15.6M16.4 7.9L13 15.6M8.5 6h7" /></>,
   audit: <><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4" /><path d="M9 13l2 2 4-4" /></>,
+  relations: <><circle cx="5" cy="6" r="2.5" /><circle cx="19" cy="18" r="2.5" /><path d="M7.3 7.3l9.4 9.4" /><path d="M5 8.5v4M4 12h8v4" /></>,
 };
 
 export default function Icon({

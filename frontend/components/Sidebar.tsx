@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { href: "/data", label: "Données", icon: "data", cap: "viewData" },
   { href: "/quality", label: "Qualité", icon: "quality", cap: "inspectQuality" },
   { href: "/concepts", label: "Concepts", icon: "concepts", cap: "manageConcepts" },
+  { href: "/relations", label: "Relations", icon: "relations", cap: "manageConcepts" },
 ];
 
 function NavRow({ item, active }: { item: NavItem; active: boolean }) {

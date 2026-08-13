@@ -154,6 +154,26 @@ for _ in range(2):
 db.add(ConceptReference(tenant_id=TID, concept_id=ma.id, kind="report",
                         ref_label="Rapport v4", immutable=True))
 
+# --- Relation candidate seedée (Démo Retail). Donnée pure : le moteur de relations
+# est générique et traiterait une relation SaaS à l'identique. Jamais jugée sur la
+# seule couverture ; candidat alternatif + fenêtre vérifiée conservés.
+from app.models.relation_candidate import RelationCandidate
+db.query(RelationCandidate).filter(RelationCandidate.tenant_id == TID,
+    RelationCandidate.left_table == "order_items", RelationCandidate.right_table == "products").delete()
+db.flush()
+db.add(RelationCandidate(
+    tenant_id=TID, connection_id=CONN_ID,
+    left_table="order_items", left_column="product_reference",
+    right_table="products", right_column="reference",
+    direction="left_to_right", cardinality="n-1",
+    coverage=0.998, target_uniqueness=1.0, type_compatibility="conforme",
+    exceptions_count=37, exceptions_note="37 exceptions, toutes antérieures à mars 2021",
+    alternatives=[{"table": "legacy_products", "column": "code", "coverage": 0.412}],
+    origin="inferred",
+    evaluated_at=datetime.now(timezone.utc) - timedelta(hours=22),
+    snapshot_id=_arb._sources_snapshot(db, [CONN_ID]) or "snap_demo_v1", source_ids=[CONN_ID],
+    valid_from=date(2021, 3, 1), status="needs_validation"))
+
 db.commit()
 print("decision:", dec.id, "| plan:", plan.id, "| impl:", IMPL.isoformat(),
       "| retained:", plan.control_selection["control_ids"],
