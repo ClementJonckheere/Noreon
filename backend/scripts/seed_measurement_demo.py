@@ -103,6 +103,18 @@ db.query(SpaceConnection).filter(
     SpaceConnection.connection_id == CONN_ID,
     SpaceConnection.space_id != demo.id).delete(synchronize_session=False)
 
+# BusinessContext DÉCLARÉ : la Démo Retail utilise la fixture retail (rôles,
+# responsabilités). Sans ça, le moteur reste générique — ce qui est le défaut
+# correct pour tout tenant réel qui n'a rien déclaré.
+from app.models.tenant import TenantSettings
+st = db.get(TenantSettings, conn.tenant_id)
+if st is None:
+    st = TenantSettings(tenant_id=conn.tenant_id)
+    db.add(st); db.flush()
+prefs = dict(st.preferences or {})
+prefs["business_context"] = "demo_retail"
+st.preferences = prefs
+
 db.commit()
 print("decision:", dec.id, "| plan:", plan.id, "| impl:", IMPL.isoformat(),
       "| retained:", plan.control_selection["control_ids"],

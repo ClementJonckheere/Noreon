@@ -1,14 +1,17 @@
-"""Decision Engine — des mêmes données, des décisions selon le RÔLE.
+"""Decision Engine — des mêmes données, des recommandations d'action.
 
-Le Reasoning Engine explique CE QUI se passe. Le Decision Engine répond à
-« que ferait un directeur financier / un responsable CRM / un directeur réseau ? ».
-Les données sont identiques ; les priorités changent selon le métier.
+Le Reasoning Engine explique CE QUI se passe ; le Decision Engine propose QUOI
+faire. Il ne présume d'aucune organisation : il reçoit un `BusinessContext` (qui
+peut être vide) et l'utilise pour PERSONNALISER, jamais pour fonctionner.
 
-    CA -12 %  →  Finance : préserver la marge, contrôler les coûts.
-              →  CRM     : réactiver les clients fidèles en repli.
-              →  Réseau  : 3 magasins pèsent 65 % de la baisse → audit local.
+    Finding (facteur dominant)
+      → le contexte connaît-il un décideur pour ce concept ?
+        → oui : recommandation attribuée à ce rôle (personnalisation)
+        → non : recommandation GÉNÉRIQUE (« une action possible consiste à… »)
 
-Tout est déterministe, dérivé des facteurs dominants réels de l'analyse.
+Un entrepreneur solo (contexte vide) obtient donc des recommandations utiles et
+mesurables, sans qu'aucun rôle d'organisation ne soit jamais requis. Tout reste
+déterministe, dérivé des facteurs dominants réels de l'analyse.
 """
 from __future__ import annotations
 
@@ -17,11 +20,12 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
 from app.services import responsibility
+from app.services.business_context import EMPTY, BusinessContext
 
-# Intentions détectables derrière une question.
+# Intentions détectables derrière une question (vocabulaire neutre, sans domaine).
 _INTENTS = [
     ("diagnostic", r"pourquoi|cause|expliqu|analyse|problème|probleme|baisse|chute|anomal"),
-    ("comparaison", r"compar|versus|\bvs\b|par magasin|par région|par region|classement|meilleur|top\b"),
+    ("comparaison", r"compar|versus|\bvs\b|classement|meilleur|top\b"),
     ("reporting", r"rapport|bilan|mensuel|trimestriel|comité|comite|présentation|presentation|synthèse|synthese"),
     ("suivi", r"évolu|evolu|tendance|suivi|historique|dans le temps|par mois"),
 ]
@@ -46,7 +50,7 @@ INTENT_LABEL = {
 
 @dataclass
 class Decision:
-    role: str            # libellé du rôle
+    role: str            # libellé du rôle — VIDE si l'organisation est inconnue
     priority: str        # phrase de priorité
     recommendation: str  # action concrète
     justification: str = ""          # « pourquoi cette recommandation ? » (Decision Journal)
@@ -112,38 +116,6 @@ def _clean_dimension(label: str | None) -> str:
     return re.sub(r"\s*\([^)]*\)", "", label).strip()
 
 
-# role → (libellé, action, justification, effort typique de l'action)
-_ROLE_ACTIONS = {
-    "crm": ("Responsable CRM",
-            "Lancer une campagne de réactivation ciblée sur « {seg} » ; "
-            "mesurer l'effet sur la fréquence d'achat.",
-            "le segment client « {seg} » porte {share:.0f}% de la variation ({dim}).",
-            "Faible"),
-    "reseau": ("Directeur réseau",
-               "Auditer localement « {seg} » : conditions du point de vente, "
-               "concurrence, exécution terrain.",
-               "{share:.0f}% de la variation provient de « {seg} » ({dim}).",
-               "Moyen"),
-    "produit": ("Directeur produit",
-                "Revoir l'assortiment et le prix de la gamme « {seg} » ; vérifier les ruptures.",
-                "la gamme « {seg} » pèse {share:.0f}% de la variation ({dim}).",
-                "Élevé"),
-    "canal": ("Responsable des opérations",
-              "Analyser le parcours sur le canal « {seg} » (friction, coût, conversion).",
-              "le canal « {seg} » explique {share:.0f}% de la variation ({dim}).",
-              "Moyen"),
-    "supply": ("Directeur supply chain",
-               "Sécuriser l'approvisionnement lié à « {seg} » : sourcing alternatif, "
-               "stock de sécurité, pénalités de délai.",
-               "« {seg} » concentre {share:.0f}% de la variation ({dim}).",
-               "Moyen"),
-    "rh": ("Directeur des ressources humaines",
-           "Lancer un plan de rétention ciblé sur « {seg} » : entretiens, charge de "
-           "travail, rémunération, perspectives de mobilité.",
-           "« {seg} » concentre {share:.0f}% de la variation ({dim}).",
-           "Moyen"),
-}
-
 _EFFORT_RANK = {"Faible": 1, "Moyen": 2, "Élevé": 3}
 _IMPACT_RANK = {"Faible": 1, "Moyen": 2, "Élevé": 3}
 
@@ -173,12 +145,15 @@ def _stars(impact_level: str, effort: str) -> int:
 def decide(*, question: str, metric_label: str, trend_direction: str | None,
            trend_pct: float | None, drivers: list[dict],
            recent_rate: float | None = None,
-           history: Callable[[str, str], str | None] | None = None) -> DecisionSet | None:
-    """Produit des décisions adaptées au rôle à partir des facteurs dominants.
+           history: Callable[[str, str], str | None] | None = None,
+           context: BusinessContext = EMPTY) -> DecisionSet | None:
+    """Produit des recommandations à partir des facteurs dominants.
 
     `drivers` : [{dimension, segment, share}] issus du Reasoning Engine.
-    `history(role, recommendation) -> str | None` : annotation de mémoire métier
-    (« déjà appliquée avec succès… ») si une reco proche a déjà été qualifiée.
+    `context` : `BusinessContext` (éventuellement vide). Il PERSONNALISE les
+    recommandations par rôle quand l'organisation est connue ; sans lui, les
+    recommandations restent génériques et parfaitement utilisables.
+    `history(role, recommendation) -> str | None` : annotation de mémoire métier.
     """
     intent = detect_intent(question)
     top_dim = drivers[0].get("dimension") if drivers else None
@@ -192,10 +167,12 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
     pct_txt = f" ({trend_pct:+.0f}%)" if trend_pct else ""
     sens = "baisse" if down else "hausse"
 
-    # Finance : présent quelle que soit l'analyse d'une mesure monétaire. Noreon
-    # ne recommande PAS d'actions marge/trésorerie tant que ces mesures ne sont pas
-    # dans l'analyse : il cadre au périmètre réellement diagnostiqué et l'assume.
+    # Cadrage financier : pertinent pour toute mesure monétaire. Attribué à un
+    # décideur SI le contexte en déclare un ; sinon générique (aucune organisation
+    # n'est présumée). Noreon ne recommande PAS d'actions marge/trésorerie tant que
+    # ces mesures ne sont pas dans l'analyse : il cadre au périmètre diagnostiqué.
     if trend_direction in ("baisse", "hausse"):
+        fin_role = context.actor("finance") or ""
         just = (f"parce que {metric_label} évolue de {trend_pct:+.0f}%, mais l'effet sur "
                 "la rentabilité dépend de données de marge/coûts absentes de ce diagnostic."
                 if trend_pct
@@ -203,7 +180,7 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
         fin_impact = "Élevé" if trend_pct and abs(trend_pct) >= 10 else "Moyen"
         if down:
             ds.decisions.append(Decision(
-                role="Directeur financier",
+                role=fin_role,
                 priority=f"{metric_label} en {sens}{pct_txt} — cadrer l'impact avant tout arbitrage.",
                 recommendation=(f"Réviser les prévisions de {metric_label} sur le périmètre concerné. "
                                 "L'effet sur la marge et la trésorerie n'est pas quantifiable ici : ces "
@@ -213,7 +190,7 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
             ).as_dict())
         else:
             ds.decisions.append(Decision(
-                role="Directeur financier",
+                role=fin_role,
                 priority=f"{metric_label} en {sens}{pct_txt} — confirmer la rentabilité avant d'investir.",
                 recommendation=(f"Vérifier que la dynamique de {metric_label} se traduit en rentabilité "
                                 "avant réinvestissement : l'effet sur la marge n'est pas mesuré par cette analyse."),
@@ -221,25 +198,41 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
                 stars=_stars(fin_impact, "Moyen"),
             ).as_dict())
 
-    # Rôles métier selon le facteur dominant (impact + justification + priorité).
-    # Le PREMIER facteur est la cause principale de la variation : sa décision est
-    # rehaussée d'une étoile pour qu'elle mène la liste (l'action « au bon endroit »
-    # prime sur une action à faible effort mais hors sujet).
+    # Facteurs dominants → recommandation. Le PREMIER facteur est la cause
+    # principale : sa décision est rehaussée d'une étoile pour mener la liste.
     #
-    # Responsibility Engine : on ne route plus sur le NOM de la colonne mais sur le
-    # CONCEPT détecté (par les valeurs d'abord) → robuste aux colonnes opaques.
-    seen_roles: set[str] = set()
+    # On demande au BusinessContext s'il connaît un décideur pour ce facteur. Si
+    # oui → recommandation attribuée (personnalisation). Si non → recommandation
+    # GÉNÉRIQUE : c'est cette branche qui rend Noreon utilisable par un entrepreneur
+    # seul, sans aucune organisation déclarée.
+    seen: set[str] = set()
     for idx, d in enumerate(drivers[:3]):
-        resp = responsibility.resolve(
-            d.get("dimension", ""), d.get("segment"), d.get("samples") or [])
-        role = resp.role_key if resp else None
-        if role is None or role in seen_roles or role not in _ROLE_ACTIONS:
-            continue
-        seen_roles.add(role)
         seg, share = d.get("segment"), d.get("share", 0)
-        # On affiche le CONCEPT (« zone géographique ») plutôt que le nom d'axe brut.
-        dim = resp.concept_label
-        role_label, action_tpl, just_tpl, effort = _ROLE_ACTIONS[role]
+        resp = responsibility.resolve(context, d.get("dimension", ""), seg, d.get("samples") or [])
+        if resp is not None and not resp.action_template:
+            continue  # concept reconnu mais sans action dédiée (p. ex. le temps)
+
+        if resp is not None:  # décideur connu → personnalisation
+            key = resp.actor_label or resp.concept_key
+            if key in seen:
+                continue
+            seen.add(key)
+            dim = resp.concept_label
+            role_label, effort = (resp.actor_label or ""), resp.effort
+            recommendation = resp.action_template.format(seg=seg, dim=dim, share=share)
+            justification = "parce que " + resp.justification_template.format(seg=seg, dim=dim, share=share)
+        else:                 # aucun responsable connu → recommandation générique
+            dim = _clean_dimension(d.get("dimension", "")) or "ce facteur"
+            key = f"generic:{dim}:{seg}"
+            if key in seen:
+                continue
+            seen.add(key)
+            role_label, effort = "", "Moyen"
+            recommendation = (f"Une action possible : cibler « {seg} » — le facteur qui concentre le "
+                              f"plus la variation — et tester un levier dédié. L'effet pourra être "
+                              f"mesuré sur {_clean_metric(metric_label)}.")
+            justification = f"parce que « {seg} » concentre {share:.0f}% de la variation observée ({dim})."
+
         impact, conf, impact_level = _estimate_impact(share, trend_pct)
         stars = _stars(impact_level, effort)
         if idx == 0:  # cause principale de la variation
@@ -247,8 +240,7 @@ def decide(*, question: str, metric_label: str, trend_direction: str | None,
         ds.decisions.append(Decision(
             role=role_label,
             priority=f"« {seg} » concentre {share:.0f}% de la variation ({dim}).",
-            recommendation=action_tpl.format(seg=seg, dim=dim),
-            justification="parce que " + just_tpl.format(seg=seg, dim=dim, share=share),
+            recommendation=recommendation, justification=justification,
             impact=impact, impact_confidence=conf,
             effort=effort, impact_level=impact_level, stars=stars,
         ).as_dict())

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import re
 
+from app.fixtures import demo_retail
 from app.services import chronicle
 from app.services import decision_engine as de
 from app.services import decision_memory as dm
+
+# Régression Démo Retail : les rôles retail ne viennent QUE du contexte déclaré.
+RETAIL = demo_retail.context()
 
 
 def test_chronicle_rhythm_narration():
@@ -39,6 +43,7 @@ def test_decision_engine_roles():
             {"dimension": "magasin", "segment": "Store 3", "share": 65},
             {"dimension": "loyalty_points (customers)", "segment": "fidèles", "share": 30},
         ],
+        context=RETAIL,
     )
     assert d is not None
     roles = [x["role"] for x in d.decisions]
@@ -70,6 +75,7 @@ def test_decision_impact_justification_and_inaction():
         question="Pourquoi le CA baisse ?", metric_label="le CA",
         trend_direction="baisse", trend_pct=-12.0, recent_rate=-3.2,
         drivers=[{"dimension": "magasin", "segment": "Store 3", "share": 65}],
+        context=RETAIL,
     )
     assert d is not None
     assert d.restated == "Diagnostiquer une baisse de le CA".replace("de le", "de le")  # tolère l'article
@@ -100,6 +106,7 @@ def test_decision_effort_impact_matrix():
             {"dimension": "magasin", "segment": "Store 3", "share": 70},
             {"dimension": "loyalty (customers)", "segment": "fidèles", "share": 25},
         ],
+        context=RETAIL,
     )
     assert d is not None
     for x in d.decisions:
@@ -121,6 +128,7 @@ def test_decision_supply_and_hr_roles():
         question="Pourquoi les ruptures augmentent ?", metric_label="le coût de rupture",
         trend_direction="hausse", trend_pct=40.0,
         drivers=[{"dimension": "fournisseur", "segment": "Fournisseur Delta", "share": 97.0}],
+        context=RETAIL,
     )
     roles = [x["role"] for x in supply.decisions]
     assert "Directeur supply chain" in roles
@@ -131,6 +139,7 @@ def test_decision_supply_and_hr_roles():
         question="Pourquoi les départs augmentent ?", metric_label="le coût de remplacement",
         trend_direction="hausse", trend_pct=40.0,
         drivers=[{"dimension": "departement", "segment": "Ingénierie", "share": 98.0}],
+        context=RETAIL,
     )
     assert "Directeur des ressources humaines" in [x["role"] for x in hr.decisions]
 
@@ -157,7 +166,7 @@ def test_decision_history_annotation():
         question="Pourquoi le CA baisse ?", metric_label="le CA",
         trend_direction="baisse", trend_pct=-12.0,
         drivers=[{"dimension": "magasin", "segment": "Store 3", "share": 65}],
-        history=history,
+        history=history, context=RETAIL,
     )
     assert d is not None
     reseau = next(x for x in d.decisions if x["role"] == "Directeur réseau")

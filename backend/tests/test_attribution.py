@@ -157,6 +157,7 @@ def test_attribution_none_when_diffuse():
 def test_decide_primary_driver_leads():
     """La cause dominante de la variation (1er facteur) mène les recommandations,
     même face à une action à plus faible effort mais hors sujet."""
+    from app.fixtures import demo_retail
     d = de.decide(
         question="Pourquoi le CA baisse ?", metric_label="le CA",
         trend_direction="baisse", trend_pct=-12.0,
@@ -164,6 +165,7 @@ def test_decide_primary_driver_leads():
             {"dimension": "region (stores)", "segment": "PACA", "share": 97.0},
             {"dimension": "segment (customers)", "segment": "Particulier", "share": 80.0},
         ],
+        context=demo_retail.context(),
     )
     assert d is not None
     reseau = next(x for x in d.decisions if x["role"] == "Directeur réseau")

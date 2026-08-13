@@ -261,6 +261,10 @@ def answer_question(
                     decisions = None
                 else:
                     _dmem_records = dmem_svc.history_for(db, conn.id, inv.subject)
+                    # Contexte d'entreprise DÉCLARÉ (rôles, responsabilités) s'il existe ;
+                    # sinon vide → recommandations génériques. Jamais requis.
+                    from app.services import business_context as bctx_svc
+                    _bctx = bctx_svc.resolve_for(db, conn)
                     decisions = decision_svc.decide(
                         question=question, metric_label=inv.metric_label,
                         trend_direction=inv_chron.direction if inv_chron else None,
@@ -269,6 +273,7 @@ def answer_question(
                         recent_rate=inv_chron.recent_rate if inv_chron else None,
                         history=(lambda role, reco: dmem_svc.annotate(_dmem_records, role, reco))
                         if _dmem_records else None,
+                        context=_bctx,
                     )
                 # --- Semantic Layer : le langage physique du moteur devient un
                 # langage métier AVANT d'atteindre la couche Decision ; le

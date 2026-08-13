@@ -45,10 +45,20 @@ requêtes sur ces tables SaaS et que son code ne contient **ni enum de concepts
 ni branche métier codée en dur**. Toute régression vers un couplage Retail casse
 ce test.
 
-### Dette connue
+### Contrat `BusinessContext` (moteur découplé)
 
-`app/services/responsibility.py` et `app/services/decision_engine.py` portent
-encore un vocabulaire retail français en dur (rôles, régions, gammes). C'est la
-dette à résorber : ces couches doivent recevoir un `BusinessContext`
-(acteurs, concepts, entités, responsabilités) découvert, et non des primitives
-métier codées en dur.
+`app/services/business_context.py` définit le contrat générique — `actors`,
+`concepts`, `entities`, `responsibilities`, `conventions`, `capabilities`, **tous
+optionnels**, chaque élément portant une origine `inferred | declared | validated`.
+`decision_engine.py` et `responsibility.py` le **consomment** : un `Finding` est
+rattaché à une `Responsibility`/`Actor` **si le contexte en connaît une** (→
+personnalisation), sinon une recommandation **générique** est produite. Noreon
+fonctionne donc parfaitement avec `actors = []` / `responsibilities = []`
+(entrepreneur solo).
+
+Tout le vocabulaire retail (régions, villes, gammes, rôles) vit dans
+`app/fixtures/demo_retail.py` (`context()`), une fixture DÉCLARÉE qu'un tenant
+active via `preferences.business_context = "demo_retail"` — jamais dans le moteur.
+`test_decision_engine_domain_agnostic.py` verrouille : recommandations SaaS et
+solo (contexte vide) sans aucun terme retail, et absence de littéral retail dans
+le code du moteur.
