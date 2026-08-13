@@ -14,6 +14,9 @@ const RESULT: Record<string, { label: string; cls: string }> = {
   inconclusif: { label: "INCONCLUSIF", cls: "text-ink-tertiary" },
   a_qualifier: { label: "À QUALIFIER", cls: "text-ink-tertiary" },
 };
+const TYPE_LABEL: Record<string, string> = {
+  impact: "Impact", performance: "Performance", completion: "Complétude", diagnostic: "Diagnostic",
+};
 const pct = (x: number | null, u = "%") => (x == null ? "—" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)} ${u}`);
 const num = (x: number | null) => (x == null ? "—" : Math.round(x).toLocaleString("fr-FR").replace(/ |,/g, " "));
 // Fenêtre SEMI-OUVERTE affichée par sa borne incluse (portée par le backend) :
@@ -49,10 +52,11 @@ export default function MeasurementProof() {
         <p className="text-small text-ink-tertiary">{d.action.role} · {d.action.recommendation}</p>
       </div>
 
-      {/* PROTOCOLE figé */}
+      {/* PROTOCOLE figé — présentation éditoriale : mesure et type dissociés. */}
       <section className="card p-4 space-y-3">
         <h2 className="text-label uppercase text-ink-tertiary">Protocole</h2>
-        <Row k="Mesure">{p.metric_label} · type {p.measure_type}</Row>
+        <Row k="Mesure">{p.metric_label}</Row>
+        <Row k="Type de protocole">{TYPE_LABEL[p.measure_type] ?? p.measure_type}</Row>
         <Row k="Traités">{p.target.join(", ")}</Row>
         {cs && <Row k="Témoins">{cs.control_ids.join(", ")}</Row>}
         <Row k="Objectif">écart contrôlé ≥ {pct(p.threshold, "pt")}</Row>
@@ -119,6 +123,35 @@ export default function MeasurementProof() {
                   </span>
                 </div>
               ))}
+            </div>
+          )}
+          {/* Vivier évalué : répond à « pourquoi ces témoins et pas d'autres ? ».
+              Les retenus sont les PLUS comparables avant action ; les écartés portent
+              leur motif (p. ex. un magasin de la même région déjà en recul). */}
+          {cs.considered && cs.considered.length > cs.control_ids.length && (
+            <div className="space-y-1.5">
+              <div className="text-small text-ink-tertiary">
+                {cs.n_candidates ?? cs.considered.length} magasins évalués · {cs.control_ids.length} retenus
+                (les plus comparables avant action)
+              </div>
+              <div className="rounded-card border border-line-subtle divide-y divide-line-inset text-small">
+                {cs.considered.map((c) => (
+                  <div key={c.id} className="flex items-baseline gap-3 px-3 py-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 self-center ${c.retained ? "bg-brand-500" : "bg-line-strong"}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="text-ink-primary">{c.id}</span>
+                      {c.region && <span className="text-ink-tertiary"> · {c.region}</span>}
+                      {!c.retained && c.reason && <span className="text-ink-tertiary"> — {c.reason}</span>}
+                    </span>
+                    <span className="mono text-ink-tertiary shrink-0">
+                      niv. {c.matching_score != null ? Math.round(c.matching_score * 100) : "—"} · tend. {c.pretrend_score != null ? Math.round(c.pretrend_score * 100) : "—"}
+                    </span>
+                    <span className={`shrink-0 text-xs uppercase ${c.retained ? "text-brand-700" : "text-ink-tertiary"}`}>
+                      {c.retained ? "retenu" : "écarté"}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {/* Réserve honnête : 2 témoins réduisent le bruit de contexte, sans constituer

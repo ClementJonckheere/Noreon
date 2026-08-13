@@ -44,6 +44,10 @@ class MeasurementPlan(Base):
     observation_window_days: Mapped[int] = mapped_column(Integer, default=30)
     threshold: Mapped[float] = mapped_column(Float, default=0.02)     # objectif (fraction)
     protocol_version: Mapped[int] = mapped_column(Integer, default=1)
+    # Versionnement immuable : réviser le protocole (témoins, seuil…) NE MUTE PAS
+    # ce plan — cela crée un successeur (protocol_version + 1). L'ancien plan et
+    # ses runs restent intacts et auditables ; `superseded_by_id` pointe le successeur.
+    superseded_by_id: Mapped[int | None] = mapped_column(Integer, default=None)
 
     # Figés à la MISE EN ŒUVRE (jamais avant, jamais envoyés par le front).
     implemented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

@@ -27,8 +27,13 @@ _ALLOWED = {"retained", "implemented", "abandoned", "closed"}
 
 
 def _plan_of(db: Session, decision_id: int) -> MeasurementPlan | None:
+    # Le plan ACTIF est le dernier non supplanté (versionnement immuable) : les
+    # versions antérieures restent en base pour l'audit mais ne pilotent plus la mesure.
     return db.execute(
-        select(MeasurementPlan).where(MeasurementPlan.decision_id == decision_id)
+        select(MeasurementPlan).where(
+            MeasurementPlan.decision_id == decision_id,
+            MeasurementPlan.superseded_by_id.is_(None),
+        ).order_by(MeasurementPlan.protocol_version.desc())
     ).scalars().first()
 
 
@@ -59,7 +64,7 @@ def _dict(db: Session, d: DecisionRecord) -> dict:
             "threshold": plan.threshold,
             "implemented_at": plan.implemented_at.isoformat() if plan.implemented_at else None,
             "baseline_frozen": plan.baseline_target is not None,
-            "has_control": bool(plan.control_scope and plan.control_scope.get("values")),
+            "has_control": bool(plan.control_selection and plan.control_selection.get("control_ids")),
             "latest_run": _run_dict(latest) if latest else None,
             "runs_count": len(plan.runs) if plan else 0,
         },

@@ -89,31 +89,81 @@ def _pretrend(adapter, connection_id: int, scope: dict, values: list[str], start
     return (b - a) / a
 
 
+def _comparability(adapter, plan: MeasurementPlan, tvals: list[str], bt: float | None,
+                   cvals: list[str], start, impl) -> tuple[float | None, float | None, float | None]:
+    """Comparabilité PRÉ-ACTION d'un ensemble de témoins vs la cible : score de
+    NIVEAU (baseline) + score de PRÉ-TENDANCE + baseline du groupe témoin."""
+    bc, _ = _sum(adapter, plan.connection_id, plan.scope, cvals, start, impl)
+    n_t = max(1, len(tvals)); n_c = max(1, len(cvals))
+    lvl_t = (bt or 0) / n_t; lvl_c = (bc or 0) / n_c
+    matching = max(0.0, 1 - abs(lvl_t - lvl_c) / lvl_t) if lvl_t else None
+    pt_t = _pretrend(adapter, plan.connection_id, plan.scope, tvals, start, impl)
+    pt_c = _pretrend(adapter, plan.connection_id, plan.scope, cvals, start, impl)
+    pretrend = (max(0.0, 1 - abs(pt_t - pt_c) * 5) if (pt_t is not None and pt_c is not None) else None)
+    return matching, pretrend, bc
+
+
+def _select_controls(adapter, plan: MeasurementPlan, tvals: list[str], bt: float | None,
+                     candidates: list[dict], start, impl, k: int) -> dict:
+    """Choisit les k témoins les PLUS comparables AVANT action, parmi un vivier de
+    candidats. On classe chaque candidat sur sa dimension la plus faible (niveau OU
+    pré-tendance) : un témoin doit être comparable sur TOUS les axes, pas en moyenne.
+    Les candidats écartés (et POURQUOI) sont conservés — c'est ce qui permet de
+    répondre « pourquoi pas tel magasin ? » sans reconstruire l'analyse."""
+    considered = []
+    for cand in candidates:
+        cid = cand["id"] if isinstance(cand, dict) else cand
+        region = cand.get("region") if isinstance(cand, dict) else None
+        m, pt, _ = _comparability(adapter, plan, tvals, bt, [cid], start, impl)
+        weak = min([s for s in (m, pt) if s is not None], default=None)
+        considered.append({"id": cid, "region": region,
+                           "matching_score": round(m, 3) if m is not None else None,
+                           "pretrend_score": round(pt, 3) if pt is not None else None,
+                           "_weak": weak if weak is not None else -1.0})
+    considered.sort(key=lambda c: c["_weak"], reverse=True)
+    retained_ids = [c["id"] for c in considered[:k]]
+    for c in considered:
+        c["retained"] = c["id"] in retained_ids
+        # Motif d'écart AUDITABLE, dérivé de la dimension qui diverge le plus.
+        if not c["retained"]:
+            if (c["pretrend_score"] or 1) < (c["matching_score"] or 1):
+                c["reason"] = "pré-tendance divergente avant l'action"
+            else:
+                c["reason"] = "niveau de CA éloigné avant l'action"
+        c.pop("_weak", None)
+    return {"considered": considered, "retained_ids": retained_ids}
+
+
 def freeze_baseline(db: Session, plan: MeasurementPlan, adapter, *, implemented_at: datetime | None = None) -> MeasurementPlan:
-    """À la MISE EN ŒUVRE : fige le baseline pré-action ET la sélection des
-    témoins (avant toute observation post-action — garantie méthodologique)."""
+    """À la MISE EN ŒUVRE : fige le baseline pré-action ET la sélection des témoins
+    (avant toute observation post-action — garantie méthodologique). IMMUABLE : un
+    baseline déjà figé ne se re-fige pas ; réviser le protocole passe par une
+    nouvelle version (`revise_plan`)."""
+    if plan.baseline_frozen_at is not None:
+        raise ValueError("Baseline déjà figé : protocole immuable après observation. "
+                         "Réviser crée une nouvelle version (revise_plan).")
     impl = implemented_at or datetime.now(timezone.utc)
     plan.implemented_at = impl
     if plan.measure_type == "impact" and plan.scope:
         start = impl - timedelta(days=plan.baseline_window_days)
         tvals = plan.scope.get("values", [])
         bt, sql = _sum(adapter, plan.connection_id, plan.scope, tvals, start, impl)
+        # Témoins : soit un vivier de candidats (on SÉLECTIONNE les plus comparables),
+        # soit un périmètre témoin déjà fixé (on le mesure tel quel).
+        candidates = (plan.control_scope or {}).get("candidates")
+        fixed = (plan.control_scope or {}).get("values") or []
+        considered = None
+        if candidates:
+            k = int((plan.control_scope or {}).get("k") or 2)
+            sel = _select_controls(adapter, plan, tvals, bt, candidates, start, impl, k)
+            cvals = sel["retained_ids"]; considered = sel["considered"]
+        else:
+            cvals = fixed
         bc = None
-        cvals = (plan.control_scope or {}).get("values") or []
         if cvals:
-            bc, _ = _sum(adapter, plan.connection_id, plan.scope, cvals, start, impl)
-            # Comparabilité PRÉ-ACTION : niveau (baseline) + pré-tendance. Figée ici,
-            # AVANT de connaître le moindre résultat post-action.
-            n_t = max(1, len(tvals)); n_c = max(1, len(cvals))
-            lvl_t = (bt or 0) / n_t; lvl_c = (bc or 0) / n_c
-            matching = max(0.0, 1 - abs(lvl_t - lvl_c) / lvl_t) if lvl_t else None
-            pt_t = _pretrend(adapter, plan.connection_id, plan.scope, tvals, start, impl)
-            pt_c = _pretrend(adapter, plan.connection_id, plan.scope, cvals, start, impl)
-            pretrend = (max(0.0, 1 - abs(pt_t - pt_c) * 5) if (pt_t is not None and pt_c is not None) else None)
-            # Tableau des critères d'appariement. Deux sont CALCULÉS depuis les
-            # données (niveau, pré-tendance) ; les autres sont des comparabilités
-            # DÉCLARÉES (attributs magasin) fournies avec le périmètre témoin — la
-            # mesure ne les invente pas, elle les reporte telles quelles.
+            matching, pretrend, bc = _comparability(adapter, plan, tvals, bt, cvals, start, impl)
+            # Deux critères CALCULÉS (niveau, pré-tendance) + des comparabilités
+            # DÉCLARÉES (attributs magasin) reportées telles quelles.
             criteria = [
                 {"label": "Niveau de CA avant action", "verdict": _verdict_level(matching),
                  "score": round(matching, 3) if matching is not None else None, "kind": "computed"},
@@ -124,17 +174,18 @@ def freeze_baseline(db: Session, plan: MeasurementPlan, adapter, *, implemented_
                 if isinstance(c, dict) and c.get("label"):
                     criteria.append({"label": c["label"], "verdict": c.get("verdict", "comparable"),
                                      "score": None, "kind": "declared"})
-            n_control = len(cvals)
             plan.control_selection = {
                 "control_ids": cvals,
                 "matching_features": ["niveau de CA (baseline)", "pré-tendance"],
                 "matching_score": round(matching, 3) if matching is not None else None,
                 "pretrend_score": round(pretrend, 3) if pretrend is not None else None,
                 "criteria": criteria,
-                "n_control": n_control,
+                "considered": considered,           # vivier évalué (retenus + écartés + motif)
+                "n_candidates": len(considered) if considered else len(cvals),
+                "n_control": len(cvals),
                 # < 3 témoins : réduit certains effets de contexte, mais ne constitue
                 # pas un contrôle expérimental robuste. Réserve, pas blocage.
-                "small_group": n_control < 3,
+                "small_group": len(cvals) < 3,
                 "selection_at": impl.isoformat(),
             }
         plan.baseline_target = bt
@@ -143,6 +194,40 @@ def freeze_baseline(db: Session, plan: MeasurementPlan, adapter, *, implemented_
     plan.baseline_frozen_at = datetime.now(timezone.utc)
     db.flush()
     return plan
+
+
+def revise_plan(db: Session, plan: MeasurementPlan, adapter, *,
+                control_candidates: list | None = None, control_values: list | None = None,
+                threshold: float | None = None, implemented_at: datetime | None = None) -> MeasurementPlan:
+    """Révision du protocole SANS mutation : crée un SUCCESSEUR (protocol_version + 1).
+    L'ancien plan et ses runs restent intacts et auditables ; toute modification des
+    témoins après le début de l'observation passe donc par une nouvelle version
+    explicite. Le successeur re-fige son propre baseline et sa propre sélection."""
+    new_control = dict(plan.control_scope or {})
+    if control_candidates is not None:
+        new_control["candidates"] = control_candidates
+        new_control.pop("values", None)
+    if control_values is not None:
+        new_control["values"] = control_values
+        new_control.pop("candidates", None)
+    successor = MeasurementPlan(
+        decision_id=plan.decision_id, tenant_id=plan.tenant_id, connection_id=plan.connection_id,
+        measure_type=plan.measure_type, metric_concept_id=plan.metric_concept_id,
+        metric_label=plan.metric_label, metric_definition_version=plan.metric_definition_version,
+        scope=dict(plan.scope or {}), control_scope=new_control,
+        comparison=plan.comparison, baseline_window_days=plan.baseline_window_days,
+        observation_window_days=plan.observation_window_days,
+        threshold=threshold if threshold is not None else plan.threshold,
+        protocol_version=plan.protocol_version + 1,
+    )
+    db.add(successor)
+    db.flush()
+    plan.superseded_by_id = successor.id
+    impl = implemented_at or plan.implemented_at
+    if impl is not None:
+        freeze_baseline(db, successor, adapter, implemented_at=impl)
+    db.flush()
+    return successor
 
 
 def run_measurement(db: Session, plan: MeasurementPlan, adapter, *, horizon_days: int | None = None) -> MeasurementRun:
@@ -180,9 +265,12 @@ def run_measurement(db: Session, plan: MeasurementPlan, adapter, *, horizon_days
     start = plan.implemented_at
     end = start + timedelta(days=horizon)
     ot, sql = _sum(adapter, plan.connection_id, plan.scope, plan.scope.get("values", []), start, end)
+    # Les témoins observés sont ceux FIGÉS à la sélection (immuables), jamais un
+    # périmètre recalculé à l'échéance.
+    cvals = (plan.control_selection or {}).get("control_ids") or (plan.control_scope or {}).get("values") or []
     oc = None
-    if plan.control_scope and plan.control_scope.get("values"):
-        oc, _ = _sum(adapter, plan.connection_id, plan.scope, plan.control_scope["values"], start, end)
+    if cvals:
+        oc, _ = _sum(adapter, plan.connection_id, plan.scope, cvals, start, end)
     run.observed_target = ot
     run.observed_control = oc
     run.observation_sql = sql

@@ -9,15 +9,25 @@ from app.services.spaces import slugify
 
 CONN_ID = 2414                                # source retail de DÉMO
 TARGET = ["Marseille Prado", "Nice Lingostiere"]
-CONTROL = ["Lyon Part-Dieu", "Paris Rivoli"]
-IMPL = date.today() - timedelta(days=45)      # action mise en œuvre il y a 45 j
+# Vivier de témoins CANDIDATS — dont deux magasins PACA (Toulon, Avignon) déjà
+# engagés dans le recul régional : ils seront ÉVALUÉS puis ÉCARTÉS (pré-tendance
+# divergente). C'est ce qui permet de répondre « pourquoi pas des témoins PACA ? ».
+CANDIDATES = [
+    {"id": "Lyon Part-Dieu", "region": "Rhône-Alpes"},
+    {"id": "Paris Rivoli", "region": "Île-de-France"},
+    {"id": "Toulon Grand Var", "region": "PACA"},
+    {"id": "Avignon Cap Sud", "region": "PACA"},
+]
+STABLE = ["Lyon Part-Dieu", "Paris Rivoli"]        # niveau ~1080, plats
+DECLINING = ["Toulon Grand Var", "Avignon Cap Sud"]  # PACA, déjà en recul avant action
+
+# Chronologie DÉTERMINISTE, alignée sur le dossier PACA historique (2025) — pas de
+# saut d'un an entre un rapport 2025 et une action mise en œuvre en 2026.
+IMPL = date(2025, 7, 1)                        # action mise en œuvre le 1er juillet 2025
 BW = 30                                        # fenêtres de 30 j
+MEASURED_AT = datetime(2025, 8, 1, 9, 42, tzinfo=timezone.utc)  # échéance J+30 mesurée
 
 # --- table de mesure ---------------------------------------------------------
-# Baselines VOLONTAIREMENT non identiques pour un appariement RÉALISTE (≠ 100 %) :
-#   cible ≈ 1000/j (léger uptrend intra-fenêtre → pré-tendance ~95 %),
-#   témoins ≈ 1080/j, plats (niveau ~92 %).
-# Après action : cible +3,1 %, témoins +4,5 % → écart contrôlé −1,4 pt.
 c = psycopg.connect("host=127.0.0.1 dbname=noreon_demo_retail user=noreon password=noreon")
 cur = c.cursor()
 cur.execute("DROP TABLE IF EXISTS action_impact")
@@ -26,13 +36,16 @@ rows = []
 for d in range(-BW, BW):
     day = IMPL + timedelta(days=d)
     after = day >= IMPL
+    second_half = d >= -BW / 2                  # 2e moitié de la fenêtre baseline
     for s in TARGET:
-        # baseline : 1re moitié 995, 2e moitié 1005 (avg 1000, pré-tendance +1 %) ;
-        # observation : 1031 → +3,1 % vs baseline.
-        rows.append((s, day, 1031 if after else (1005 if d >= -BW / 2 else 995)))
-    for s in CONTROL:
-        # baseline plate 1080 ; observation 1128,6 → +4,5 %.
+        # baseline avg 1000 (léger uptrend +1 %), observation 1031 → +3,1 %.
+        rows.append((s, day, 1031 if after else (1005 if second_half else 995)))
+    for s in STABLE:
+        # baseline plate 1080, observation 1128,6 → +4,5 % (plus comparables).
         rows.append((s, day, 1128.6 if after else 1080))
+    for s in DECLINING:
+        # PACA déjà en recul : baseline 1080 → 940 (pré-tendance très divergente).
+        rows.append((s, day, 900 if after else (940 if second_half else 1080)))
 cur.executemany("INSERT INTO action_impact VALUES (%s,%s,%s)", rows)
 cur.execute("GRANT SELECT ON action_impact TO PUBLIC")
 cur.execute("GRANT SELECT ON action_impact TO noreon_ro")
@@ -58,8 +71,8 @@ plan = MeasurementPlan(decision_id=dec.id, tenant_id=conn.tenant_id, connection_
     metric_definition_version=3,   # version de la définition métier figée par le protocole
     scope={"table": "action_impact", "dim_col": "store", "metric_col": "revenue",
            "date_col": "day", "values": TARGET},
-    # Témoins + comparabilités DÉCLARÉES (attributs magasin) reportées telles quelles.
-    control_scope={"values": CONTROL, "comparability": [
+    # Vivier de candidats + comparabilités DÉCLARÉES (attributs magasin) reportées telles quelles.
+    control_scope={"candidates": CANDIDATES, "k": 2, "comparability": [
         {"label": "Mix High-Tech", "verdict": "similaire"},
         {"label": "Format de magasin", "verdict": "comparable"},
         {"label": "Saisonnalité", "verdict": "compatible"},
@@ -69,11 +82,14 @@ plan = MeasurementPlan(decision_id=dec.id, tenant_id=conn.tenant_id, connection_
 db.add(plan); db.flush()
 from app.services.connections import get_source_adapter
 from app.services import measurement as meas
-meas.freeze_baseline(db, plan, get_source_adapter(conn), implemented_at=impl_dt)
+adapter = get_source_adapter(conn)
+meas.freeze_baseline(db, plan, adapter, implemented_at=impl_dt)
+# Mesure J+30 déterministe (snapshot daté du scénario 2025).
+run = meas.run_measurement(db, plan, adapter)
+run.measured_at = MEASURED_AT
+dec.status = "measured"
 
 # --- espace DÉMO dédié : le scénario mesurable vit ici, JAMAIS dans un live ----
-# Le cloisonnement par espace (list_plan filtre par connexions de l'espace) garantit
-# qu'un espace « live » ne peut pas afficher ces fixtures.
 demo = db.query(Space).filter(Space.tenant_id == conn.tenant_id,
                               Space.name == "Démo Retail").first()
 if demo is None:
@@ -83,12 +99,15 @@ if demo is None:
 if not db.query(SpaceConnection).filter(SpaceConnection.space_id == demo.id,
         SpaceConnection.connection_id == CONN_ID).first():
     db.add(SpaceConnection(space_id=demo.id, connection_id=CONN_ID))
-# La connexion de démo ne doit être rattachée à AUCUN espace live.
 db.query(SpaceConnection).filter(
     SpaceConnection.connection_id == CONN_ID,
     SpaceConnection.space_id != demo.id).delete(synchronize_session=False)
 
 db.commit()
-print("decision:", dec.id, "| plan:", plan.id, "| implemented_at:", IMPL.isoformat(),
-      "| demo space:", demo.id, "| control_selection:", plan.control_selection)
+print("decision:", dec.id, "| plan:", plan.id, "| impl:", IMPL.isoformat(),
+      "| retained:", plan.control_selection["control_ids"],
+      "| result:", run.result, "| adjusted:", run.adjusted_delta)
+for c in plan.control_selection["considered"]:
+    print("  candidate", c["id"], c["region"], "match", c["matching_score"],
+          "pretrend", c["pretrend_score"], "->", "RETENU" if c["retained"] else "écarté", c.get("reason", ""))
 db.close()

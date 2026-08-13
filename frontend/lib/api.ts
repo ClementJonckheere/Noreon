@@ -550,7 +550,11 @@ export interface MeasurementDetail {
       control_ids: string[]; matching_features: string[];
       matching_score: number | null; pretrend_score: number | null; selection_at: string | null;
       criteria?: { label: string; verdict: string; score: number | null; kind: "computed" | "declared" }[];
-      n_control?: number; small_group?: boolean;
+      considered?: {
+        id: string; region: string | null; matching_score: number | null;
+        pretrend_score: number | null; retained: boolean; reason?: string;
+      }[] | null;
+      n_candidates?: number; n_control?: number; small_group?: boolean;
     } | null;
     threshold: number; protocol_version: number;
     implemented_at: string | null;
