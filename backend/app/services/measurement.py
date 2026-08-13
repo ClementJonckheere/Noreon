@@ -23,6 +23,19 @@ _PERFORMANCE = ("prévision", "prevision", "prévisions", "forecast", "budget", 
 _IMPACT = ("relance", "promotion", "réassort", "reassort", "campagne", "remise", "plan commercial", "animer", "booster")
 
 
+# Verdict qualitatif d'un score d'appariement — jamais un chiffre nu affiché seul.
+def _verdict_level(score: float | None) -> str:
+    if score is None:
+        return "non évaluable"
+    return "proche" if score >= 0.9 else "comparable" if score >= 0.75 else "éloigné"
+
+
+def _verdict_trend(score: float | None) -> str:
+    if score is None:
+        return "non évaluable"
+    return "similaire" if score >= 0.9 else "voisine" if score >= 0.75 else "divergente"
+
+
 def classify_action(recommendation: str) -> str:
     r = (recommendation or "").lower()
     if any(w in r for w in _PERFORMANCE):
@@ -97,11 +110,31 @@ def freeze_baseline(db: Session, plan: MeasurementPlan, adapter, *, implemented_
             pt_t = _pretrend(adapter, plan.connection_id, plan.scope, tvals, start, impl)
             pt_c = _pretrend(adapter, plan.connection_id, plan.scope, cvals, start, impl)
             pretrend = (max(0.0, 1 - abs(pt_t - pt_c) * 5) if (pt_t is not None and pt_c is not None) else None)
+            # Tableau des critères d'appariement. Deux sont CALCULÉS depuis les
+            # données (niveau, pré-tendance) ; les autres sont des comparabilités
+            # DÉCLARÉES (attributs magasin) fournies avec le périmètre témoin — la
+            # mesure ne les invente pas, elle les reporte telles quelles.
+            criteria = [
+                {"label": "Niveau de CA avant action", "verdict": _verdict_level(matching),
+                 "score": round(matching, 3) if matching is not None else None, "kind": "computed"},
+                {"label": "Tendance sur 90 jours", "verdict": _verdict_trend(pretrend),
+                 "score": round(pretrend, 3) if pretrend is not None else None, "kind": "computed"},
+            ]
+            for c in (plan.control_scope or {}).get("comparability") or []:
+                if isinstance(c, dict) and c.get("label"):
+                    criteria.append({"label": c["label"], "verdict": c.get("verdict", "comparable"),
+                                     "score": None, "kind": "declared"})
+            n_control = len(cvals)
             plan.control_selection = {
                 "control_ids": cvals,
                 "matching_features": ["niveau de CA (baseline)", "pré-tendance"],
                 "matching_score": round(matching, 3) if matching is not None else None,
                 "pretrend_score": round(pretrend, 3) if pretrend is not None else None,
+                "criteria": criteria,
+                "n_control": n_control,
+                # < 3 témoins : réduit certains effets de contexte, mais ne constitue
+                # pas un contrôle expérimental robuste. Réserve, pas blocage.
+                "small_group": n_control < 3,
                 "selection_at": impl.isoformat(),
             }
         plan.baseline_target = bt

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Icon from "@/components/ui/Icon";
-import { api, Connection, QualityScore, Space } from "@/lib/api";
+import { api, Connection, QualityScore } from "@/lib/api";
+import { useSpaces } from "@/lib/space";
 
 // Barre supérieure — présente partout, donc PROMESSE implicite : elle ne dit
 // jamais « à jour » à la légère. On distingue deux notions trop souvent
@@ -21,8 +22,10 @@ const CONFORM = 0.9;
 
 export default function TopBar({ crumbs = [] }: { crumbs?: { label: string; href?: string }[] }) {
   const [conns, setConns] = useState<Connection[] | null>(null);
-  const [spaces, setSpaces] = useState<Space[] | null>(null);
   const [quality, setQuality] = useState<Record<number, QualityScore[]>>({});
+  const { spaces, current, setCurrent } = useSpaces();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.listConnections().then((cs) => {
@@ -30,20 +33,47 @@ export default function TopBar({ crumbs = [] }: { crumbs?: { label: string; href
       Promise.all(cs.map((c) => api.quality(c.id).then((q) => [c.id, q] as const).catch(() => [c.id, []] as const)))
         .then((entries) => setQuality(Object.fromEntries(entries)));
     }).catch(() => setConns([]));
-    api.spaces().then(setSpaces).catch(() => setSpaces([]));
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
   const fresh = deriveFreshness(conns, quality);
-  const space = spaces && spaces.length > 0 ? spaces[0] : null;
 
   return (
     <header className="h-[60px] shrink-0 flex items-center justify-between px-6 border-b border-line-subtle bg-bg-primary">
       <nav className="flex items-center gap-2 min-w-0 text-[12px] text-ink-tertiary">
-        <Link href="/spaces" className="flex items-center gap-1.5 hover:text-ink-primary transition-colors">
-          <Icon name="spaces" className="w-4 h-4" />
-          <span className="text-ink-primary font-medium">{space ? space.name : "Aucun espace"}</span>
-          <Icon name="chevronDown" className="w-3.5 h-3.5" />
-        </Link>
+        {/* Sélecteur d'espace : le nom courant + un badge DÉMO explicite pour un
+            espace vitrine — impossible de confondre un espace démo avec un live. */}
+        <div className="relative" ref={menuRef}>
+          <button type="button" onClick={() => setOpen((v) => !v)}
+            className="flex items-center gap-1.5 hover:text-ink-primary transition-colors">
+            <Icon name="spaces" className="w-4 h-4" />
+            <span className="text-ink-primary font-medium">{current ? current.name : "Aucun espace"}</span>
+            {current?.mode === "demo" && <span className="tag-demo">DÉMO</span>}
+            <Icon name="chevronDown" className="w-3.5 h-3.5" />
+          </button>
+          {open && spaces.length > 0 && (
+            <div className="absolute left-0 top-full mt-1.5 min-w-[220px] z-30 card p-1 shadow-lg">
+              {spaces.map((s) => (
+                <button key={s.id} type="button"
+                  onClick={() => { setCurrent(s.id); setOpen(false); }}
+                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-button text-left hover:bg-bg-secondary ${s.id === current?.id ? "bg-bg-secondary" : ""}`}>
+                  <span className="text-body text-ink-primary truncate">{s.name}</span>
+                  {s.mode === "demo" && <span className="tag-demo shrink-0">DÉMO</span>}
+                </button>
+              ))}
+              <Link href="/spaces" onClick={() => setOpen(false)}
+                className="block px-2.5 py-1.5 mt-0.5 border-t border-line-inset text-small text-ink-tertiary hover:text-ink-primary">
+                Gérer les espaces →
+              </Link>
+            </div>
+          )}
+        </div>
         {crumbs.map((c, i) => (
           <span key={i} className="flex items-center gap-2 min-w-0">
             <span className="text-line-strong">/</span>

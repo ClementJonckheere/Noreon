@@ -545,23 +545,27 @@ export interface MeasurementDetail {
   protocol: {
     measure_type: string; metric_label: string; metric_concept_id: string;
     target: string[]; target_table: string | null; comparison: string;
+    metric_definition_version: number | null;
     control_selection: {
       control_ids: string[]; matching_features: string[];
       matching_score: number | null; pretrend_score: number | null; selection_at: string | null;
+      criteria?: { label: string; verdict: string; score: number | null; kind: "computed" | "declared" }[];
+      n_control?: number; small_group?: boolean;
     } | null;
     threshold: number; protocol_version: number;
     implemented_at: string | null;
-    baseline_window: { from: string; to: string } | null;
+    baseline_window: { from: string; to: string; to_inclusive: string } | null;
     baseline_target: number | null; baseline_control: number | null;
     baseline_query_hash: string | null;
   };
   runs: {
     id: number; horizon_days: number;
-    observation_window: { from: string; to: string } | null;
+    observation_window: { from: string; to: string; to_inclusive: string } | null;
     baseline_target: number | null; baseline_control: number | null;
     observed_target: number | null; observed_control: number | null;
     raw_delta: number | null; control_delta: number | null; adjusted_delta: number | null;
-    result: string; limitations: string[]; query_hash: string | null; measured_at: string | null;
+    result: string; limitations: string[]; query_hash: string | null;
+    snapshot_id: string | null; measured_at: string | null;
   }[];
 }
 export interface PlanItem {
@@ -923,8 +927,15 @@ export const api = {
   reportExportUrl: (rid: number, format: "docx" | "pdf" | "md") =>
     `${API_BASE}/reports/${rid}/export?format=${format}`,
   // --- Plan d'action ---
-  plan: (includeClosed = false) =>
-    request<PlanItem[]>(`/plan${includeClosed ? "?include_closed=true" : ""}`),
+  // Cloisonné par espace : une action portée par une source hors de l'espace
+  // courant n'est pas renvoyée (un scénario de démo ne fuite jamais dans un live).
+  plan: (includeClosed = false, spaceId?: number | null) => {
+    const qs = new URLSearchParams();
+    if (includeClosed) qs.set("include_closed", "true");
+    if (spaceId != null) qs.set("space_id", String(spaceId));
+    const q = qs.toString();
+    return request<PlanItem[]>(`/plan${q ? `?${q}` : ""}`);
+  },
   planUpdate: (id: number, body: { status?: string; note?: string }) =>
     request<PlanItem>(`/plan/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   planMeasure: (id: number) => request<PlanItem>(`/plan/${id}/measure`, { method: "POST" }),

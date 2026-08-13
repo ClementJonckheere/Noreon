@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api, MeasurementDetail } from "@/lib/api";
 
-// Preuve de la mesure — ce qui transforme « −1,4 pt » en résultat AUDITABLE :
-// protocole figé, fenêtres, valeurs, témoins choisis AVANT l'observation, limites.
+// Résultat contrôlé — ce qui transforme « −1,4 pt » en résultat AUDITABLE :
+// protocole figé, fenêtres semi-ouvertes, valeurs réelles, témoins choisis AVANT
+// l'observation, limites du protocole. On mesure un écart, on ne proclame pas une cause.
 const RESULT: Record<string, { label: string; cls: string }> = {
   objectif_atteint: { label: "ATTEINT", cls: "text-success-hover" },
   objectif_non_atteint: { label: "NON ATTEINT", cls: "text-warning-hover" },
@@ -14,7 +15,13 @@ const RESULT: Record<string, { label: string; cls: string }> = {
   a_qualifier: { label: "À QUALIFIER", cls: "text-ink-tertiary" },
 };
 const pct = (x: number | null, u = "%") => (x == null ? "—" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)} ${u}`);
-const num = (x: number | null) => (x == null ? "—" : Math.round(x).toLocaleString("fr-FR").replace(/ |,/g, " "));
+const num = (x: number | null) => (x == null ? "—" : Math.round(x).toLocaleString("fr-FR").replace(/ |,/g, " "));
+// Fenêtre SEMI-OUVERTE affichée par sa borne incluse (portée par le backend) :
+// « 29 mai → 27 juin inclus » — le jour de mise en œuvre bascule côté observation.
+const day = (iso?: string | null) =>
+  iso ? new Date(iso + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "—";
+const win = (w?: { from: string; to_inclusive: string } | null) =>
+  w ? `${day(w.from)} → ${day(w.to_inclusive)} inclus` : "—";
 
 export default function MeasurementProof() {
   const id = Number(useParams().id);
@@ -32,9 +39,14 @@ export default function MeasurementProof() {
   return (
     <div className="space-y-6 fade-in max-w-3xl">
       <div className="space-y-1">
-        <Link href="/plan" className="text-small text-ink-tertiary hover:text-ink-primary">← Plan d'action</Link>
-        <h1 className="text-title text-ink-primary">Preuve de la mesure</h1>
-        <p className="text-body text-ink-secondary">{d.action.role} · {d.action.recommendation}</p>
+        <nav className="text-small text-ink-tertiary">
+          <Link href="/plan" className="hover:text-ink-primary">Plan d'action</Link>
+          <span className="mx-1.5">/</span><span>Mesure</span>
+          <span className="mx-1.5">/</span><span className="text-ink-secondary">Résultat contrôlé</span>
+        </nav>
+        <h1 className="text-title text-ink-primary">Résultat contrôlé</h1>
+        <p className="text-body text-ink-secondary">Protocole, données et comparaison ayant conduit au résultat.</p>
+        <p className="text-small text-ink-tertiary">{d.action.role} · {d.action.recommendation}</p>
       </div>
 
       {/* PROTOCOLE figé */}
@@ -47,7 +59,7 @@ export default function MeasurementProof() {
         <Row k="Mise en œuvre">{p.implemented_at ? p.implemented_at.slice(0, 10) : "—"}</Row>
       </section>
 
-      {/* BASELINE vs OBSERVATION — les valeurs réelles. */}
+      {/* BASELINE vs OBSERVATION — les valeurs réelles, fenêtres semi-ouvertes. */}
       {run && (
         <section className="card p-4 space-y-3">
           <h2 className="text-label uppercase text-ink-tertiary">Baseline → Observation</h2>
@@ -55,8 +67,8 @@ export default function MeasurementProof() {
             <thead>
               <tr className="text-small text-ink-tertiary text-left">
                 <th className="font-normal pb-1"></th>
-                <th className="font-normal pb-1">Baseline<div className="meta">{p.baseline_window?.from} → {p.baseline_window?.to}</div></th>
-                <th className="font-normal pb-1">Observation<div className="meta">{run.observation_window?.from} → {run.observation_window?.to}</div></th>
+                <th className="font-normal pb-1">Baseline<div className="meta">{win(p.baseline_window)}</div></th>
+                <th className="font-normal pb-1">Observation<div className="meta">{win(run.observation_window)}</div></th>
                 <th className="font-normal pb-1 text-right">Évolution</th>
               </tr>
             </thead>
@@ -84,36 +96,79 @@ export default function MeasurementProof() {
         </section>
       )}
 
-      {/* SÉLECTION DES TÉMOINS — figée AVANT l'observation. */}
+      {/* SÉLECTION DES TÉMOINS — figée AVANT l'observation ; critères d'appariement. */}
       {cs && (
-        <section className="card p-4 space-y-2">
+        <section className="card p-4 space-y-3">
           <h2 className="text-label uppercase text-ink-tertiary">Sélection des témoins</h2>
           <p className="text-body text-ink-secondary max-w-reading">
             Les témoins ont été figés le <span className="text-ink-primary">{cs.selection_at?.slice(0, 10)}</span> —
             à la mise en œuvre, <span className="font-medium">avant toute observation post-action</span>. Ils ne peuvent
             donc pas avoir été choisis pour produire un résultat.
           </p>
-          <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-small">
-            <span className="text-ink-secondary">Critères d'appariement</span><span className="text-right">{cs.matching_features.join(" · ")}</span>
-            <span className="text-ink-secondary">Qualité de l'appariement</span><span className="text-right mono">{cs.matching_score != null ? `${Math.round(cs.matching_score * 100)} %` : "—"}</span>
-            <span className="text-ink-secondary">Comparabilité pré-tendance</span><span className="text-right mono">{cs.pretrend_score != null ? `${Math.round(cs.pretrend_score * 100)} %` : "—"}</span>
-          </div>
+          {/* Tableau des critères : deux CALCULÉS (niveau, tendance), le reste DÉCLARÉ. */}
+          {cs.criteria && cs.criteria.length > 0 && (
+            <div className="rounded-card border border-line-subtle divide-y divide-line-inset">
+              {cs.criteria.map((c, i) => (
+                <div key={i} className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-small">
+                  <span className="text-ink-secondary">{c.label}</span>
+                  <span className="flex items-baseline gap-2 shrink-0">
+                    <span className="text-ink-primary">{c.verdict}</span>
+                    {c.score != null
+                      ? <span className="mono text-ink-tertiary">{Math.round(c.score * 100)} %</span>
+                      : <span className="text-ink-tertiary text-xs">déclaré</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Réserve honnête : 2 témoins réduisent le bruit de contexte, sans constituer
+              un contrôle expérimental robuste. Orange = limite épistémique, pas blocage. */}
+          {cs.small_group && (
+            <div className="state state-limit">
+              <div className="state-body">
+                Groupe témoin restreint ({cs.n_control ?? cs.control_ids.length} magasins) : il réduit certains effets
+                de contexte, mais ne constitue pas un contrôle expérimental robuste.
+              </div>
+            </div>
+          )}
         </section>
       )}
 
-      {/* LIMITES + audit. */}
-      <section className="card p-4 space-y-2">
-        <h2 className="text-label uppercase text-ink-tertiary">Limites & audit</h2>
+      {/* LIMITES — jamais affirmatives ; puis NIVEAU DE PREUVE explicite. */}
+      <section className="card p-4 space-y-3">
+        <h2 className="text-label uppercase text-ink-tertiary">Limites du protocole</h2>
         {run && run.limitations.length > 0 ? (
           <ul className="list-disc pl-4 text-body text-ink-secondary space-y-0.5">{run.limitations.map((l, i) => <li key={i}>{l}</li>)}</ul>
         ) : (
-          <p className="text-body text-ink-secondary">Aucune limite majeure relevée sur ce protocole.</p>
+          <p className="text-body text-ink-secondary">Aucune anomalie majeure détectée dans le protocole.</p>
         )}
-        <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-small pt-1 border-t border-line-inset">
-          <span className="text-ink-secondary">Concept mesuré</span><span className="text-right mono">{p.metric_concept_id}</span>
-          <span className="text-ink-secondary">Version du protocole</span><span className="text-right mono">v{p.protocol_version}</span>
-          {run?.query_hash && <><span className="text-ink-secondary">Empreinte de la requête</span><span className="text-right mono">{run.query_hash}</span></>}
-          <span className="text-ink-secondary">Mesures effectuées</span><span className="text-right mono">{d.runs.length}</span>
+        <p className="text-body text-ink-secondary max-w-reading">
+          La comparaison avec des magasins témoins réduit certains effets de contexte
+          (saison, conjoncture) mais ne permet pas d'isoler tous les facteurs externes.
+        </p>
+        <div className="rounded-card border border-line-strong bg-bg-secondary p-3">
+          <div className="text-label uppercase text-brand-700">Niveau de preuve · Résultat contrôlé</div>
+          <p className="text-small text-ink-secondary mt-1 max-w-reading">
+            Ce protocole compare une évolution observée à celle de témoins appariés. Il
+            ne constitue pas une attribution causale complète.
+          </p>
+        </div>
+      </section>
+
+      {/* AUDIT — métier (concept, définition) ET technique (snapshot, protocole, hash). */}
+      <section className="card p-4 space-y-2">
+        <h2 className="text-label uppercase text-ink-tertiary">Audit</h2>
+        <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-small">
+          <span className="text-ink-secondary">Concept mesuré</span>
+          <span className="text-right">
+            {p.metric_label} · <span className="mono text-ink-tertiary">{p.metric_concept_id}</span>
+            {p.metric_definition_version != null && <span className="text-ink-tertiary"> · définition {p.metric_definition_version}</span>}
+          </span>
+          {run?.snapshot_id && <><span className="text-ink-secondary">Snapshot des données</span><span className="text-right mono text-ink-tertiary">{run.snapshot_id}</span></>}
+          <span className="text-ink-secondary">Version du protocole</span><span className="text-right mono text-ink-tertiary">v{p.protocol_version}</span>
+          {p.baseline_query_hash && <><span className="text-ink-secondary">Empreinte requête baseline</span><span className="text-right mono text-ink-tertiary">{p.baseline_query_hash}</span></>}
+          {run?.query_hash && <><span className="text-ink-secondary">Empreinte requête observation</span><span className="text-right mono text-ink-tertiary">{run.query_hash}</span></>}
+          <span className="text-ink-secondary">Mesures effectuées</span><span className="text-right mono text-ink-tertiary">{d.runs.length}</span>
         </div>
       </section>
     </div>

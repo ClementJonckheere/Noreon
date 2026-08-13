@@ -132,6 +132,12 @@
     @apply inline-flex items-center gap-1.5 rounded-[6px] border border-brand-300
            bg-brand-100 px-2 py-1 text-[12px] font-medium text-brand-700;
   }
+  /* Badge DÉMO — un espace vitrine ne se confond jamais avec un espace live. */
+  .tag-demo {
+    @apply inline-flex items-center rounded-[4px] border border-line-strong
+           bg-bg-secondary px-1.5 py-0.5 text-[10px] font-semibold tracking-wide
+           text-ink-tertiary uppercase;
+  }
 
   /* -- Cartes -------------------------------------------------------------
      Une carte = « un objet qu'on peut ouvrir, valider ou dater ». Jamais un

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, PlanItem } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { useCurrentSpace } from "@/lib/space";
 
 // Plan d'action — ce qu'on décide de FAIRE. Les décisions retenues depuis les
 // analyses, suivies dans le temps : retenue → mise en œuvre → (mesure du résultat).
@@ -21,14 +22,16 @@ const STATUS = {
 
 export default function PlanPage() {
   const { caps } = useSession();
+  const { space, ready } = useCurrentSpace();
   const [items, setItems] = useState<PlanItem[] | null>(null);
   const [showClosed, setShowClosed] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
 
   async function load() {
-    setItems(await api.plan(showClosed).catch(() => []));
+    setItems(await api.plan(showClosed, space?.id ?? null).catch(() => []));
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [showClosed]);
+  // On attend que l'espace courant soit connu : le plan est cloisonné par espace.
+  useEffect(() => { if (ready) load(); /* eslint-disable-next-line */ }, [showClosed, ready, space?.id]);
 
   async function advance(it: PlanItem, status: string) {
     setBusy(it.id);

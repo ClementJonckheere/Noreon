@@ -6,7 +6,7 @@ décision entre ici quand un décideur la retient depuis une réponse d'analyse.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from app.models.connection import Connection
 from app.models.decision import DecisionRecord
 from app.models.measurement import MeasurementPlan, MeasurementRun
 from app.schemas import PlanItemUpdate
+from app.services.spaces import space_connection_ids
 
 router = APIRouter(prefix="/plan", tags=["plan"])
 
@@ -68,15 +69,21 @@ def _dict(db: Session, d: DecisionRecord) -> dict:
 @router.get("")
 def list_plan(
     include_closed: bool = False,
+    space_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     principal: Principal = Depends(current_principal),
 ) -> list[dict]:
-    """Les actions du plan (tenant). Par défaut, seulement les actions ACTIVES
-    (retenues / en cours) ; `include_closed` ajoute réussies et abandonnées."""
-    rows = db.execute(
-        select(DecisionRecord).where(DecisionRecord.tenant_id == principal.tenant_id)
-        .order_by(DecisionRecord.created_at.desc())
-    ).scalars().all()
+    """Les actions du plan (tenant), CLOISONNÉES par espace. Une action portée par
+    une source qui n'est pas rattachée à l'espace courant n'y apparaît pas : un
+    scénario de démonstration ne peut donc jamais fuiter dans un espace « live ».
+    Par défaut, seulement les actions ACTIVES ; `include_closed` ajoute les closes."""
+    q = select(DecisionRecord).where(DecisionRecord.tenant_id == principal.tenant_id)
+    if space_id is not None:
+        allowed = set(space_connection_ids(db, space_id))
+        # Un espace sans connexion rattachée ne montre aucune action portée par une
+        # source — on ne « fuit » jamais l'ensemble du tenant faute de périmètre.
+        q = q.where(DecisionRecord.connection_id.in_(allowed or {-1}))
+    rows = db.execute(q.order_by(DecisionRecord.created_at.desc())).scalars().all()
     items = [_dict(db, d) for d in rows]
     if not include_closed:
         items = [it for it in items if it["status"] in _ACTIVE]
@@ -147,18 +154,30 @@ def measurement_detail(
     def _qhash(sql: str | None) -> str | None:
         return hashlib.sha256(sql.encode()).hexdigest()[:12] if sql else None
 
+    # Fenêtres SEMI-OUVERTES [from, to) — la règle est portée par le BACKEND, pas
+    # par l'affichage : le jour `implemented_at` appartient à l'observation, jamais
+    # au baseline. On renvoie la borne haute exclusive ET la borne incluse (to − 1 j)
+    # pour un affichage sans ambiguïté (« 29 mai → 27 juin inclus »).
+    def _window(start, end_excl) -> dict:
+        return {
+            "from": start.date().isoformat(),
+            "to": end_excl.date().isoformat(),
+            "to_inclusive": (end_excl - timedelta(days=1)).date().isoformat(),
+        }
+
     impl = plan.implemented_at
-    baseline_window = observation_window = None
+    baseline_window = None
     if impl is not None:
         bstart = impl - timedelta(days=plan.baseline_window_days)
-        baseline_window = {"from": bstart.date().isoformat(), "to": impl.date().isoformat()}
+        baseline_window = _window(bstart, impl)
 
     runs = []
     for r in plan.runs:
         obs = None
         if impl is not None:
-            oend = impl + timedelta(days=r.horizon_days)
-            obs = {"from": impl.date().isoformat(), "to": oend.date().isoformat()}
+            obs = _window(impl, impl + timedelta(days=r.horizon_days))
+        # Empreinte de l'état des données observées — identifie le snapshot audité.
+        snap = ("snap_" + r.measured_at.strftime("%Y%m%d_%H%M")) if r.measured_at else None
         runs.append({
             "id": r.id, "horizon_days": r.horizon_days,
             "observation_window": obs,
@@ -167,6 +186,7 @@ def measurement_detail(
             "raw_delta": r.raw_delta, "control_delta": r.control_delta,
             "adjusted_delta": r.adjusted_delta, "result": r.result,
             "limitations": r.limitations or [], "query_hash": _qhash(r.observation_sql),
+            "snapshot_id": snap,
             "measured_at": r.measured_at.isoformat() if r.measured_at else None,
         })
 
@@ -175,6 +195,7 @@ def measurement_detail(
         "protocol": {
             "measure_type": plan.measure_type,
             "metric_label": plan.metric_label, "metric_concept_id": plan.metric_concept_id,
+            "metric_definition_version": plan.metric_definition_version,
             "target": (plan.scope or {}).get("values", []),
             "target_table": (plan.scope or {}).get("table"),
             "comparison": plan.comparison,

@@ -29,6 +29,9 @@ class MeasurementPlan(Base):
     measure_type: Mapped[str] = mapped_column(String(16), default="impact")
     metric_concept_id: Mapped[str] = mapped_column(String(64), default="revenue")
     metric_label: Mapped[str] = mapped_column(String(128), default="Chiffre d'affaires")
+    # Version de la DÉFINITION MÉTIER du concept, figée par le protocole (audit).
+    # Distincte de `protocol_version` (version de la mécanique de mesure).
+    metric_definition_version: Mapped[int | None] = mapped_column(Integer, default=None)
 
     scope: Mapped[dict] = mapped_column(JSON, default=dict)          # {table, dim, column, values:[...]}
     control_scope: Mapped[dict | None] = mapped_column(JSON, default=None)  # {values:[...]}
