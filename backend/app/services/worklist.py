@@ -12,6 +12,7 @@ Invariants (verrouillés) :
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -81,14 +82,18 @@ def _upsert_work(db: Session, tenant_id: int, kind: str, otype: str, oid,
 def _upsert_activity(db: Session, tenant_id: int, kind: str, otype: str, oid,
                      *, title: str, detail: str, space_id: int | None = None) -> None:
     oid = str(oid)
-    exists = db.execute(
-        select(ActivityEvent.id).where(
+    ev = db.execute(
+        select(ActivityEvent).where(
             ActivityEvent.tenant_id == tenant_id, ActivityEvent.kind == kind,
             ActivityEvent.object_type == otype, ActivityEvent.object_id == oid).limit(1)
-    ).scalar_one_or_none()
-    if exists is None:
+    ).scalars().first()
+    if ev is None:
         db.add(ActivityEvent(tenant_id=tenant_id, kind=kind, object_type=otype,
                              object_id=oid, title=title, detail=detail, space_id=space_id))
+    else:  # rafraîchit le libellé/espace (idempotent, pas de doublon)
+        ev.title, ev.detail = title, detail
+        if space_id is not None:
+            ev.space_id = space_id
 
 
 def reconcile(db: Session, tenant_id: int) -> None:
@@ -109,7 +114,8 @@ def reconcile(db: Session, tenant_id: int) -> None:
         ).scalars().all()
         if len(live) >= 2:
             _upsert_work(db, tenant_id, "concept_arbitration", "concept", c.id,
-                         title=c.name, reason="Définition à arbitrer")
+                         title=c.name, reason="Définition à arbitrer",
+                         space_id=_concept_space(db, tenant_id, c.id))
             active.add(("concept_arbitration", "concept", str(c.id)))
 
     # 2. Relation à valider.
@@ -121,7 +127,7 @@ def reconcile(db: Session, tenant_id: int) -> None:
     for r in rels:
         n = r.exceptions_count or 0
         _upsert_work(db, tenant_id, "relation_validation", "relation", r.id,
-                     title=f"{r.left_table}.{r.left_column} → {r.right_table}.{r.right_column}",
+                     title=_relation_title(db, tenant_id, r),
                      reason=f"{n} exception{'s' if n != 1 else ''} · validation nécessaire",
                      space_id=_space_of_connection(db, tenant_id, r.connection_id))
         active.add(("relation_validation", "relation", str(r.id)))
@@ -140,9 +146,11 @@ def reconcile(db: Session, tenant_id: int) -> None:
                          title=d.recommendation[:80], reason="Résultat mesurable disponible")
             active.add(("measurement_due", "decision", str(d.id)))
         # Suivi : une mesure déjà effectuée est un ActivityEvent, pas un WorkItem.
+        # Rattaché à l'espace RÉEL de la source (jamais un univers live générique).
         if d.status == "measured":
             _upsert_activity(db, tenant_id, "measurement_done", "decision", d.id,
-                             title=d.recommendation[:80], detail="Résultat contrôlé disponible")
+                             title=d.recommendation[:80], detail="Résultat contrôlé disponible",
+                             space_id=_space_of_connection(db, tenant_id, d.connection_id))
 
     # Suivi : relations validées.
     for r in db.execute(
@@ -151,8 +159,8 @@ def reconcile(db: Session, tenant_id: int) -> None:
             RelationCandidate.status == "validated")
     ).scalars().all():
         _upsert_activity(db, tenant_id, "relation_validated", "relation", r.id,
-                         title=f"{r.left_table}.{r.left_column} → {r.right_table}.{r.right_column}",
-                         detail="Relation validée")
+                         title=_relation_title(db, tenant_id, r), detail="Relation validée",
+                         space_id=_space_of_connection(db, tenant_id, r.connection_id))
 
     # Résolution : tout WorkItem « À traiter » dont l'objet n'est PLUS déclencheur.
     for wi in db.execute(
@@ -167,11 +175,60 @@ def reconcile(db: Session, tenant_id: int) -> None:
     db.flush()
 
 
-def _space_of_connection(db: Session, tenant_id: int, connection_id: int) -> int | None:
+def _space_of_connection(db: Session, tenant_id: int, connection_id: int | None) -> int | None:
+    if connection_id is None:
+        return None
     from app.models.space import SpaceConnection
     return db.execute(
         select(SpaceConnection.space_id).where(SpaceConnection.connection_id == connection_id).limit(1)
     ).scalar_one_or_none()
+
+
+# --- Libellés MÉTIER via la Semantic Layer (jamais de nom physique dans la file) ---
+def _entity_label(db: Session, tenant_id: int, table: str) -> str:
+    """Concept métier représentatif d'une table (« products » → « Produit »). Aucun
+    domaine codé : on choisit parmi les concepts RÉELS mappés à la table."""
+    from app.services.concepts import subject_domain
+    from app.services.relations import _concepts_on
+    concepts = _concepts_on(db, tenant_id, table)
+    if not concepts:
+        return subject_domain(table)
+    toks = set(re.findall(r"[a-z]+", table.lower()))
+    for c in concepts:                       # concept dont le nom recoupe la table
+        cl = c.lower()
+        if any(t[:4] and (t[:4] in cl or cl[:4] in t) for t in toks):
+            return c
+    return concepts[0]                        # à défaut, le concept représentatif
+
+
+def _relation_title(db: Session, tenant_id: int, r) -> str:
+    left = _entity_label(db, tenant_id, r.left_table)
+    right = _entity_label(db, tenant_id, r.right_table)
+    return f"Relation {left} → {right}"
+
+
+def _concept_space(db: Session, tenant_id: int, concept_id: int) -> int | None:
+    """Espace RÉEL des données d'un concept (via les sources de ses définitions)."""
+    for d in db.execute(
+        select(ConceptDefinition).where(ConceptDefinition.concept_id == concept_id)
+    ).scalars().all():
+        for cid in (d.source_ids or []):
+            sp = _space_of_connection(db, tenant_id, cid)
+            if sp is not None:
+                return sp
+    return None
+
+
+def _concept_scope_label(db: Session, concept_id: int) -> str | None:
+    """« Portée Univers » (définition commune) vs « Portée Espace » (surcharge locale)."""
+    scopes = db.execute(
+        select(ConceptDefinition.scope).where(
+            ConceptDefinition.concept_id == concept_id,
+            ConceptDefinition.status.in_(("candidate", "needs_arbitration", "validated")))
+    ).scalars().all()
+    if not scopes:
+        return None
+    return "Portée Espace" if any(s == "space" for s in scopes) else "Portée Univers"
 
 
 def _space_names(db: Session, tenant_id: int) -> dict[int, str]:
@@ -194,8 +251,13 @@ def for_user(db: Session, tenant_id: int, role: str) -> dict:
     ).scalars().all()
     to_process = [{
         "id": w.id, "kind": w.kind, "object_type": w.object_type, "object_id": w.object_id,
-        "title": w.title, "reason": w.reason, "space_label": space_label(w.space_id),
+        "title": w.title, "reason": w.reason,
+        "space_id": w.space_id, "space_label": space_label(w.space_id),
+        # Portée sémantique (Univers/Espace) — distincte du conteneur (l'espace).
+        "scope_label": _concept_scope_label(db, int(w.object_id))
+        if w.kind == "concept_arbitration" and w.object_id.isdigit() else None,
         "read": w.read_at is not None,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
     } for w in todo if can_act(role, w.required_capability)]
 
     events = db.execute(
@@ -204,7 +266,9 @@ def for_user(db: Session, tenant_id: int, role: str) -> dict:
     ).scalars().all()
     activity = [{
         "id": e.id, "kind": e.kind, "title": e.title, "detail": e.detail,
-        "space_label": space_label(e.space_id), "read": e.read_at is not None,
+        "space_id": e.space_id, "space_label": space_label(e.space_id),
+        "read": e.read_at is not None,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
     } for e in events]
     return {"to_process": to_process, "to_process_count": len(to_process), "activity": activity}
 

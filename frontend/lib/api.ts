@@ -614,16 +614,21 @@ export interface WorkItemView {
   object_id: string;
   title: string;
   reason: string;
+  space_id: number | null;
   space_label: string;
+  scope_label: string | null;
   read: boolean;
+  created_at: string | null;
 }
 export interface ActivityView {
   id: number;
   kind: string;
   title: string;
   detail: string;
+  space_id: number | null;
   space_label: string;
   read: boolean;
+  created_at: string | null;
 }
 export interface NotificationsView {
   to_process: WorkItemView[];

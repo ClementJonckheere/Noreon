@@ -18,7 +18,7 @@ from app.models.concept_definition import ConceptDefinition
 from app.models.decision import DecisionRecord
 from app.models.measurement import MeasurementPlan, MeasurementRun
 from app.models.relation_candidate import RelationCandidate
-from app.models.semantic import BusinessConcept
+from app.models.semantic import BusinessConcept, ConceptMapping
 from app.models.space import Space, SpaceConnection
 from app.models.tenant import Tenant
 from app.models.user import ROLE_ADMIN, ROLE_READER
@@ -31,7 +31,7 @@ def db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine, tables=[
         Tenant.__table__, Space.__table__, SpaceConnection.__table__,
-        BusinessConcept.__table__, ConceptDefinition.__table__,
+        BusinessConcept.__table__, ConceptMapping.__table__, ConceptDefinition.__table__,
         RelationCandidate.__table__, DecisionRecord.__table__,
         MeasurementPlan.__table__, MeasurementRun.__table__,
         WorkItem.__table__, ActivityEvent.__table__,
@@ -104,6 +104,44 @@ def test_capability_filter_solo_vs_reader(db):
     assert worklist.for_user(db, 1, ROLE_ADMIN)["to_process_count"] == 2
     # Un lecteur ne peut ni arbitrer ni valider → ne reçoit rien à traiter.
     assert worklist.for_user(db, 1, ROLE_READER)["to_process_count"] == 0
+
+
+def test_reconcile_is_idempotent(db):
+    _seed_two_triggers(db)
+    worklist.reconcile(db, 1)
+    worklist.reconcile(db, 1)
+    worklist.reconcile(db, 1)
+    # Trois réconciliations → toujours 2 WorkItems (aucun doublon).
+    assert db.query(WorkItem).count() == 2
+
+
+def test_get_does_not_mutate(db):
+    _seed_two_triggers(db)
+    worklist.reconcile(db, 1)
+    before = db.query(WorkItem).count()
+    worklist.for_user(db, 1, ROLE_ADMIN)
+    worklist.for_user(db, 1, ROLE_READER)
+    # Lire la file ne crée ni ne modifie rien.
+    assert db.query(WorkItem).count() == before
+    assert all(w.status == "a_traiter" for w in db.query(WorkItem).all())
+
+
+def test_new_cycle_reopens_work(db):
+    _c, r = _seed_two_triggers(db)
+    worklist.reconcile(db, 1)
+    # L'objet quitte l'état déclencheur → WorkItem résolu.
+    r.status = "validated"
+    worklist.reconcile(db, 1)
+    wi = db.query(WorkItem).filter(WorkItem.kind == "relation_validation").one()
+    assert wi.status == "traite"
+    # Nouveau cycle : l'objet redevient déclencheur → même WorkItem rouvert
+    # (aucun doublon), et la file « À traiter » repasse à 2.
+    r.status = "needs_validation"
+    worklist.reconcile(db, 1)
+    db.refresh(wi)
+    assert wi.status == "a_traiter" and wi.resolved_at is None
+    assert db.query(WorkItem).filter(WorkItem.kind == "relation_validation").count() == 1
+    assert worklist.for_user(db, 1, ROLE_ADMIN)["to_process_count"] == 2
 
 
 def test_worklist_engine_has_no_domain_literal():
