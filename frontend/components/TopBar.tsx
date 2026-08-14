@@ -28,13 +28,15 @@ export default function TopBar({ crumbs = [] }: { crumbs?: { label: string; href
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Le compteur « sources à surveiller » reflète l'ESPACE COURANT, jamais tout
+  // le tenant : sinon la barre annonce des réserves hors du périmètre visible.
   useEffect(() => {
-    api.listConnections().then((cs) => {
+    api.listConnections(current?.id ?? null).then((cs) => {
       setConns(cs);
       Promise.all(cs.map((c) => api.quality(c.id).then((q) => [c.id, q] as const).catch(() => [c.id, []] as const)))
         .then((entries) => setQuality(Object.fromEntries(entries)));
     }).catch(() => setConns([]));
-  }, []);
+  }, [current?.id]);
 
   useEffect(() => {
     if (!open) return;

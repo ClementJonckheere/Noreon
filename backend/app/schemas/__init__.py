@@ -40,6 +40,9 @@ class ConnectionOut(BaseModel):
     last_tested_at: datetime | None
     last_scanned_at: datetime | None
     created_at: datetime
+    # Espaces auxquels la source est rattachée (badge du catalogue ; vide = non
+    # rattachée). Renseigné par la route, hors ORM.
+    spaces: list[str] = []
 
     class Config:
         from_attributes = True

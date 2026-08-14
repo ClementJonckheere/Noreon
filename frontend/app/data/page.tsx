@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, Connection } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { useCurrentSpace } from "@/lib/space";
 import PipelineRibbon from "@/components/PipelineRibbon";
 import SubNav from "@/components/SubNav";
 import AccessDenied from "@/components/CapGate";
@@ -26,6 +27,7 @@ const EMPTY = {
 
 export default function Home() {
   const { caps, ready } = useSession();
+  const { space } = useCurrentSpace();
   const [conns, setConns] = useState<Connection[] | null>(null);
   // Le panneau de connexion n'est PAS ouvert en permanence : c'est une action
   // ponctuelle. On liste d'abord, on connecte à la demande, on revient à la liste.
@@ -97,8 +99,9 @@ export default function Home() {
         <div className="space-y-1">
           <h1 className="text-title text-ink">Sources de données</h1>
           <p className="text-body text-ink-2 max-w-reading">
-            Ce sur quoi Noreon peut répondre. Chaque source est vérifiée en
-            <span className="text-ink font-medium"> lecture seule</span> avant toute analyse.
+            Le catalogue des sources du tenant, vérifiées en
+            <span className="text-ink font-medium"> lecture seule</span>. Chaque source
+            indique l'espace auquel elle est rattachée{space ? ` — les analyses de « ${space.name} » n'utilisent que les siennes` : ""}.
           </p>
         </div>
         {!empty && !panelOpen && (
@@ -130,7 +133,7 @@ export default function Home() {
         </div>
       ) : (
         <section className="space-y-4">
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-baseline gap-2">
             <h2 className="text-heading text-ink">Sources connectées</h2>
             <span className="meta">{list.length}</span>
           </div>
@@ -142,11 +145,12 @@ export default function Home() {
                 className="card p-4 flex items-center justify-between hover:border-line-strong transition-colors"
               >
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-subhead text-ink truncate">{c.name}</span>
                     <span className="tag tag-neutral">
                       {ENGINES.find((e) => e.id === c.engine)?.label || c.engine}
                     </span>
+                    <SpaceBadges spaces={c.spaces} current={space?.name} />
                   </div>
                   <div className="meta mt-0.5 truncate">
                     {c.engine === "csv" || c.engine === "excel"
@@ -270,6 +274,20 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
       />
     </div>
+  );
+}
+
+// Rattachement d'une source à un ou plusieurs espaces — l'espace courant est
+// mis en avant ; « Non rattachée » lève l'ambiguïté (source du tenant sans espace).
+function SpaceBadges({ spaces, current }: { spaces?: string[]; current?: string }) {
+  const list = spaces ?? [];
+  if (list.length === 0) return <span className="tag tag-neutral text-ink-tertiary">Non rattachée</span>;
+  return (
+    <span className="flex items-center gap-1 flex-wrap">
+      {list.map((s) => (
+        <span key={s} className={`tag ${s === current ? "bg-brand-100 text-brand-700 border-brand-200 border" : "tag-neutral"}`}>{s}</span>
+      ))}
+    </span>
   );
 }
 

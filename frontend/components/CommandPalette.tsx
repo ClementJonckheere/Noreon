@@ -32,18 +32,26 @@ type Cmd = {
 // Normalisation insensible à la casse ET aux accents (recherche en français).
 const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Le terme démarre un MOT dans la chaîne (évite les correspondances au milieu
+// d'un mot, source de bruit inexplicable).
+const atWord = (hay: string, q: string) => new RegExp(`\\b${esc(q)}`).test(hay);
+
 // Score de pertinence : plus petit = meilleur. -1 = pas de correspondance.
+// SEUIL : le libellé peut matcher par sous-chaîne, mais un match trouvé
+// UNIQUEMENT dans le sous-titre / les mots-clés exige un début de mot — sinon
+// on affiche des résultats sans lien visible avec la requête.
 function score(cmd: Cmd, q: string): number {
   if (!q) return 0;
-  const hay = norm(`${cmd.label} ${cmd.sub ?? ""} ${cmd.keywords ?? ""}`);
   const label = norm(cmd.label);
-  const i = hay.indexOf(q);
-  if (i === -1) return -1;
+  const sub = norm(cmd.sub ?? "");
+  const kw = norm(cmd.keywords ?? "");
   if (label === q) return 0;
   if (label.startsWith(q)) return 1;
-  if (new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(label)) return 2;
+  if (atWord(label, q)) return 2;
   if (label.includes(q)) return 3;
-  return 4; // trouvé dans le sous-titre / mots-clés seulement
+  if (q.length >= 2 && (atWord(sub, q) || atWord(kw, q))) return 4;
+  return -1;
 }
 
 export default function CommandPalette() {
@@ -106,8 +114,10 @@ export default function CommandPalette() {
           label: `${r.left.concept} → ${r.right.concept}`,
           sub: `${r.left.label} → ${r.right.label}`, href: `/relations/${r.id}` }))).catch(() => {}));
 
+    // Sources CLOISONNÉES par espace : depuis « CRM », une source rattachée à
+    // un autre espace n'apparaît pas (le filtre est appliqué côté serveur).
     if (caps.viewData) jobs.push(
-      api.listConnections().then((cs) => cs.forEach((c) =>
+      api.listConnections(sid).then((cs) => cs.forEach((c) =>
         push({ id: `source-${c.id}`, group: "Sources", icon: "data", label: c.name,
           sub: c.engine, keywords: `${c.host ?? ""} ${c.database ?? ""}`, href: `/connections/${c.id}` }))).catch(() => {}));
 
@@ -155,7 +165,8 @@ export default function CommandPalette() {
 
   // Filtrage + tri. Requête vide → lanceur (Actions + Aller à uniquement).
   const results = useMemo(() => {
-    const nq = norm(q.trim());
+    const raw = q.trim();
+    const nq = norm(raw);
     let matched: { cmd: Cmd; s: number }[];
     if (!nq) {
       matched = all.filter((c) => c.group === "Actions" || c.group === "Aller à").map((cmd) => ({ cmd, s: 0 }));
@@ -163,6 +174,25 @@ export default function CommandPalette() {
       matched = [];
       for (const cmd of all) { const s = score(cmd, nq); if (s >= 0) matched.push({ cmd, s }); }
       matched.sort((a, b) => a.s - b.s);
+      // PROMESSE ⌘K : transformer la saisie en nouvelle analyse. Toujours offert
+      // en tête quand l'utilisateur peut analyser — et seule proposition utile
+      // quand rien ne correspond.
+      if (caps.askQuestions) {
+        const analyze: Cmd = {
+          id: "act-analyze", group: "Actions", icon: "discoveries",
+          label: `Analyser « ${raw} »`,
+          sub: "Lancer une nouvelle analyse à partir de votre question",
+          run: async () => {
+            const repo = conversationRepository();
+            try {
+              if (!(await repo.hasSource())) { router.push("/data"); return; }
+              const nc = await repo.create();
+              router.push(`/conversations/${nc.id}?q=${encodeURIComponent(raw)}`);
+            } catch { router.push("/data"); }
+          },
+        };
+        matched.unshift({ cmd: analyze, s: -1 });
+      }
     }
     // Regroupement en préservant l'ordre des groupes ; plafond par groupe.
     const byGroup = new Map<Group, Cmd[]>();
@@ -179,7 +209,7 @@ export default function CommandPalette() {
       if (items && items.length) { sections.push({ group: g, items }); flat.push(...items); }
     }
     return { sections, flat };
-  }, [q, all]);
+  }, [q, all, caps.askQuestions, router]);
 
   useEffect(() => { setIdx((i) => Math.min(i, Math.max(0, results.flat.length - 1))); }, [results.flat.length]);
 

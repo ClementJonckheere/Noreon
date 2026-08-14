@@ -71,6 +71,7 @@ export interface Connection {
   read_only_detail: string | null;
   last_error: string | null;
   last_scanned_at: string | null;
+  spaces?: string[]; // espaces de rattachement (badge ; vide = non rattachée)
 }
 
 export interface Probe {
@@ -818,7 +819,8 @@ export interface Discoveries {
 
 // ---- Endpoints ----
 export const api = {
-  listConnections: () => request<Connection[]>("/connections"),
+  listConnections: (spaceId?: number | null) =>
+    request<Connection[]>(`/connections${spaceId != null ? `?space_id=${spaceId}` : ""}`),
   getConnection: (id: number) => request<Connection>(`/connections/${id}`),
   createConnection: (payload: any) =>
     request<CreateResult>("/connections", {
