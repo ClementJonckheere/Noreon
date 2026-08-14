@@ -16,6 +16,7 @@ export interface Capabilities {
   viewData: boolean;          // Données (sources)
   inspectQuality: boolean;    // Qualité / contrôles
   manageConcepts: boolean;    // Concepts (Semantic Layer)
+  validateRelation: boolean;  // valider une relation candidate — geste DISTINCT de l'arbitrage
   publishConclusion: boolean; // publier une conclusion
   validateConcept: boolean;   // valider/arbitrer un concept
   decideAction: boolean;      // retenir/instruire une décision
@@ -25,8 +26,9 @@ export interface Capabilities {
 
 const NONE: Capabilities = {
   askQuestions: false, viewDiscoveries: false, viewReports: false, viewPlan: false,
-  viewData: false, inspectQuality: false, manageConcepts: false, publishConclusion: false,
-  validateConcept: false, decideAction: false, administerSpace: false, manageSources: false,
+  viewData: false, inspectQuality: false, manageConcepts: false, validateRelation: false,
+  publishConclusion: false, validateConcept: false, decideAction: false,
+  administerSpace: false, manageSources: false,
 };
 
 // Direction — décider. Voit les décisions instruites, pas l'atelier data.
@@ -40,7 +42,7 @@ const DIRECTION: Capabilities = {
 const ANALYSTE: Capabilities = {
   ...NONE,
   askQuestions: true, viewDiscoveries: true, viewReports: true,
-  viewData: true, inspectQuality: true, manageConcepts: true,
+  viewData: true, inspectQuality: true, manageConcepts: true, validateRelation: true,
   publishConclusion: true, validateConcept: true, manageSources: true,
 };
 
@@ -54,7 +56,7 @@ export function capabilitiesForRole(role?: string | null): Capabilities {
   switch (role) {
     case "analyst": return ANALYSTE;
     case "reader": return OPERATIONNEL;
-    case "admin": return { ...DIRECTION, viewData: true, inspectQuality: true, manageConcepts: true, validateConcept: true, manageSources: true };
+    case "admin": return { ...DIRECTION, viewData: true, inspectQuality: true, manageConcepts: true, validateRelation: true, validateConcept: true, manageSources: true };
     default: return DIRECTION; // mode dev / non authentifié : accueil dirigeant
   }
 }

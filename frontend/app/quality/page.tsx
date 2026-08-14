@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, Connection, QualityScore } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import SubNav from "@/components/SubNav";
 
 // Qualité — page de SURVEILLANCE : l'utilisateur comprend l'état de chaque source
 // avant même de l'ouvrir (réserves ouvertes, dernier contrôle), pas un annuaire.
@@ -17,6 +18,7 @@ export default function QualityPage() {
 
   return (
     <div className="space-y-6 fade-in">
+      <SubNav />
       <header className="space-y-1">
         <h1 className="text-title text-ink-primary">Qualité</h1>
         <p className="text-body text-ink-secondary max-w-reading">

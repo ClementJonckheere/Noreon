@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, Connection, CreateResult } from "@/lib/api";
 import PipelineRibbon from "@/components/PipelineRibbon";
+import SubNav from "@/components/SubNav";
 
 const ENGINES = [
   { id: "postgresql", label: "PostgreSQL", kind: "db", port: 5432 },
@@ -75,6 +76,7 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
+      <SubNav />
       <header className="space-y-1">
         <h1 className="text-title text-ink">Données · sources</h1>
         <p className="text-body text-ink-2">

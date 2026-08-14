@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, RelationCandidateView, RelationStatus } from "@/lib/api";
 import { useCurrentSpace } from "@/lib/space";
+import SubNav from "@/components/SubNav";
 
 // Relations — les liens entre champs, jugés sur des FAITS (couverture, unicité,
 // cardinalité, exceptions, fenêtre), pas sur un simple score. Une relation validée
@@ -35,6 +36,7 @@ export default function RelationsPage() {
 
   return (
     <div className="space-y-6 fade-in">
+      <SubNav />
       <header className="space-y-1">
         <h1 className="text-title text-ink-primary">Relations</h1>
         <p className="text-body text-ink-secondary max-w-reading">

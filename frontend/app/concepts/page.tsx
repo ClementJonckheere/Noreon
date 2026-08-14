@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ConceptOverview, ConceptStatus } from "@/lib/api";
 import { useCurrentSpace } from "@/lib/space";
+import SubNav from "@/components/SubNav";
 
 // Concepts — le vocabulaire partagé et ses désaccords. On distingue clairement
 // quatre états : validé (une définition en vigueur), proposé (Noreon suggère),
@@ -36,6 +37,7 @@ export default function ConceptsPage() {
 
   return (
     <div className="space-y-6 fade-in">
+      <SubNav />
       <header className="space-y-1">
         <h1 className="text-title text-ink-primary">Concepts</h1>
         <p className="text-body text-ink-secondary max-w-reading">

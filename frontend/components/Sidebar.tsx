@@ -12,31 +12,57 @@ import { conversationRepository, ConversationSummary } from "@/lib/conversation/
 
 // Sidebar 248 px. La navigation DÉRIVE des capacités. Les dossiers et
 // conversations vivent ICI (à gauche), pas dans un second panneau à droite.
-type NavItem = { href: string; label: string; icon: string; cap?: keyof Capabilities };
+//
+// Deux familles : le TRAVAIL (destinations autonomes) et DONNÉES & SENS, où deux
+// destinations REGROUPENT des sous-onglets sans fusionner leurs écrans, routes,
+// capabilities ni machines d'états. Un parent apparaît dès qu'UN sous-onglet est
+// accessible, et ouvre le PREMIER sous-onglet accessible — aucun `if (role === …)`,
+// aucune page d'accueil intermédiaire.
+type Child = { href: string; cap: keyof Capabilities };
+type NavItem = {
+  label: string; icon: string;
+  href?: string; cap?: keyof Capabilities;          // destination simple
+  children?: Child[]; match?: string[];             // destination regroupée
+};
+type NavGroup = { title?: string; items: NavItem[] };
 
-const NAV: NavItem[] = [
-  { href: "/", label: "Accueil", icon: "home" },
-  { href: "/discoveries", label: "Découvertes", icon: "discoveries", cap: "viewDiscoveries" },
-  { href: "/reports", label: "Rapports", icon: "report", cap: "viewReports" },
-  { href: "/plan", label: "Plan d'action", icon: "plan", cap: "viewPlan" },
-  { href: "/data", label: "Données", icon: "data", cap: "viewData" },
-  { href: "/quality", label: "Qualité", icon: "quality", cap: "inspectQuality" },
-  { href: "/concepts", label: "Concepts", icon: "concepts", cap: "manageConcepts" },
-  { href: "/relations", label: "Relations", icon: "relations", cap: "manageConcepts" },
+const GROUPS: NavGroup[] = [
+  { title: "Travail", items: [
+    { href: "/", label: "Accueil", icon: "home" },
+    { href: "/discoveries", label: "Découvertes", icon: "discoveries", cap: "viewDiscoveries" },
+    { href: "/reports", label: "Rapports", icon: "report", cap: "viewReports" },
+    { href: "/plan", label: "Plan d'action", icon: "plan", cap: "viewPlan" },
+  ] },
+  { title: "Données & sens", items: [
+    { label: "Données", icon: "data", match: ["/data", "/quality", "/connections", "/sources"],
+      children: [{ href: "/data", cap: "viewData" }, { href: "/quality", cap: "inspectQuality" }] },
+    { label: "Modèle sémantique", icon: "concepts", match: ["/concepts", "/relations"],
+      children: [{ href: "/concepts", cap: "manageConcepts" }, { href: "/relations", cap: "validateRelation" }] },
+  ] },
 ];
 
-function NavRow({ item, active }: { item: NavItem; active: boolean }) {
+// Destination effective d'un item : sa route (simple) ou le 1er sous-onglet
+// accessible (regroupée). `visible` = au moins un sous-onglet accessible.
+function resolveNav(item: NavItem, caps: Capabilities): { href: string; visible: boolean } {
+  if (item.children) {
+    const first = item.children.find((c) => caps[c.cap]);
+    return { href: first?.href ?? "#", visible: !!first };
+  }
+  return { href: item.href ?? "#", visible: !item.cap || caps[item.cap] };
+}
+
+function NavRow({ href, label, icon, active }: { href: string; label: string; icon: string; active: boolean }) {
   return (
     <Link
-      href={item.href}
+      href={href}
       aria-current={active ? "page" : undefined}
       className={`group flex items-center gap-2.5 h-9 pl-[11px] pr-2.5 rounded-[6px] text-[12.5px] transition-colors ${
         active ? "bg-brand-100 text-brand-700 font-medium" : "text-ink-secondary hover:bg-bg-primary"
       }`}
     >
       <span className={`w-[5px] h-[5px] rounded-full shrink-0 ${active ? "bg-brand-600" : "bg-line-strong"}`} />
-      <Icon name={item.icon} className="w-[17px] h-[17px] shrink-0" />
-      <span className="flex-1 truncate">{item.label}</span>
+      <Icon name={icon} className="w-[17px] h-[17px] shrink-0" />
+      <span className="flex-1 truncate">{label}</span>
     </Link>
   );
 }
@@ -72,14 +98,14 @@ export default function Sidebar() {
 
   if (pathname.startsWith("/login")) return null;
 
-  const isActive = (href: string) =>
-    href === "/"
-      ? pathname === "/"
-      : href === "/data"
-      ? pathname.startsWith("/data") || pathname.startsWith("/connections") || pathname.startsWith("/sources")
-      : pathname.startsWith(href);
+  // Actif si l'URL courante tombe dans la destination — une destination regroupée
+  // reste active sur TOUS ses sous-onglets (Modèle actif sur /concepts ET /relations).
+  const isActiveItem = (item: NavItem) => {
+    if (item.match) return item.match.some((m) => pathname === m || pathname.startsWith(m + "/"));
+    const href = item.href ?? "";
+    return href === "/" ? pathname === "/" : pathname.startsWith(href);
+  };
 
-  const items = NAV.filter((i) => !i.cap || caps[i.cap]);
   const activeConvId = pathname.startsWith("/conversations/") ? decodeURIComponent(pathname.split("/")[2] ?? "") : "";
 
   async function newConversation() {
@@ -113,8 +139,22 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <nav className="px-3 py-3 space-y-0.5 shrink-0">
-        {items.map((i) => <NavRow key={i.href} item={i} active={isActive(i.href)} />)}
+      <nav className="px-3 py-3 space-y-3 shrink-0">
+        {GROUPS.map((g, gi) => {
+          const vis = g.items.filter((it) => resolveNav(it, caps).visible);
+          if (vis.length === 0) return null;
+          return (
+            <div key={gi} className="space-y-0.5">
+              {g.title && (
+                <div className="px-[11px] pb-1 text-[10px] font-medium uppercase tracking-[0.09em] text-ink-tertiary">{g.title}</div>
+              )}
+              {vis.map((it) => {
+                const { href } = resolveNav(it, caps);
+                return <NavRow key={it.label} href={href} label={it.label} icon={it.icon} active={isActiveItem(it)} />;
+              })}
+            </div>
+          );
+        })}
       </nav>
 
       {caps.askQuestions && (
