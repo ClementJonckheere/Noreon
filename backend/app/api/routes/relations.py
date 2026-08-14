@@ -53,12 +53,21 @@ def _owned(db: Session, relation_id: int, tenant: Tenant) -> RelationCandidate:
 @router.get("")
 def list_relations(
     connection_id: int | None = Query(default=None),
+    space_id: int | None = Query(default=None),
     include_archived: bool = Query(default=False),
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(current_tenant),
 ) -> list[dict]:
+    """Relations du tenant, cloisonnées par espace au niveau PHYSIQUE : une relation
+    n'apparaît dans un espace que si sa source y est rattachée. Contrairement aux
+    concepts (héritage Univers→Espace), un lien physique ne fuit pas d'un périmètre
+    de données à un autre."""
     rows = rel_svc.list_candidates(db, tenant.id, connection_id=connection_id,
                                    include_archived=include_archived)
+    if space_id is not None:
+        from app.services.spaces import space_connection_ids
+        allowed = set(space_connection_ids(db, space_id))
+        rows = [r for r in rows if r.connection_id in allowed]
     return [_rel_dict(db, r) for r in rows]
 
 

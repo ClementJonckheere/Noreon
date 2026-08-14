@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Icon from "@/components/ui/Icon";
+import NotificationBell from "@/components/NotificationBell";
 import { api, Connection, QualityScore } from "@/lib/api";
 import { useSpaces } from "@/lib/space";
 
@@ -112,13 +113,7 @@ export default function TopBar({ crumbs = [] }: { crumbs?: { label: string; href
             {fresh.count} source{fresh.count > 1 ? "s" : ""} à surveiller
           </Link>
         )}
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="relative grid place-items-center w-9 h-9 rounded-button text-ink-secondary hover:bg-bg-secondary transition-colors"
-        >
-          <Icon name="bell" className="w-[18px] h-[18px]" />
-        </button>
+        <NotificationBell />
       </div>
     </header>
   );

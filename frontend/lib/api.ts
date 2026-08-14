@@ -604,6 +604,32 @@ export interface RelationPreview {
   linkable_labels: string[];
   examples: string[];
 }
+export type WorkItemKind =
+  | "concept_arbitration" | "relation_validation" | "quality_review"
+  | "access_approval" | "measurement_due" | "report_validation";
+export interface WorkItemView {
+  id: number;
+  kind: WorkItemKind;
+  object_type: string;
+  object_id: string;
+  title: string;
+  reason: string;
+  space_label: string;
+  read: boolean;
+}
+export interface ActivityView {
+  id: number;
+  kind: string;
+  title: string;
+  detail: string;
+  space_label: string;
+  read: boolean;
+}
+export interface NotificationsView {
+  to_process: WorkItemView[];
+  to_process_count: number;
+  activity: ActivityView[];
+}
 export type ConceptStatus = "validated" | "proposed" | "needs_arbitration" | "sans_source";
 export interface ConceptOverview {
   id: number;
@@ -1053,12 +1079,21 @@ export const api = {
     request<ConceptDetail>(`/concepts/${id}/arbitrate?definition_id=${definitionId}${spaceId != null ? `&space_id=${spaceId}` : ""}`, { method: "POST" }),
 
   // --- Relations candidates (générique : évaluées sur des faits, jamais un nom métier) ---
-  relationCandidates: (connectionId?: number | null) =>
-    request<RelationCandidateView[]>(`/relations${connectionId != null ? `?connection_id=${connectionId}` : ""}`),
+  relationCandidates: (connectionId?: number | null, spaceId?: number | null) => {
+    const qs = new URLSearchParams();
+    if (connectionId != null) qs.set("connection_id", String(connectionId));
+    if (spaceId != null) qs.set("space_id", String(spaceId));
+    const q = qs.toString();
+    return request<RelationCandidateView[]>(`/relations${q ? `?${q}` : ""}`);
+  },
   relationDetail: (id: number) => request<RelationCandidateView>(`/relations/${id}`),
   relationPreview: (id: number) => request<RelationPreview>(`/relations/${id}/preview`),
   relationValidate: (id: number) => request<RelationCandidateView>(`/relations/${id}/validate`, { method: "POST" }),
   relationReject: (id: number) => request<RelationCandidateView>(`/relations/${id}/reject`, { method: "POST" }),
+
+  // --- Notifications : À traiter (WorkItem) + Suivi (ActivityEvent) ---
+  notifications: () => request<NotificationsView>(`/notifications`),
+  notificationsMarkRead: () => request<NotificationsView>(`/notifications/read`, { method: "POST" }),
 
   reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
   reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),

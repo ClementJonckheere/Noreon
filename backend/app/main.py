@@ -15,6 +15,7 @@ from app.api.routes import (
     definitions,
     health,
     metrics,
+    notifications,
     plan,
     profiling,
     quality,
@@ -67,6 +68,7 @@ app.include_router(space_conversations.router)
 app.include_router(reports.router)
 app.include_router(relations.router)
 app.include_router(plan.router)
+app.include_router(notifications.router)
 app.include_router(metrics.router)
 
 

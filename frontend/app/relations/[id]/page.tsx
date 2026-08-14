@@ -9,6 +9,14 @@ import { api, RelationCandidateView, RelationPreview } from "@/lib/api";
 // candidat alternatif (« pourquoi cette colonne ? »), la fenêtre vérifiée et ce
 // que la relation rend possible, AVANT de laisser un humain l'autoriser.
 const pct = (x: number | null) => (x == null ? "—" : `${(x * 100).toFixed(1)} %`);
+// Cardinalité lisible : « n → 1 » plutôt que « n-1 ».
+const CARD: Record<string, string> = { "n-1": "n → 1", "1-1": "1 → 1", "1-n": "1 → n", "n-n": "n ↔ n" };
+const card = (c: string | null) => (c ? CARD[c] ?? c : "—");
+// Date EXPLICITE pour un élément auditable (jamais « aujourd'hui », illisible dans 6 mois).
+function frDate(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+}
 const ORIGIN: Record<string, { label: string; hint: string }> = {
   constraint: { label: "Contrainte déclarée", hint: "Une FK/contrainte existe réellement dans la base — la preuve la plus forte." },
   inferred: { label: "Inférée par les valeurs", hint: "Déduite de la couverture et de l'unicité, pas déclarée par la base." },
@@ -74,11 +82,11 @@ export default function RelationDetailPage() {
       <section className="card p-4">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-4">
           <Fact k="Couverture" v={pct(r.coverage)} />
-          <Fact k="Cardinalité" v={r.cardinality ?? "—"} />
+          <Fact k="Cardinalité" v={card(r.cardinality)} />
           <Fact k="Unicité cible" v={pct(r.target_uniqueness)} />
           <Fact k="Compatibilité" v={r.type_compatibility ?? "—"} />
           <Fact k="Exceptions" v={String(r.exceptions_count ?? 0)} />
-          <Fact k="Fenêtre vérifiée" v={`${frMonth(r.valid_from)} → aujourd'hui`} />
+          <Fact k="Fenêtre vérifiée" v={`${frMonth(r.valid_from)} → ${frDate(r.valid_to ?? r.evaluated_at)}`} />
         </div>
         {r.exceptions_note && (
           <div className="meta mt-3 pt-3 border-t border-line-inset">{r.exceptions_note}</div>
@@ -89,7 +97,8 @@ export default function RelationDetailPage() {
       <section className="card p-4 space-y-2">
         <h2 className="text-label uppercase text-ink-tertiary">Pourquoi cette relation ?</h2>
         <p className="text-body text-ink-secondary max-w-reading">
-          La colonne cible retenue couvre bien mieux les valeurs que la meilleure alternative.
+          Cette relation présente la meilleure combinaison de couverture, d'unicité,
+          de compatibilité de type et de cardinalité parmi les candidats détectés.
         </p>
         <div className="rounded-card border border-line-subtle divide-y divide-line-inset">
           <div className="flex items-center justify-between gap-3 px-3 py-2">
@@ -110,7 +119,7 @@ export default function RelationDetailPage() {
         <section className="card p-4 space-y-2">
           <h2 className="text-label uppercase text-ink-tertiary">Ce qu'elle rend possible</h2>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-body text-ink-secondary">
-            <span><span className="mono text-ink-primary">{pv.analyses_possible}</span> analyses supplémentaires</span>
+            <span><span className="mono text-ink-primary">{pv.analyses_possible}</span> croisements analytiques supplémentaires</span>
             <span><span className="mono text-ink-primary">{pv.concepts_linkable}</span> concepts reliables</span>
           </div>
           {pv.examples.length > 0 && (

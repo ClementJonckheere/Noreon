@@ -27,6 +27,7 @@ from app.models.semantic import BusinessConcept, ConceptMapping
 from app.models.concept_definition import ConceptDefinition
 from app.models.concept_arbitration import ConceptArbitration, ConceptReference
 from app.models.relation_candidate import RelationCandidate
+from app.models.work_item import ActivityEvent, WorkItem
 from app.models.space import (
     Space,
     SpaceColumnAccess,
@@ -57,6 +58,8 @@ __all__ = [
     "ConceptReference",
     "ConceptArbitration",
     "RelationCandidate",
+    "WorkItem",
+    "ActivityEvent",
     "BusinessDefinition",
     "DecisionRecord",
     "Alert",

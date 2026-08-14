@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, RelationCandidateView, RelationStatus } from "@/lib/api";
+import { useCurrentSpace } from "@/lib/space";
 
 // Relations — les liens entre champs, jugés sur des FAITS (couverture, unicité,
 // cardinalité, exceptions, fenêtre), pas sur un simple score. Une relation validée
@@ -19,8 +20,14 @@ const ORIGIN: Record<string, string> = { constraint: "Contrainte déclarée", in
 const pct = (x: number | null) => (x == null ? "—" : `${(x * 100).toFixed(1)} %`);
 
 export default function RelationsPage() {
+  const { space, ready } = useCurrentSpace();
   const [rels, setRels] = useState<RelationCandidateView[] | null>(null);
-  useEffect(() => { api.relationCandidates().then(setRels).catch(() => setRels([])); }, []);
+  // Cloisonnement PHYSIQUE : seules les relations dont la source est rattachée à
+  // l'espace courant sont montrées (un lien physique ne fuit pas d'un périmètre à l'autre).
+  useEffect(() => {
+    if (!ready) return;
+    api.relationCandidates(undefined, space?.id ?? null).then(setRels).catch(() => setRels([]));
+  }, [ready, space?.id]);
 
   const groups = ORDER
     .map((s) => [s, (rels ?? []).filter((r) => r.status === s)] as const)
