@@ -32,3 +32,6 @@ yarn-error.log*
 # Data
 *.sqlite3
 data/
+
+# Captures de vérification locales (transitoires, non versionnées)
+docs/screens/
