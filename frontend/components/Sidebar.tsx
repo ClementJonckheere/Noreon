@@ -37,7 +37,7 @@ const GROUPS: NavGroup[] = [
     { label: "Données", icon: "data", match: ["/data", "/quality", "/connections", "/sources"],
       children: [{ href: "/data", cap: "viewData" }, { href: "/quality", cap: "inspectQuality" }] },
     { label: "Modèle sémantique", icon: "concepts", match: ["/concepts", "/relations"],
-      children: [{ href: "/concepts", cap: "manageConcepts" }, { href: "/relations", cap: "validateRelation" }] },
+      children: [{ href: "/concepts", cap: "arbitrateConcept" }, { href: "/relations", cap: "validateRelation" }] },
   ] },
 ];
 

@@ -572,7 +572,7 @@ export interface MeasurementDetail {
     snapshot_id: string | null; measured_at: string | null;
   }[];
 }
-export interface FieldRef { schema: string; table: string; column: string; label: string }
+export interface FieldRef { schema: string; table: string; column: string; label: string; concept: string }
 export type RelationStatus = "candidate" | "needs_validation" | "validated" | "archived" | "rejected";
 export type RelationOrigin = "constraint" | "inferred" | "declared";
 export interface RelationAlternative { table: string; column: string; coverage: number }

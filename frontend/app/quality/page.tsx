@@ -5,22 +5,24 @@ import Link from "next/link";
 import { api, Connection, QualityScore } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import SubNav from "@/components/SubNav";
+import AccessDenied from "@/components/CapGate";
 
 // Qualité — page de SURVEILLANCE : l'utilisateur comprend l'état de chaque source
 // avant même de l'ouvrir (réserves ouvertes, dernier contrôle), pas un annuaire.
 export default function QualityPage() {
   const [conns, setConns] = useState<Connection[] | null>(null);
-  const { caps } = useSession();
+  const { caps, ready } = useSession();
   useEffect(() => { api.listConnections().then(setConns).catch(() => setConns([])); }, []);
   const sourceCta = caps.manageSources
     ? { href: "/data", label: "Connecter une source" }
     : { href: "/data", label: "Demander une connexion" };
 
+  if (ready && !caps.inspectQuality) return <AccessDenied />;
   return (
     <div className="space-y-6 fade-in">
       <SubNav />
       <header className="space-y-1">
-        <h1 className="text-title text-ink-primary">Qualité</h1>
+        <h1 className="text-title text-ink-primary">Qualité des données</h1>
         <p className="text-body text-ink-secondary max-w-reading">
           Jusqu'où Noreon peut se fier aux données — les contrôles qui tournent avant
           chaque réponse, pas un score global opaque.

@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, Connection, CreateResult } from "@/lib/api";
+import { api, Connection } from "@/lib/api";
+import { useSession } from "@/lib/session";
 import PipelineRibbon from "@/components/PipelineRibbon";
 import SubNav from "@/components/SubNav";
+import AccessDenied from "@/components/CapGate";
 
 const ENGINES = [
   { id: "postgresql", label: "PostgreSQL", kind: "db", port: 5432 },
@@ -23,12 +25,15 @@ const EMPTY = {
 };
 
 export default function Home() {
-  const [conns, setConns] = useState<Connection[]>([]);
+  const { caps, ready } = useSession();
+  const [conns, setConns] = useState<Connection[] | null>(null);
+  // Le panneau de connexion n'est PAS ouvert en permanence : c'est une action
+  // ponctuelle. On liste d'abord, on connecte à la demande, on revient à la liste.
+  const [panelOpen, setPanelOpen] = useState(false);
   const [engine, setEngine] = useState<string>("postgresql");
   const [form, setForm] = useState({ ...EMPTY });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<CreateResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const engineSpec = ENGINES.find((e) => e.id === engine)!;
@@ -37,36 +42,42 @@ export default function Home() {
   async function load() {
     try {
       setConns(await api.listConnections());
-    } catch (e: any) {
-      setError(e.message);
+    } catch {
+      setConns([]);
     }
   }
   useEffect(() => {
     load();
   }, []);
 
+  function openPanel() {
+    setError(null);
+    setForm({ ...EMPTY });
+    if (fileRef.current) fileRef.current.value = "";
+    setPanelOpen(true);
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    setResult(null);
     try {
-      let res: CreateResult;
       if (isFile) {
         const file = fileRef.current?.files?.[0];
         if (!file) throw new Error("Sélectionnez un fichier.");
-        res = await api.uploadFileConnection(form.name, file);
+        await api.uploadFileConnection(form.name, file);
       } else {
-        res = await api.createConnection({
+        await api.createConnection({
           ...form,
           engine,
           port: Number(form.port) || engineSpec.port,
         });
       }
-      setResult(res);
       setForm({ ...EMPTY });
       if (fileRef.current) fileRef.current.value = "";
-      load();
+      await load();
+      // Connexion réussie : on referme le panneau et on retourne à la liste.
+      setPanelOpen(false);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -74,34 +85,57 @@ export default function Home() {
     }
   }
 
+  if (ready && !caps.viewData) return <AccessDenied />;
+
+  const list = conns ?? [];
+  const empty = conns !== null && list.length === 0;
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 fade-in">
       <SubNav />
-      <header className="space-y-1">
-        <h1 className="text-title text-ink">Données · sources</h1>
-        <p className="text-body text-ink-2">
-          Ce sur quoi Noreon peut répondre. Chaque source est vérifiée en
-          <span className="text-ink font-medium"> lecture seule</span> avant toute analyse.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-title text-ink">Sources de données</h1>
+          <p className="text-body text-ink-2 max-w-reading">
+            Ce sur quoi Noreon peut répondre. Chaque source est vérifiée en
+            <span className="text-ink font-medium"> lecture seule</span> avant toute analyse.
+          </p>
+        </div>
+        {!empty && !panelOpen && (
+          <button onClick={caps.manageSources ? openPanel : undefined} className="btn-primary btn-sm shrink-0"
+            {...(!caps.manageSources ? { disabled: true, title: "Demandez une connexion à un administrateur" } : {})}>
+            {caps.manageSources ? "Connecter une source" : "Demander une connexion"}
+          </button>
+        )}
       </header>
 
-      <PipelineRibbon />
+      {/* Le ruban pipeline n'apparaît qu'à l'onboarding (aucune source) : c'est un
+          repère de démarrage, pas un ornement permanent. */}
+      {(conns === null || empty) && <PipelineRibbon />}
 
-      <div className="grid gap-8 md:grid-cols-5">
-        <section className="md:col-span-3 space-y-4">
+      {conns === null ? (
+        <div className="text-body text-ink-3">Chargement…</div>
+      ) : empty ? (
+        <div className="card p-8 text-center space-y-3">
+          <div className="text-subhead text-ink">Aucune source connectée</div>
+          <p className="text-body text-ink-3 max-w-reading mx-auto">
+            Connectez une première source pour que Noreon puisse la profiler, en contrôler
+            la qualité et en tirer des concepts. Tout se fait en lecture seule.
+          </p>
+          {caps.manageSources ? (
+            <div className="pt-1"><button onClick={openPanel} className="btn-primary">Connecter une source</button></div>
+          ) : (
+            <div className="pt-1 meta">Demandez une connexion à un administrateur de l'espace.</div>
+          )}
+        </div>
+      ) : (
+        <section className="space-y-4">
           <div className="flex items-baseline justify-between">
             <h2 className="text-heading text-ink">Sources connectées</h2>
-            <span className="meta">{conns.length}</span>
+            <span className="meta">{list.length}</span>
           </div>
-
-          {conns.length === 0 && (
-            <div className="card p-6 text-body text-ink-3">
-              Aucune source pour l'instant. Créez-en une à droite.
-            </div>
-          )}
-
           <div className="space-y-2.5">
-            {conns.map((c) => (
+            {list.map((c) => (
               <Link
                 key={c.id}
                 href={`/connections/${c.id}`}
@@ -128,10 +162,17 @@ export default function Home() {
             ))}
           </div>
         </section>
+      )}
 
-        <section className="md:col-span-2">
-          <div className="card p-5 space-y-4">
-            <h2 className="text-subhead text-ink">Nouvelle source</h2>
+      {/* Panneau de connexion — temporaire, pas une colonne permanente. */}
+      {panelOpen && (
+        <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onClick={() => !busy && setPanelOpen(false)}>
+          <div className="w-full max-w-md h-full overflow-y-auto bg-bg-primary border-l border-line-subtle p-5 space-y-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-subhead text-ink">Connecter une source</h2>
+              <button onClick={() => !busy && setPanelOpen(false)} className="btn-ghost btn-sm text-ink-3">Fermer</button>
+            </div>
 
             <div>
               <label className="field-label">Moteur</label>
@@ -196,25 +237,9 @@ export default function Home() {
                 <div className="state-body">{error}</div>
               </div>
             )}
-            {result && (
-              <div className="space-y-2">
-                <div className="text-body text-ink">
-                  Source « {result.connection.name} » enregistrée.
-                </div>
-                {result.probe.server_version && (
-                  <div className="meta">{result.probe.server_version.split(",")[0]}</div>
-                )}
-                {result.read_only_alert && (
-                  <div className="state state-limit">
-                    <div className="state-title">Limite</div>
-                    <pre className="state-body whitespace-pre-wrap font-sans">{result.read_only_alert}</pre>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
-        </section>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

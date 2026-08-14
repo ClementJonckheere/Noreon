@@ -15,7 +15,7 @@ export interface Capabilities {
   viewPlan: boolean;          // Plan d'action
   viewData: boolean;          // Données (sources)
   inspectQuality: boolean;    // Qualité / contrôles
-  manageConcepts: boolean;    // Concepts (Semantic Layer)
+  arbitrateConcept: boolean;    // Concepts (Semantic Layer)
   validateRelation: boolean;  // valider une relation candidate — geste DISTINCT de l'arbitrage
   publishConclusion: boolean; // publier une conclusion
   validateConcept: boolean;   // valider/arbitrer un concept
@@ -26,7 +26,7 @@ export interface Capabilities {
 
 const NONE: Capabilities = {
   askQuestions: false, viewDiscoveries: false, viewReports: false, viewPlan: false,
-  viewData: false, inspectQuality: false, manageConcepts: false, validateRelation: false,
+  viewData: false, inspectQuality: false, arbitrateConcept: false, validateRelation: false,
   publishConclusion: false, validateConcept: false, decideAction: false,
   administerSpace: false, manageSources: false,
 };
@@ -42,7 +42,7 @@ const DIRECTION: Capabilities = {
 const ANALYSTE: Capabilities = {
   ...NONE,
   askQuestions: true, viewDiscoveries: true, viewReports: true,
-  viewData: true, inspectQuality: true, manageConcepts: true, validateRelation: true,
+  viewData: true, inspectQuality: true, arbitrateConcept: true, validateRelation: true,
   publishConclusion: true, validateConcept: true, manageSources: true,
 };
 
@@ -56,7 +56,7 @@ export function capabilitiesForRole(role?: string | null): Capabilities {
   switch (role) {
     case "analyst": return ANALYSTE;
     case "reader": return OPERATIONNEL;
-    case "admin": return { ...DIRECTION, viewData: true, inspectQuality: true, manageConcepts: true, validateRelation: true, validateConcept: true, manageSources: true };
+    case "admin": return { ...DIRECTION, viewData: true, inspectQuality: true, arbitrateConcept: true, validateRelation: true, validateConcept: true, manageSources: true };
     default: return DIRECTION; // mode dev / non authentifié : accueil dirigeant
   }
 }

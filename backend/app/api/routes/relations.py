@@ -19,16 +19,17 @@ from app.services import relations as rel_svc
 router = APIRouter(prefix="/relations", tags=["relations"])
 
 
-def _field(schema: str, table: str, column: str) -> dict:
+def _field(db: Session, tenant_id: int, schema: str, table: str, column: str) -> dict:
+    # `label` = lignage PHYSIQUE (preuve) ; `concept` = libellé MÉTIER (Semantic Layer).
     return {"schema": schema, "table": table, "column": column,
-            "label": f"{table}.{column}"}
+            "label": f"{table}.{column}", "concept": rel_svc.entity_label(db, tenant_id, table)}
 
 
 def _rel_dict(db: Session, r: RelationCandidate) -> dict:
     return {
         "id": r.id, "connection_id": r.connection_id,
-        "left": _field(r.left_schema, r.left_table, r.left_column),
-        "right": _field(r.right_schema, r.right_table, r.right_column),
+        "left": _field(db, r.tenant_id, r.left_schema, r.left_table, r.left_column),
+        "right": _field(db, r.tenant_id, r.right_schema, r.right_table, r.right_column),
         "direction": r.direction, "cardinality": r.cardinality,
         "coverage": r.coverage, "target_uniqueness": r.target_uniqueness,
         "type_compatibility": r.type_compatibility,
@@ -99,8 +100,8 @@ def relation_exceptions(
     """Contre-exemples : combien, et la nuance temporelle (« toutes antérieures à… »)."""
     r = _owned(db, relation_id, tenant)
     return {"count": r.exceptions_count, "note": r.exceptions_note,
-            "left": _field(r.left_schema, r.left_table, r.left_column),
-            "right": _field(r.right_schema, r.right_table, r.right_column)}
+            "left": _field(db, r.tenant_id, r.left_schema, r.left_table, r.left_column),
+            "right": _field(db, r.tenant_id, r.right_schema, r.right_table, r.right_column)}
 
 
 @router.post("/{relation_id}/validate", dependencies=[Depends(require_analyst)])

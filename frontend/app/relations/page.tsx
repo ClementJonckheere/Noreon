@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, RelationCandidateView, RelationStatus } from "@/lib/api";
 import { useCurrentSpace } from "@/lib/space";
+import { useSession } from "@/lib/session";
 import SubNav from "@/components/SubNav";
+import AccessDenied from "@/components/CapGate";
 
 // Relations — les liens entre champs, jugés sur des FAITS (couverture, unicité,
 // cardinalité, exceptions, fenêtre), pas sur un simple score. Une relation validée
@@ -22,6 +24,7 @@ const pct = (x: number | null) => (x == null ? "—" : `${(x * 100).toFixed(1)} 
 
 export default function RelationsPage() {
   const { space, ready } = useCurrentSpace();
+  const { caps, ready: capsReady } = useSession();
   const [rels, setRels] = useState<RelationCandidateView[] | null>(null);
   // Cloisonnement PHYSIQUE : seules les relations dont la source est rattachée à
   // l'espace courant sont montrées (un lien physique ne fuit pas d'un périmètre à l'autre).
@@ -34,6 +37,7 @@ export default function RelationsPage() {
     .map((s) => [s, (rels ?? []).filter((r) => r.status === s)] as const)
     .filter(([, list]) => list.length > 0);
 
+  if (capsReady && !caps.validateRelation) return <AccessDenied />;
   return (
     <div className="space-y-6 fade-in">
       <SubNav />
@@ -64,12 +68,12 @@ export default function RelationsPage() {
                 <Link key={r.id} href={`/relations/${r.id}`}
                   className="card p-4 flex items-start justify-between gap-3 hover:border-line-strong transition-colors">
                   <div className="min-w-0 space-y-1">
+                    {/* Libellé MÉTIER d'abord ; lignage physique en sous-titre monospace (la preuve). */}
                     <div className="flex items-center gap-2">
-                      <span className="mono text-body text-ink-primary truncate">{r.left.label}</span>
-                      <span className="text-ink-tertiary">→</span>
-                      <span className="mono text-body text-ink-primary truncate">{r.right.label}</span>
+                      <span className="text-body text-ink-primary truncate">{r.left.concept} → {r.right.concept}</span>
                       <span className={`tag border shrink-0 ${STATUS[status].cls}`}>{STATUS[status].label}</span>
                     </div>
+                    <div className="mono text-small text-ink-tertiary truncate">{r.left.label} → {r.right.label}</div>
                     <div className="meta">
                       Couverture {pct(r.coverage)} · cardinalité {r.cardinality ?? "—"} ·
                       {" "}{r.exceptions_count ?? 0} exception{(r.exceptions_count ?? 0) > 1 ? "s" : ""} · {ORIGIN[r.origin] ?? r.origin}

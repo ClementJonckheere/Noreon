@@ -104,6 +104,22 @@ def _concepts_on(db: Session, tenant_id: int, table: str) -> list[str]:
     return list(rows)
 
 
+def entity_label(db: Session, tenant_id: int, table: str) -> str:
+    """Libellé MÉTIER représentatif d'une table (« products » → « Produit »), via la
+    Semantic Layer. Aucun domaine codé : on choisit parmi les concepts RÉELS mappés."""
+    import re as _re
+    from app.services.concepts import subject_domain
+    concepts = _concepts_on(db, tenant_id, table)
+    if not concepts:
+        return subject_domain(table)
+    toks = set(_re.findall(r"[a-z]+", table.lower()))
+    for c in concepts:
+        cl = c.lower()
+        if any(t[:4] and (t[:4] in cl or cl[:4] in t) for t in toks):
+            return c
+    return concepts[0]
+
+
 def preview(db: Session, r: RelationCandidate) -> dict:
     """CE QUE LA RELATION REND POSSIBLE — dérivé du graphe/concepts RÉELS, jamais de
     phrases codées. Croiser les concepts d'une table avec ceux de l'autre ouvre des

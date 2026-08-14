@@ -21,7 +21,7 @@ const FAMILIES: { match: string[]; tabs: Tab[] }[] = [
   {
     match: ["/concepts", "/relations"],
     tabs: [
-      { label: "Concepts", href: "/concepts", cap: "manageConcepts", activeOn: ["/concepts"] },
+      { label: "Concepts", href: "/concepts", cap: "arbitrateConcept", activeOn: ["/concepts"] },
       { label: "Relations", href: "/relations", cap: "validateRelation", activeOn: ["/relations"] },
     ],
   },

@@ -69,13 +69,12 @@ export default function RelationDetailPage() {
           <Link href="/relations" className="hover:text-ink-primary">Relations</Link>
           <span className="mx-1.5">/</span><span className="text-ink-secondary">Relation candidate</span>
         </nav>
-        {/* Le lien, en clair. */}
+        {/* Titre MÉTIER (Semantic Layer) ; lignage physique conservé en preuve, dessous. */}
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="mono text-subhead text-ink-primary">{r.left.label}</span>
-          <span className="text-ink-tertiary">↓</span>
-          <span className="mono text-subhead text-ink-primary">{r.right.label}</span>
+          <h1 className="text-subhead text-ink-primary">{r.left.concept} → {r.right.concept}</h1>
           {validated && <span className="tag border text-ink-secondary bg-bg-secondary border-line-subtle">Validée</span>}
         </div>
+        <div className="mono text-small text-ink-tertiary">{r.left.label} → {r.right.label}</div>
       </div>
 
       {/* FAITS — jamais la seule couverture. */}

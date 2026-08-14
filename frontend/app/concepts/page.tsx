@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ConceptOverview, ConceptStatus } from "@/lib/api";
 import { useCurrentSpace } from "@/lib/space";
+import { useSession } from "@/lib/session";
 import SubNav from "@/components/SubNav";
+import AccessDenied from "@/components/CapGate";
 
 // Concepts — le vocabulaire partagé et ses désaccords. On distingue clairement
 // quatre états : validé (une définition en vigueur), proposé (Noreon suggère),
@@ -24,6 +26,7 @@ const ORDER: ConceptStatus[] = ["needs_arbitration", "proposed", "validated", "s
 
 export default function ConceptsPage() {
   const { space, ready } = useCurrentSpace();
+  const { caps, ready: capsReady } = useSession();
   const [concepts, setConcepts] = useState<ConceptOverview[] | null>(null);
   // Résolu pour l'espace courant : définition commune de l'Univers, ou surcharge.
   useEffect(() => {
@@ -35,6 +38,7 @@ export default function ConceptsPage() {
     .map((s) => [s, (concepts ?? []).filter((c) => c.status === s)] as const)
     .filter(([, list]) => list.length > 0);
 
+  if (capsReady && !caps.arbitrateConcept) return <AccessDenied />;
   return (
     <div className="space-y-6 fade-in">
       <SubNav />

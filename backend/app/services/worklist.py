@@ -12,7 +12,6 @@ Invariants (verrouillés) :
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -27,10 +26,12 @@ from app.models.space import Space
 from app.models.user import ROLE_ANALYST, ROLE_ADMIN, ROLE_ORDER
 from app.models.work_item import ActivityEvent, WorkItem
 
-# kind (primitive produit) → capability requise (jamais un rôle en dur).
+# kind (primitive produit) → capability requise (jamais un rôle en dur). Chaque
+# geste est PRÉCIS : arbitrer une définition n'est pas « administrer les concepts ».
+# Ces chaînes sont le contrat partagé avec le frontend (arbitrateConcept, etc.).
 CAP_BY_KIND = {
-    "concept_arbitration": "manage_concepts",
-    "relation_validation": "manage_concepts",
+    "concept_arbitration": "arbitrate_concept",
+    "relation_validation": "validate_relation",
     "report_validation": "validate_report",
     "measurement_due": "decide_action",
     "quality_review": "inspect_quality",
@@ -38,7 +39,8 @@ CAP_BY_KIND = {
 }
 # capability → rôle minimal (traduction locale ; l'assignation reste par capacité).
 CAP_MIN_ROLE = {
-    "manage_concepts": ROLE_ANALYST,
+    "arbitrate_concept": ROLE_ANALYST,
+    "validate_relation": ROLE_ANALYST,
     "validate_report": ROLE_ANALYST,
     "decide_action": ROLE_ANALYST,
     "inspect_quality": ROLE_ANALYST,
@@ -185,25 +187,10 @@ def _space_of_connection(db: Session, tenant_id: int, connection_id: int | None)
 
 
 # --- Libellés MÉTIER via la Semantic Layer (jamais de nom physique dans la file) ---
-def _entity_label(db: Session, tenant_id: int, table: str) -> str:
-    """Concept métier représentatif d'une table (« products » → « Produit »). Aucun
-    domaine codé : on choisit parmi les concepts RÉELS mappés à la table."""
-    from app.services.concepts import subject_domain
-    from app.services.relations import _concepts_on
-    concepts = _concepts_on(db, tenant_id, table)
-    if not concepts:
-        return subject_domain(table)
-    toks = set(re.findall(r"[a-z]+", table.lower()))
-    for c in concepts:                       # concept dont le nom recoupe la table
-        cl = c.lower()
-        if any(t[:4] and (t[:4] in cl or cl[:4] in t) for t in toks):
-            return c
-    return concepts[0]                        # à défaut, le concept représentatif
-
-
 def _relation_title(db: Session, tenant_id: int, r) -> str:
-    left = _entity_label(db, tenant_id, r.left_table)
-    right = _entity_label(db, tenant_id, r.right_table)
+    from app.services.relations import entity_label
+    left = entity_label(db, tenant_id, r.left_table)
+    right = entity_label(db, tenant_id, r.right_table)
     return f"Relation {left} → {right}"
 
 
