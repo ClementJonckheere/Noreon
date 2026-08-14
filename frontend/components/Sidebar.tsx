@@ -132,7 +132,8 @@ export default function Sidebar() {
       </div>
 
       <div className="px-3 pt-3">
-        <button type="button" className="w-full flex items-center gap-2 h-9 px-3 rounded-[6px] bg-surface-raised border border-line text-ink-tertiary text-[12.5px] hover:border-line-strong transition-colors">
+        <button type="button" onClick={() => window.dispatchEvent(new Event("noreon:open-command"))}
+          className="w-full flex items-center gap-2 h-9 px-3 rounded-[6px] bg-surface-raised border border-line text-ink-tertiary text-[12.5px] hover:border-line-strong transition-colors">
           <Icon name="search" className="w-4 h-4" />
           <span className="flex-1 text-left">Rechercher</span>
           <Kbd />

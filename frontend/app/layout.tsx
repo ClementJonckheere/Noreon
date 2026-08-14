@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import Sidebar from "@/components/Sidebar";
 import Shell from "@/components/Shell";
+import CommandPalette from "@/components/CommandPalette";
 
 // Instrument Sans pour tout ce qui se lit, JetBrains Mono pour tout ce qui se
 // vérifie. Auto-hébergées par next/font (aucune requête réseau à l'exécution).
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Sidebar />
           <Shell>{children}</Shell>
         </div>
+        <CommandPalette />
       </body>
     </html>
   );
