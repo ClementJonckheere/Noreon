@@ -95,75 +95,64 @@ def _is_ref(v) -> bool:
 
 
 # --- interpretation_json (SORTIE LLM) ---------------------------------------
+def _scan_forbidden(payload: dict) -> None:
+    """Invariant 3, AVANT Pydantic : un champ « Noreon-only » dans la sortie LLM
+    doit produire un code précis, pas un « extra_forbidden » générique."""
+    goals = payload.get("goals") if isinstance(payload, dict) else None
+    if not isinstance(goals, list):
+        return
+    for i, g in enumerate(goals):
+        if isinstance(g, dict):
+            forbidden = set(g) & _LLM_FORBIDDEN_KEYS
+            _require(not forbidden, "llm_forbidden_field", f"$.goals[{i}]",
+                     f"réservé à Noreon : {sorted(forbidden)}")
+
+
 def validate_interpretation(payload: dict) -> Interpretation:
+    """Deux temps : (1) STRUCTURE via les modèles Pydantic (source unique du
+    contrat, qui génère aussi le JSON Schema OVHcloud) ; (2) RÈGLES MÉTIER via
+    les validateurs custom (références sémantiques, DAG, liaisons) et leurs codes."""
     _require(isinstance(payload, dict), "not_object", "$")
-    _no_extra_keys(payload, frozenset({"plan_schema_version", "goals", "unresolved_terms"}), "$")
-    _require(payload.get("plan_schema_version") == PLAN_SCHEMA_VERSION,
-             "bad_schema_version", "$.plan_schema_version", str(payload.get("plan_schema_version")))
+    _scan_forbidden(payload)
 
-    goals_raw = payload.get("goals")
-    _require(isinstance(goals_raw, list) and goals_raw, "empty_goals", "$.goals")
+    # (1) Structure — Pydantic est la source unique du contrat structurel.
+    from pydantic import ValidationError
 
+    from app.analysis.schema_models import InterpretationDoc
+
+    try:
+        doc = InterpretationDoc.model_validate(payload)
+    except ValidationError as e:
+        err = e.errors()[0] if e.errors() else {}
+        loc = ".".join(str(x) for x in err.get("loc", ()))
+        raise ContractError("schema_invalid", f"$.{loc}", err.get("msg", "structure invalide"))
+
+    # (2) Règles métier — codes précis.
     goals: list[Goal] = []
-    for i, g in enumerate(goals_raw):
+    for i, g in enumerate(doc.goals):
         p = f"$.goals[{i}]"
-        _require(isinstance(g, dict), "not_object", p)
-        # Invariant 3 : aucun champ « Noreon-only » dans la sortie LLM.
-        forbidden = set(g) & _LLM_FORBIDDEN_KEYS
-        _require(not forbidden, "llm_forbidden_field", p, f"réservé à Noreon : {sorted(forbidden)}")
-        _no_extra_keys(g, _GOAL_KEYS, p)
-
-        gid = g.get("id")
-        _require(isinstance(gid, str) and gid, "bad_goal_id", p)
-        prio = g.get("priority")
-        _require(isinstance(prio, int) and not isinstance(prio, bool) and prio >= 1,
-                 "bad_priority", p, str(prio))
-        _require(g.get("type") in GOAL_TYPES, "bad_goal_type", p, str(g.get("type")))
-        _require(isinstance(g.get("intent_text"), str) and g["intent_text"].strip(),
-                 "missing_intent_text", p)
-
-        entity_ref = g.get("entity_ref", None)
-        # entity_ref est SOIT une référence sémantique, SOIT null (→ terme non résolu).
-        _require(entity_ref is None or _is_ref(entity_ref), "entity_not_a_ref", p, str(entity_ref))
-
-        # metrics : références sémantiques uniquement.
-        for j, m in enumerate(g.get("metrics", []) or []):
+        _require(g.entity_ref is None or _is_ref(g.entity_ref), "entity_not_a_ref", p, str(g.entity_ref))
+        for j, m in enumerate(g.metrics):
             mp = f"{p}.metrics[{j}]"
-            _require(isinstance(m, dict), "not_object", mp)
-            _no_extra_keys(m, frozenset({"ref", "of_ref"}), mp)
-            _require(_is_ref(m.get("ref")), "metric_not_a_ref", mp, str(m.get("ref")))
-            if "of_ref" in m:
-                _require(_is_ref(m["of_ref"]), "metric_of_not_a_ref", mp, str(m["of_ref"]))
+            _require(_is_ref(m.ref), "metric_not_a_ref", mp, str(m.ref))
+            if m.of_ref is not None:
+                _require(_is_ref(m.of_ref), "metric_of_not_a_ref", mp, str(m.of_ref))
+        for j, d in enumerate(g.dimensions):
+            _require(_is_ref(d.ref), "dimension_not_a_ref", f"{p}.dimensions[{j}]", str(d.ref))
+        goals.append(Goal(id=g.id, priority=g.priority, type=g.type,
+                          intent_text=g.intent_text, entity_ref=g.entity_ref,
+                          depends_on=tuple(g.depends_on), raw=g.model_dump()))
 
-        for j, d in enumerate(g.get("dimensions", []) or []):
-            dp = f"{p}.dimensions[{j}]"
-            _require(isinstance(d, dict) and _is_ref(d.get("ref")), "dimension_not_a_ref", dp, str(d))
-
-        deps = g.get("depends_on", []) or []
-        _require(isinstance(deps, list) and all(isinstance(x, str) for x in deps),
-                 "bad_depends_on", p)
-
-        goals.append(Goal(id=gid, priority=prio, type=g["type"],
-                          intent_text=g["intent_text"], entity_ref=entity_ref,
-                          depends_on=tuple(deps), raw=g))
-
-    # Invariant 1 : DAG valide (unicité, existence, pas d'auto-dép, pas de cycle,
-    # priorités cohérentes) + tri topologique déterministe.
+    # Invariant 1 : DAG valide + tri topologique déterministe.
     validate_dag(goals)
 
-    # unresolved_terms : chaque terme est RELIÉ à un goal existant (correction Δ4).
-    ut_raw = payload.get("unresolved_terms", []) or []
-    _require(isinstance(ut_raw, list), "bad_unresolved_terms", "$.unresolved_terms")
+    # unresolved_terms reliés à un goal existant (correction Δ4).
     ids = {g.id for g in goals}
-    for i, t in enumerate(ut_raw):
-        tp = f"$.unresolved_terms[{i}]"
-        _require(isinstance(t, dict), "not_object", tp)
-        _no_extra_keys(t, frozenset({"goal_id", "term", "role", "source_span", "reason"}), tp)
-        _require(t.get("goal_id") in ids, "unresolved_unknown_goal", tp, str(t.get("goal_id")))
-        _require(isinstance(t.get("term"), str) and t["term"].strip(), "missing_term", tp)
-        _require(t.get("role") in UNRESOLVED_ROLES, "bad_unresolved_role", tp, str(t.get("role")))
+    for i, t in enumerate(doc.unresolved_terms):
+        _require(t.goal_id in ids, "unresolved_unknown_goal", f"$.unresolved_terms[{i}]", str(t.goal_id))
 
-    return Interpretation(goals=tuple(goals), unresolved_terms=tuple(ut_raw))
+    return Interpretation(goals=tuple(goals),
+                          unresolved_terms=tuple(t.model_dump() for t in doc.unresolved_terms))
 
 
 # --- DAG (invariant 1) -------------------------------------------------------

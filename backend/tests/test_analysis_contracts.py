@@ -247,6 +247,23 @@ def test_small_groups_are_suppressed():
     assert [r["seg"] for r in kept] == ["A"]
 
 
+# --- Pydantic = source unique du contrat structurel --------------------------
+def test_json_schema_is_strict_and_generated_from_pydantic():
+    from app.analysis.schema_models import interpretation_json_schema
+    s = interpretation_json_schema()
+    assert s.get("additionalProperties") is False
+    assert set(s.get("required", [])) >= {"plan_schema_version", "goals"}
+    assert s["$defs"]["GoalIn"].get("additionalProperties") is False
+
+
+def test_structural_error_maps_to_schema_invalid():
+    p = _valid_interpretation()
+    p["goals"][0]["priority"] = 0   # viole ge=1 (structurel → Pydantic)
+    with pytest.raises(C.ContractError) as e:
+        C.validate_interpretation(p)
+    assert e.value.code == "schema_invalid"
+
+
 # --- Jeu d'éval bien formé ----------------------------------------------------
 def test_eval_cases_are_wellformed():
     assert CASES

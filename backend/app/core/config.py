@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     llm_provider: str = "heuristic"
     llm_model: str = ""
 
+    # Planificateur analytique (Phase 2) — OVHcloud AI Endpoints (OpenAI-compat).
+    # Le SECRET (OVH_AI_ENDPOINTS_ACCESS_TOKEN) est lu via os.environ, jamais ici.
+    # Aucun modèle par défaut : une config incomplète produit une erreur explicite.
+    ovh_base_url: str = ""
+    ovh_model: str = ""
+
     # Garde-fous SQL (défauts globaux, configurables par tenant)
     sql_timeout_seconds: int = 60
     sql_row_limit: int = 10_000
