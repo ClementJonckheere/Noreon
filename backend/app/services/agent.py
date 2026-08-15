@@ -38,13 +38,29 @@ from app.services.deep_analysis import (
 
 log = get_logger("noreon.agent")
 
-# Intentions « analytiques » qui déclenchent une investigation plutôt qu'un
-# simple SQL.
-_INVESTIGATE_RE = re.compile(
-    r"\b(pourquoi|why|explique|expliqu|analyse|analyser|comprendre|comprends|"
-    r"cause|causes|raison|raisons|driver|facteur|facteurs|diagnos|"
+# Signaux CAUSAUX/temporels FORTS : une investigation multi-étapes est
+# clairement pertinente (« pourquoi », « la baisse », « la tendance »…).
+_STRONG_CAUSAL_RE = re.compile(
+    r"\b(pourquoi|why|cause|causes|raison|raisons|driver|facteur|facteurs|diagnos|"
     r"baisse|baisser|hausse|chute|chuter|recul|recule|progress|"
     r"evolue|evolu|évolu|tendance|tendances|se passe|qu'?est[- ]ce qui)\b",
+    re.IGNORECASE,
+)
+
+# Signaux FAIBLES/ambigus : « analyse », « comprendre »… ne suffisent PAS à
+# eux seuls — « Analyse les données et dis-moi COMBIEN de clients » est une
+# question factuelle de dénombrement, pas une enquête causale.
+_WEAK_INTENT_RE = re.compile(
+    r"\b(analyse|analyser|analyses|comprendre|comprends|explique|expliqu)\b",
+    re.IGNORECASE,
+)
+
+# Intentions FACTUELLES (dénombrement / liste) : réponse par SQL direct, JAMAIS
+# par une investigation causale — sinon le moteur fabrique une tendance sans
+# rapport avec la demande.
+_FACTUAL_RE = re.compile(
+    r"\b(combien|nombre d|how many|count|liste|lister|listez|listing|"
+    r"énumèr|enumer|quels?\s+sont|quelles?\s+sont)\b",
     re.IGNORECASE,
 )
 
@@ -63,7 +79,16 @@ _TABLE_SYNONYMS = {
 
 
 def should_investigate(question: str) -> bool:
-    return bool(_INVESTIGATE_RE.search(question))
+    """Une investigation causale multi-étapes n'est lancée que pour une VRAIE
+    question analytique. Une demande factuelle (« combien… », « liste… ») part
+    toujours au SQL direct, même préfixée de « Analyse les données » — sans quoi
+    le moteur répond une tendance fabriquée qui n'a aucun rapport avec la demande.
+    """
+    if _STRONG_CAUSAL_RE.search(question):
+        return True
+    if _FACTUAL_RE.search(question):
+        return False
+    return bool(_WEAK_INTENT_RE.search(question))
 
 
 def _pick_subject(schema, question: str, allowed: list[str]):
