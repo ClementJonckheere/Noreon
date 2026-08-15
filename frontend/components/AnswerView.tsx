@@ -28,6 +28,7 @@ import DecisionView from "@/components/DecisionView";
 const STATUS_BLOCK: Record<string, { cls: string; title: string }> = {
   clarification: { cls: "state-abstain", title: "Je ne conclus pas" },
   unanswerable: { cls: "state-abstain", title: "Je ne conclus pas" },
+  out_of_scope: { cls: "state-abstain", title: "Demande non couverte" },
   no_schema: { cls: "state-abstain", title: "Analyse impossible" },
   blocked: { cls: "state-blocker", title: "Blocage" },
   error: { cls: "state-blocker", title: "Blocage" },

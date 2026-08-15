@@ -79,6 +79,10 @@ class ChatResponse:
     investigation: dict | None = None
     confidence: dict | None = None
     table_quality: dict = field(default_factory=dict)
+    # Couverture de la DEMANDE (0..1) et détail des objectifs réalisables /
+    # hors répertoire — une analyse substituée hors sujet vaut 0, jamais 1.
+    coverage: float | None = None
+    scope: dict | None = None
     chart: dict | None = None
     privacy: dict | None = None
 
@@ -129,6 +133,20 @@ def answer_question(
             status="no_schema", question=question,
             message="Aucun schéma scanné pour cette connexion. Lancez d'abord un scan.",
         )
+
+    # HONNÊTETÉ (Phase 1) : si la demande exige une opération hors du répertoire
+    # du moteur (segmentation/RFM, cohortes, croisement multi-dimensions, tranches
+    # dérivées…), on le DIT au lieu de substituer une tendance par défaut. La
+    # couverture de la demande vaut alors 0 — jamais une conclusion hors sujet à 100 %.
+    if run_analysis:
+        from app.services import request_scope
+
+        scope = request_scope.assess(question)
+        if scope.refuse:
+            return ChatResponse(
+                status="out_of_scope", question=question,
+                message=scope.message, coverage=scope.coverage, scope=scope.as_dict(),
+            )
 
     # Gouvernance par espace : les tables/colonnes masquées n'entrent jamais
     # dans le contexte fourni au moteur SQL (il ne peut pas les proposer).
