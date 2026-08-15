@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Aucun modèle par défaut : une config incomplète produit une erreur explicite.
     ovh_base_url: str = ""
     ovh_model: str = ""
+    # Routage à deux modèles (C3) : principal (toute complexité) et simple
+    # (demandes strictement count/aggregate/ranking, sans méthode/dépendance).
+    ovh_model_main: str = ""
+    ovh_model_simple: str = ""
 
     # Garde-fous SQL (défauts globaux, configurables par tenant)
     sql_timeout_seconds: int = 60
