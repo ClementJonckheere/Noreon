@@ -153,10 +153,9 @@ def test_model_eliminated_below_thresholds():
 
 
 def test_rank_puts_eliminated_last():
-    clean = B.ModelReport(model="A", latency_ms_mean=100.0)
-    clean.results = [B.CaseResult("c", json_ok=True, recall=1.0)]
-    bad = B.ModelReport(model="B", latency_ms_mean=10.0,
-                        results=[B.CaseResult("c", json_ok=True, recall=1.0, out_of_catalog=True)])
+    clean = B.ModelReport(model="A", results=[B.CaseResult("c", json_ok=True, recall=1.0, latency_ms=100.0)])
+    bad = B.ModelReport(model="B", results=[
+        B.CaseResult("c", json_ok=True, recall=1.0, out_of_catalog=True, latency_ms=10.0)])
     order = B.rank([bad, clean])
     assert [r.model for r in order] == ["A", "B"]   # qualifié avant éliminé
 
