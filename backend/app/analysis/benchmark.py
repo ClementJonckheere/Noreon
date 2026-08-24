@@ -73,6 +73,8 @@ class CaseResult:
     cost: float | None = None
     routing_excluded: bool | None = None   # (tier simple, cas complexe) le pré-routeur l'aurait exclu
     semantic: bool = True           # évalué sémantiquement (sinon : conformité seule)
+    primary_type: str | None = None        # type de l'objectif principal produit (diagnostic)
+    produced_types: tuple[str, ...] = ()    # tous les types produits (diagnostic)
     error: str | None = None
 
     def as_dict(self) -> dict:
@@ -94,7 +96,9 @@ def score_case(case: EvalCase, interp: Interpretation | None, refs: set[str]) ->
         primary_forgotten=primary_forgotten, silent_substitution=silent_substitution,
         false_goals=len(produced - expected), n_goals=len(interp.goals),
         has_dependencies=any(g.depends_on for g in interp.goals),
-        has_ambiguities=any(g.raw.get("ambiguities") for g in interp.goals))
+        has_ambiguities=any(g.raw.get("ambiguities") for g in interp.goals),
+        primary_type=primary.type,
+        produced_types=tuple(sorted(g.type for g in interp.goals)))
 
 
 @dataclass
