@@ -103,6 +103,25 @@ def _make_plan_fn(provider: OVHcloudProvider, attempts: int):
     return plan_fn
 
 
+def _progress(catalog: str, model: str, tier: str, run_i: int, runs: int):
+    """Callback de progression en direct (une ligne réécrite par cas terminé)."""
+    t0 = time.perf_counter()
+
+    def cb(done: int, total: int, case, res) -> None:
+        elapsed = time.perf_counter() - t0
+        rate = done / elapsed if elapsed > 0 else 0.0
+        eta = (total - done) / rate if rate > 0 else 0.0
+        flag = "ok" if getattr(res, "json_ok", False) else (res.error or "err")
+        sys.stdout.write(
+            f"\r  [{catalog}·{tier}·run{run_i}/{runs}] {done:>3}/{total} "
+            f"· {rate:4.1f}/s · ETA {eta:5.0f}s · {case.id}:{flag}      ")
+        sys.stdout.flush()
+        if done == total:
+            sys.stdout.write("\n")
+
+    return cb
+
+
 def _agreement_on_simple(simple_rep: B.ModelReport, main_rep: B.ModelReport) -> float:
     """Accord 20b/120b sur les cas simples : même conclusion (JSON conforme + rappel plein)."""
     by_id = {r.case_id: r for r in main_rep.results}
@@ -121,6 +140,8 @@ def main() -> int:
     ap.add_argument("--catalog", action="append", default=[], help="nom/chemin (répétable)")
     ap.add_argument("--runs", type=int, default=2, help="exécutions par modèle (défaut 2)")
     ap.add_argument("--attempts", type=int, default=2, help="tentatives JSON par appel")
+    ap.add_argument("--concurrency", type=int, default=6,
+                    help="appels simultanés par modèle (défaut 6 ; baisse si rate-limit)")
     ap.add_argument("--split", choices=["all", "development", "holdout"], default="all")
     ap.add_argument("--out", default="bench_report.json")
     args = ap.parse_args()
@@ -132,7 +153,7 @@ def main() -> int:
     cases = {"all": CASES, "development": DEVELOPMENT, "holdout": HOLDOUT}[args.split]
     catalogs = args.catalog or ["retail_full"]
     print(f"Corpus : {len(cases)} cas ({args.split}) · catalogues : {catalogs} · "
-          f"runs : {args.runs} · disponibles : {list_catalogs()}")
+          f"runs : {args.runs} · concurrence : {args.concurrency} · disponibles : {list_catalogs()}")
 
     try:
         main_provider = _provider(args.main)
@@ -154,13 +175,18 @@ def main() -> int:
     for cat_name in catalogs:
         catalog = load_catalog(cat_name)
         main_reps, simple_reps = [], []
-        for _ in range(args.runs):
-            main_reps.append(B.run_model(args.main, cases, catalog,
-                                         plan_fn=_make_plan_fn(main_provider, args.attempts),
-                                         tier="main"))
-            simple_reps.append(B.run_model(args.simple, cases, catalog,
-                                           plan_fn=_make_plan_fn(simple_provider, args.attempts),
-                                           tier="simple", main_model=args.main, simple_model=args.simple))
+        for run_i in range(1, args.runs + 1):
+            main_reps.append(B.run_model(
+                args.main, cases, catalog,
+                plan_fn=_make_plan_fn(main_provider, args.attempts), tier="main",
+                max_workers=args.concurrency,
+                progress=_progress(cat_name, args.main, "main", run_i, args.runs)))
+            simple_reps.append(B.run_model(
+                args.simple, cases, catalog,
+                plan_fn=_make_plan_fn(simple_provider, args.attempts), tier="simple",
+                main_model=args.main, simple_model=args.simple,
+                max_workers=args.concurrency,
+                progress=_progress(cat_name, args.simple, "simple", run_i, args.runs)))
         main_rep = _merge(main_reps)
         simple_rep = _merge(simple_reps)
         agreement = _agreement_on_simple(simple_rep, main_rep)

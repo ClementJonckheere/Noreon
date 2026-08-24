@@ -187,18 +187,24 @@ class PlanResult:
 
 def run_model(model: str, cases: list[EvalCase], catalog, *, plan_fn,
               tier: str = "main", main_model: str | None = None,
-              simple_model: str | None = None) -> ModelReport:
+              simple_model: str | None = None, max_workers: int = 1,
+              progress=None) -> ModelReport:
     """`plan_fn(model, question, catalog) -> PlanResult`.
 
     tier=main : évaluation SÉMANTIQUE sur tout le corpus.
     tier=simple : sémantique UNIQUEMENT sur les cas `simple_eligible` ; sur les
     autres, on mesure la conformité JSON et on vérifie que le pré-routeur les
-    aurait EXCLUS du 20b (aucune sélection silencieuse)."""
+    aurait EXCLUS du 20b (aucune sélection silencieuse).
+
+    `max_workers>1` parallélise les appels (I/O réseau) SANS changer l'ordre des
+    résultats — les appels `plan` ne mutent aucun état partagé. `progress(done,
+    total, case, res)` est appelé à chaque cas terminé (feedback en direct)."""
     from app.analysis.routing import preroute
 
     refs = catalog_refs(catalog)
     report = ModelReport(model=model, tier=tier)
-    for case in cases:
+
+    def _eval_one(case: EvalCase) -> CaseResult:
         pr = plan_fn(model, case.question, catalog)
         semantic = (tier == "main") or case.simple_eligible
         if pr.interp is None:
@@ -216,7 +222,28 @@ def run_model(model: str, cases: list[EvalCase], catalog, *, plan_fn,
         if tier == "simple" and not case.simple_eligible and simple_model:
             dec = preroute(case.question, main_model=main_model or "main", simple_model=simple_model)
             res.routing_excluded = dec.selected_model != simple_model
-        report.results.append(res)
+        return res
+
+    total = len(cases)
+    if max_workers and max_workers > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        ordered: list[CaseResult | None] = [None] * total
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futs = {ex.submit(_eval_one, c): i for i, c in enumerate(cases)}
+            done = 0
+            for fut in as_completed(futs):
+                i = futs[fut]
+                ordered[i] = fut.result()
+                done += 1
+                if progress:
+                    progress(done, total, cases[i], ordered[i])
+        report.results = [r for r in ordered if r is not None]
+    else:
+        for idx, case in enumerate(cases, 1):
+            res = _eval_one(case)
+            report.results.append(res)
+            if progress:
+                progress(idx, total, case, res)
     return report
 
 
