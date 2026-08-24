@@ -41,6 +41,30 @@ from app.llm.providers import OVHcloudProvider, PlannerConfigError  # noqa: E402
 _TOKEN_ENV = "OVH_AI_ENDPOINTS_ACCESS_TOKEN"
 
 
+def _load_dotenv(*, override: bool = False) -> str | None:
+    """Charge un `.env` (léger, sans dépendance) s'il existe.
+
+    Cherche `backend/.env` puis la racine du dépôt. Les variables déjà définies
+    dans le shell gagnent (override=False) : `$env:VAR` reste prioritaire. Ne lit
+    QUE des `CLE=valeur` simples, ignore commentaires et lignes vides. Le vrai
+    `.env` est gitignoré — jamais de clé dans le dépôt.
+    """
+    here = Path(__file__).resolve()
+    for candidate in (here.parents[1] / ".env", here.parents[2] / ".env"):
+        if not candidate.is_file():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key and (override or key not in os.environ):
+                os.environ[key] = val
+        return str(candidate)
+    return None
+
+
 def _provider(model: str) -> OVHcloudProvider:
     base = os.getenv("NOREON_OVH_BASE_URL", "")
     token = os.getenv(_TOKEN_ENV, "")
@@ -100,6 +124,10 @@ def main() -> int:
     ap.add_argument("--split", choices=["all", "development", "holdout"], default="all")
     ap.add_argument("--out", default="bench_report.json")
     args = ap.parse_args()
+
+    loaded = _load_dotenv()
+    if loaded:
+        print(f".env chargé : {loaded} (les variables du shell restent prioritaires)")
 
     cases = {"all": CASES, "development": DEVELOPMENT, "holdout": HOLDOUT}[args.split]
     catalogs = args.catalog or ["retail_full"]
