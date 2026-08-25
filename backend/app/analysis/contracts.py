@@ -108,6 +108,53 @@ def _scan_forbidden(payload: dict) -> None:
                      f"réservé à Noreon : {sorted(forbidden)}")
 
 
+def repair_goal_ids(payload: dict) -> dict:
+    """Réparation SÛRE au point d'entrée de la sortie LLM : renumérote les `id`
+    d'objectifs en double (slip mécanique fréquent des modèles) en g1..gN.
+
+    N'intervient QUE si aucune référence (`depends_on`, `unresolved_terms.goal_id`)
+    ne pointe vers un id dupliqué — sinon le plan est réellement ambigu et on le
+    laisse échouer à la validation (aucune correction silencieuse d'un vrai défaut).
+    La validation reste stricte ; ceci ne s'applique jamais aux plans internes."""
+    if not isinstance(payload, dict):
+        return payload
+    goals = payload.get("goals")
+    if not isinstance(goals, list) or not all(isinstance(g, dict) for g in goals) or not goals:
+        return payload
+    ids = [g.get("id") for g in goals]
+    if len(ids) == len(set(ids)):
+        return payload                      # déjà uniques
+    from collections import Counter
+    counts = Counter(ids)
+    dup = {k for k, v in counts.items() if v > 1}
+    referenced: set = set()
+    for g in goals:
+        referenced.update(g.get("depends_on") or [])
+    for t in payload.get("unresolved_terms") or []:
+        if isinstance(t, dict) and "goal_id" in t:
+            referenced.add(t.get("goal_id"))
+    if referenced & dup:
+        return payload                      # référence ambiguë → ne pas réparer
+    old_to_new = {old: f"g{i}" for i, old in enumerate(ids, start=1) if counts[old] == 1}
+    new = dict(payload)
+    new_goals = []
+    for i, g in enumerate(goals, start=1):
+        ng = dict(g)
+        ng["id"] = f"g{i}"
+        deps = ng.get("depends_on")
+        if isinstance(deps, list):
+            ng["depends_on"] = [old_to_new.get(d, d) for d in deps]
+        new_goals.append(ng)
+    new["goals"] = new_goals
+    uts = payload.get("unresolved_terms")
+    if isinstance(uts, list):
+        new["unresolved_terms"] = [
+            ({**t, "goal_id": old_to_new.get(t.get("goal_id"), t.get("goal_id"))}
+             if isinstance(t, dict) and "goal_id" in t else t)
+            for t in uts]
+    return new
+
+
 def validate_interpretation(payload: dict) -> Interpretation:
     """Deux temps : (1) STRUCTURE via les modèles Pydantic (source unique du
     contrat, qui génère aussi le JSON Schema OVHcloud) ; (2) RÈGLES MÉTIER via

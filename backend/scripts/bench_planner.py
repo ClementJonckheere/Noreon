@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.analysis import benchmark as B                       # noqa: E402
 from app.analysis.catalogs import load_catalog, list_catalogs  # noqa: E402
-from app.analysis.contracts import ContractError, validate_interpretation  # noqa: E402
+from app.analysis.contracts import ContractError, repair_goal_ids, validate_interpretation  # noqa: E402
 from app.analysis.eval_cases import CASES, DEVELOPMENT, HOLDOUT  # noqa: E402
 from app.analysis.interpreter import PLANNER_SYSTEM, build_user_prompt  # noqa: E402
 from app.analysis.planner_privacy import sanitize_question  # noqa: E402
@@ -90,7 +90,7 @@ def _make_plan_fn(provider: OVHcloudProvider, attempts: int):
                 continue
             latency = (time.perf_counter() - t0) * 1000
             try:
-                interp = validate_interpretation(json.loads(raw))
+                interp = validate_interpretation(repair_goal_ids(json.loads(raw)))
             except ContractError as exc:
                 last_kind = "contract"
                 last_detail = f"{exc.code}@{exc.path}" + (f" {exc.detail}" if exc.detail else "")

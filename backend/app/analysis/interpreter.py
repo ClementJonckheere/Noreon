@@ -10,7 +10,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from app.analysis.contracts import ContractError, Interpretation, validate_interpretation
+from app.analysis.contracts import (
+    ContractError,
+    Interpretation,
+    repair_goal_ids,
+    validate_interpretation,
+)
 from app.analysis.planner_privacy import (
     CATALOG_ALLOWLIST,
     sanitize_label,
@@ -120,5 +125,5 @@ def plan_interpretation(
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
         raise ContractError("non_json", "$", str(exc))
-    interp = validate_interpretation(data)
+    interp = validate_interpretation(repair_goal_ids(data))
     return interp, token_map

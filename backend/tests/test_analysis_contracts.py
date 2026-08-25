@@ -66,6 +66,30 @@ def test_dag_rejects_duplicate_ids():
     assert e.value.code == "duplicate_goal_id"
 
 
+def test_repair_renumbers_safe_duplicate_ids():
+    """Slip mécanique (ids en double) SANS dépendance vers le doublon → réparé."""
+    p = {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+        {"id": "g1", "priority": 1, "type": "count", "intent_text": "a", "entity_ref": "concept:customer"},
+        {"id": "g1", "priority": 2, "type": "aggregate", "intent_text": "b", "entity_ref": "concept:order"}]}
+    repaired = C.repair_goal_ids(p)
+    ids = [g["id"] for g in repaired["goals"]]
+    assert len(ids) == len(set(ids))                # rendus uniques
+    C.validate_interpretation(repaired)             # et désormais valide
+
+
+def test_repair_leaves_ambiguous_duplicate_untouched():
+    """Si un depends_on pointe un id dupliqué, le plan est ambigu → non réparé, rejeté."""
+    p = {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+        {"id": "g2", "priority": 1, "type": "segmentation", "intent_text": "a", "entity_ref": "concept:customer"},
+        {"id": "g2", "priority": 2, "type": "affinity", "intent_text": "b",
+         "entity_ref": "concept:product", "depends_on": ["g2"]}]}
+    repaired = C.repair_goal_ids(p)
+    assert [g["id"] for g in repaired["goals"]] == ["g2", "g2"]   # inchangé
+    with pytest.raises(C.ContractError) as e:
+        C.validate_interpretation(repaired)
+    assert e.value.code == "duplicate_goal_id"
+
+
 def test_dag_rejects_unknown_dependency():
     p = _valid_interpretation()
     p["goals"][1]["depends_on"] = ["gX"]
