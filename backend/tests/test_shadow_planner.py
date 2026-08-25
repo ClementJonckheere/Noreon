@@ -188,9 +188,36 @@ def test_repair_recorded_in_telemetry():
 def test_all_versions_persisted():
     row, _ = _run("combien de clients", lambda m, q, c: _plan(_interp("count")),
                   {"status": "answered", "analysis": {"goal_type": "count"}})
-    for v in (row.interpretation_schema_version, row.goal_types_version, row.router_version,
-              row.planner_prompt_version, row.comparator_version, row.projection_version):
-        assert v == "1.0"
+    assert row.interpretation_schema_version == "1.0" and row.goal_types_version == "1.0"
+    assert row.router_version == "1.0"
+    assert row.comparator_version == "1.1" and row.projection_version == "1.1"   # promotion capabilities (#7)
+
+
+def test_capabilities_informative_when_provisional():
+    """Sans résolution C6, des capabilities différentes NE provoquent PAS material."""
+    from app.analysis.shadow.projection import ComparableProjection
+    llm = ComparableProjection(source="llm", primary_goal_type="count", goal_types=frozenset({"count"}),
+                               goal_count=1, dependency_edges=frozenset(), unresolved_roles=frozenset(),
+                               required_capabilities=frozenset({"a"}), capabilities_provisional=True)
+    fb = ComparableProjection(source="fallback", primary_goal_type="count",
+                              required_capabilities=frozenset({"b"}), capabilities_provisional=True)
+    out = C.compare(llm, fb, llm_status="ok", fallback_status="ok")
+    assert out.outcome != C.MATERIAL_DIVERGENCE
+    assert out.facets["required_capabilities"]["material"] is False
+
+
+def test_capabilities_material_when_resolved_both_sides():
+    """Résolution C6 des deux côtés : des capabilities divergentes → material_divergence (#7)."""
+    from app.analysis.shadow.projection import ComparableProjection
+    llm = ComparableProjection(source="llm", primary_goal_type="count", goal_types=frozenset({"count"}),
+                               goal_count=1, dependency_edges=frozenset(), unresolved_roles=frozenset(),
+                               required_capabilities=frozenset({"measure:m=available"}), capabilities_provisional=False)
+    fb = ComparableProjection(source="fallback", primary_goal_type="count", goal_types=frozenset({"count"}),
+                              goal_count=1, dependency_edges=frozenset(), unresolved_roles=frozenset(),
+                              required_capabilities=frozenset({"measure:m=unresolved"}), capabilities_provisional=False)
+    out = C.compare(llm, fb, llm_status="ok", fallback_status="ok")
+    assert out.outcome == C.MATERIAL_DIVERGENCE
+    assert out.facets["required_capabilities"]["material"] is True
 
 
 # === Sampling ===============================================================

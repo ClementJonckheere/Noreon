@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 from app.analysis.shadow.projection import ComparableProjection, _dump
 
 # Version de la LOGIQUE de comparaison.
-COMPARATOR_VERSION = "1.0"
+# 1.1 : `required_capabilities` devient matérielle quand la résolution C6 existe
+# des DEUX côtés (capabilities_provisional=False) ; informative sinon (#7).
+COMPARATOR_VERSION = "1.1"
 
 # Règle d'équivalence de types VERSIONNÉE (correctif #6). Ces classes disent que
 # deux types sont interchangeables pour juger l'objectif principal — décision
@@ -80,6 +82,8 @@ def compare(llm: ComparableProjection | None, fallback: ComparableProjection | N
     if fallback_status != "ok" or fallback is None:
         return ShadowComparison(FALLBACK_ERROR, {"fallback_status": fallback_status})
 
+    # Capabilities matérielles UNIQUEMENT si résolues (C6) des DEUX côtés (#7).
+    caps_provisional = bool(llm.capabilities_provisional or fallback.capabilities_provisional)
     facets = {
         "primary_goal_type": _facet(llm.primary_goal_type, fallback.primary_goal_type,
                                     lambda a, b: _class_of(a) == _class_of(b)),
@@ -90,13 +94,13 @@ def compare(llm: ComparableProjection | None, fallback: ComparableProjection | N
                                    lambda a, b: a == b),
         "unresolved_roles": _facet(llm.unresolved_roles, fallback.unresolved_roles,
                                    lambda a, b: a == b),
-        # INFORMATIF seulement (jamais matériel en C5) :
         "required_capabilities": {
             **_facet(llm.required_capabilities, fallback.required_capabilities, lambda a, b: a == b),
-            "material": False, "provisional": True},
+            "material": not caps_provisional, "provisional": caps_provisional},
     }
 
-    material_states = [facets[f]["state"] for f in _MATERIAL]
+    material = list(_MATERIAL) + ([] if caps_provisional else ["required_capabilities"])
+    material_states = [facets[f]["state"] for f in material]
     if "disagree" in material_states:
         return ShadowComparison(MATERIAL_DIVERGENCE, facets)
     if "agree" not in material_states:

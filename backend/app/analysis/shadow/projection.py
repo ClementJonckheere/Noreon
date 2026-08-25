@@ -12,7 +12,8 @@ from dataclasses import dataclass
 
 # Version de la LOGIQUE de projection (mapping plan→facettes). Persistée en
 # télémétrie pour distinguer une dérive « projection » des autres.
-PROJECTION_VERSION = "1.0"
+# 1.1 : `required_capabilities` peut provenir d'une résolution C6 (non provisoire).
+PROJECTION_VERSION = "1.1"
 
 
 def _dump(value):
@@ -55,10 +56,15 @@ class ComparableProjection:
         }
 
 
-def project_llm(interp) -> ComparableProjection:
+def project_llm(interp, resolution=None) -> ComparableProjection:
     """Projection du plan LLM (`Interpretation`). Toutes les facettes sont
     EXPRIMÉES par le contrat → jamais `None` ici (un plan sans dépendance a
-    `dependency_edges = frozenset()`, pas `None`)."""
+    `dependency_edges = frozenset()`, pas `None`).
+
+    Si `resolution` (CapabilityResolution de C6) est fournie, `required_capabilities`
+    provient de la RÉSOLUTION RÉELLE (`kind:ref=state`) et devient NON provisoire —
+    le comparateur pourra alors la traiter comme matérielle (#7). Sinon, signature
+    heuristique provisoire (informative uniquement)."""
     goals = list(interp.goals)
     primary = min(goals, key=lambda g: g.priority)
     edges = frozenset(
@@ -77,6 +83,14 @@ def project_llm(interp) -> ComparableProjection:
             caps.add(f"method:{(g.raw['method'] or {}).get('name', '?')}")
         if g.depends_on:
             caps.add("multi_goal")
+
+    provisional = True
+    if resolution is not None:
+        # Capabilities RÉSOLUES (C6) : signature kind:ref=state → matérielle possible.
+        caps = {f"{r.kind}:{r.ref}={r.state}"
+                for gr in resolution.goals for r in gr.requirements}
+        provisional = False
+
     return ComparableProjection(
         source="llm",
         primary_goal_type=primary.type,
@@ -85,7 +99,7 @@ def project_llm(interp) -> ComparableProjection:
         dependency_edges=edges,
         unresolved_roles=unresolved,
         required_capabilities=frozenset(caps),
-        capabilities_provisional=True,
+        capabilities_provisional=provisional,
     )
 
 
