@@ -286,16 +286,30 @@ def run_model(model: str, cases: list[EvalCase], catalog, *, plan_fn,
     return report
 
 
-def preflight(provider, *, sample_schema: dict | None = None) -> dict:
+def preflight(provider, *, sample_schema: dict | None = None, attempts: int = 3,
+              backoff: float = 2.0) -> dict:
     """Vérifie que le modèle répond ET supporte `response_format=json_schema`.
-    Aucune donnée réelle : un prompt minimal. Renvoie {ok, json_schema, error}."""
+    Aucune donnée réelle : un prompt minimal. Renvoie {ok, json_schema, error}.
+
+    Résilient aux hoquets réseau transitoires (timeout/401/403 sporadiques) :
+    jusqu'à `attempts` essais avec backoff. N'échoue qu'après épuisement."""
     from app.analysis.schema_models import interpretation_json_schema
+    from app.llm.base import PlanningNotSupported
     schema = sample_schema or interpretation_json_schema()
-    try:
-        raw = provider.plan(system="ping", user="{}", json_schema=schema)
-        return {"ok": True, "json_schema": True, "sample": (raw or "")[:120], "error": None}
-    except Exception as exc:  # noqa: BLE001 - préflight best-effort
-        return {"ok": False, "json_schema": False, "error": f"{type(exc).__name__}: {exc}"}
+    last = "inconnue"
+    for i in range(1, attempts + 1):
+        try:
+            raw = provider.plan(system="ping", user="{}", json_schema=schema)
+            return {"ok": True, "json_schema": True, "sample": (raw or "")[:120],
+                    "error": None, "attempts": i}
+        except PlanningNotSupported as exc:            # échec PERMANENT : ne pas réessayer
+            return {"ok": False, "json_schema": False, "error": f"{type(exc).__name__}: {exc}",
+                    "attempts": i}
+        except Exception as exc:  # noqa: BLE001 - hoquet réseau transitoire : réessayer
+            last = f"{type(exc).__name__}: {exc}"
+            if i < attempts:
+                time.sleep(backoff * i)
+    return {"ok": False, "json_schema": False, "error": last, "attempts": attempts}
 
 
 def rank(reports: list[ModelReport]) -> list[ModelReport]:
