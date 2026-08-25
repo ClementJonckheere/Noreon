@@ -68,9 +68,10 @@ CASES: list[EvalCase] = [
     _s("s_rank_cities", "Classement des villes par nombre de clients", "ranking", dom="generic"),
     _s("s_rank_agents", "Top agents par tickets résolus", "ranking", dom="crm", split="holdout"),
     _s("s_rank_categories", "Classement des catégories par montant", "ranking", dom="retail"),
-    _s("s_count_by_city", "Combien de clients par ville", "count", dom="generic",
-       note="count + 1 dimension même table"),
-    _s("s_count_by_cat", "Nombre de produits par catégorie", "count", dom="retail"),
+    _s("s_count_by_city", "Combien de clients par ville", "count", accept=("distribution",),
+       dom="generic", note="dénombrement ventilé : count ou distribution également valides"),
+    _s("s_count_by_cat", "Nombre de produits par catégorie", "count", accept=("distribution",),
+       dom="retail"),
     _s("s_agg_avg_amount", "Montant moyen des commandes", "aggregate", dom="retail", split="holdout"),
 
     # ============================ COMPLEXES (120b) ============================

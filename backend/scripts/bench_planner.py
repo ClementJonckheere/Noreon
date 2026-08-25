@@ -80,25 +80,30 @@ def _make_plan_fn(provider: OVHcloudProvider, attempts: int):
     def plan_fn(model: str, question: str, catalog) -> B.PlanResult:
         safe_q, _ = sanitize_question(question)
         user = build_user_prompt(catalog, safe_q)
-        last_kind = "network"
+        last_kind, last_detail = "network", None
         for i in range(1, attempts + 1):
             t0 = time.perf_counter()
             try:
                 raw = provider.plan(system=PLANNER_SYSTEM, user=user, json_schema=schema)
-            except Exception:  # noqa: BLE001 - incident réseau/HTTP
-                last_kind = "network"
+            except Exception as exc:  # noqa: BLE001 - incident réseau/HTTP
+                last_kind, last_detail = "network", type(exc).__name__
                 continue
             latency = (time.perf_counter() - t0) * 1000
             try:
                 interp = validate_interpretation(json.loads(raw))
-            except (ContractError, json.JSONDecodeError):
+            except ContractError as exc:
                 last_kind = "contract"
+                last_detail = f"{exc.code}@{exc.path}" + (f" {exc.detail}" if exc.detail else "")
+                continue
+            except json.JSONDecodeError as exc:
+                last_kind, last_detail = "contract", f"json_decode: {exc}"
                 continue
             tokens = getattr(provider, "last_usage", None)
             return B.PlanResult(interp=interp, error_kind="none", latency_ms=round(latency, 1),
                                 tokens=(tokens or {}).get("total_tokens") if tokens else None,
                                 attempts=i)
-        return B.PlanResult(interp=None, error_kind=last_kind, attempts=attempts)
+        return B.PlanResult(interp=None, error_kind=last_kind, error_detail=last_detail,
+                            attempts=attempts)
 
     return plan_fn
 

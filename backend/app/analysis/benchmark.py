@@ -209,6 +209,7 @@ class PlanResult:
     """Sortie d'un appel de planification (le CLI capture latence/tokens/tentatives)."""
     interp: Interpretation | None
     error_kind: str = "none"     # none | contract | network
+    error_detail: str | None = None   # code/message d'erreur (diagnostic)
     latency_ms: float | None = None
     tokens: int | None = None
     cost: float | None = None
@@ -245,9 +246,10 @@ def run_model(model: str, cases: list[EvalCase], catalog, *, plan_fn,
         domain_ok = (not catalog_domain) or (case.domain == catalog_domain)
         semantic = domain_ok and ((tier == "main") or case.simple_eligible)
         if pr.interp is None:
+            err = pr.error_kind + (f": {pr.error_detail}" if pr.error_detail else "")
             res = CaseResult(case.id, json_ok=False, semantic=semantic,
                              network_incident=(pr.error_kind == "network"),
-                             error=pr.error_kind, retries=pr.attempts,
+                             error=err, retries=pr.attempts,
                              latency_ms=pr.latency_ms)
         else:
             res = score_case(case, pr.interp, refs)

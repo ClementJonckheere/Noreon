@@ -27,6 +27,8 @@ from app.analysis.eval_cases import CASES_BY_ID  # noqa: E402
 
 def _flags(c: dict) -> str:
     out = []
+    if c.get("semantic") is False:
+        out.append("HORS-DOMAINE (conformité seule)")
     if c.get("primary_forgotten"):
         out.append("principal_oublié")
     if c.get("silent_substitution"):
