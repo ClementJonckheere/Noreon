@@ -26,6 +26,7 @@ def _to_catalog(data: dict) -> PlannerCatalog:
         dimensions=list(data.get("dimensions") or []),
         relations=list(data.get("relations") or []),
         stats=dict(data.get("stats") or {}),
+        domain=str(data.get("domain") or ""),
     )
 
 

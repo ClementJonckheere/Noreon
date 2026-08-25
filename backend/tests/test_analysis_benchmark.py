@@ -57,6 +57,38 @@ def test_simple_tier_semantic_only_on_simple_and_checks_routing_exclusion():
     assert rep.routing_leaks == 0 and not rep.eliminated
 
 
+def _cat_domain(domain):
+    c = _cat()
+    return PlannerCatalog(concepts=c.concepts, metrics=c.metrics, dimensions=c.dimensions,
+                          relations=c.relations, stats=c.stats, domain=domain)
+
+
+def test_cross_domain_case_is_not_scored_semantically():
+    """Un cas d'un AUTRE domaine que le catalogue : conformité seule, pas de type."""
+    crm_case = EvalCase("x", "combien d'abonnements", 1, frozenset({"count"}),
+                        simple_eligible=True, domain="crm")
+    # le modèle répond une tendance (hors sujet) mais le catalogue est RETAIL
+    def plan_fn(model, q, cat):
+        return B.PlanResult(interp=_interp("trend"))
+    rep = B.run_model(MAIN, [crm_case], _cat_domain("retail"), plan_fn=plan_fn, tier="main")
+    assert rep.results[0].semantic is False       # domaine incompatible
+    assert not rep.eliminated                     # pas de pénalité de type
+
+
+def test_invented_ref_eliminates_even_cross_domain():
+    """Inventer une référence reste éliminatoire même sur un catalogue d'un autre domaine."""
+    crm_case = EvalCase("x", "combien d'abonnements", 1, frozenset({"count"}), domain="crm")
+    def plan_fn(model, q, cat):
+        from app.analysis.contracts import validate_interpretation
+        return B.PlanResult(interp=validate_interpretation({
+            "plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+                {"id": "g1", "priority": 1, "type": "count", "intent_text": "x",
+                 "entity_ref": "concept:invented_entity"}]}))
+    rep = B.run_model(MAIN, [crm_case], _cat_domain("retail"), plan_fn=plan_fn, tier="main")
+    assert rep.results[0].semantic is False
+    assert rep.eliminated and "référence hors catalogue" in rep.elimination_reasons()
+
+
 def test_20b_substitution_on_simple_case_eliminates():
     # le 20b répond une tendance sur une demande de dénombrement → substitution.
     def plan_fn(model, q, cat):

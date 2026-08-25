@@ -44,8 +44,9 @@ PLANNER_SYSTEM = (
     "(histogramme, tranches, étapes d'un entonnoir).\n"
     "- segmentation : regrouper des entités en segments selon des critères "
     "(y compris scores de type RFM, ou prédiction d'appartenance).\n"
-    "- affinity : éléments fréquemment observés ENSEMBLE (co-occurrence, panier, "
-    "« achetés ensemble », produits par segment).\n"
+    "- affinity : éléments fréquemment observés ENSEMBLE dans une même occurrence "
+    "(co-occurrence, panier, « achetés ensemble »). Une simple ventilation « X par "
+    "dimension » n'est PAS de l'affinity mais une distribution/attribution.\n"
     "- cohort : suivi de groupes définis par une période d'entrée (rétention).\n"
     "- correlation : relation statistique entre DEUX mesures.\n"
     "- attribution : décomposition/explication d'une mesure selon des facteurs ou "
@@ -65,6 +66,7 @@ class PlannerCatalog:
     dimensions: list[dict]
     relations: list[dict]     # {ref, cardinality}
     stats: dict               # agrégats autorisés (ex. {row_count_bucket: "1k-10k"})
+    domain: str = ""          # retail | crm | generic — pour le pairage cas/catalogue au bench
 
 
 def _safe_entries(entries: list[dict]) -> list[dict]:

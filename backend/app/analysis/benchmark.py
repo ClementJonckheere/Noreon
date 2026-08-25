@@ -135,6 +135,11 @@ class ModelReport:
     def _semantic(self) -> list[CaseResult]:
         return [r for r in self.results if r.semantic and r.json_ok]
 
+    def _conformant(self) -> list[CaseResult]:
+        # Toute sortie JSON valide, quel que soit le domaine : inventer une
+        # référence est une faute même sur un catalogue d'un autre domaine.
+        return [r for r in self.results if r.json_ok]
+
     @property
     def json_conformity(self) -> float:
         # Conformité STRUCTURELLE, incidents réseau EXCLUS (comptés à part).
@@ -163,7 +168,7 @@ class ModelReport:
     def elimination_reasons(self) -> list[str]:
         sem = self._semantic()
         reasons: list[str] = []
-        if any(r.out_of_catalog for r in sem):
+        if any(r.out_of_catalog for r in self._conformant()):
             reasons.append("référence hors catalogue")
         if any(r.primary_forgotten for r in sem):
             reasons.append("analyse demandée absente")
@@ -229,9 +234,16 @@ def run_model(model: str, cases: list[EvalCase], catalog, *, plan_fn,
     refs = catalog_refs(catalog)
     report = ModelReport(model=model, tier=tier)
 
+    catalog_domain = getattr(catalog, "domain", "") or ""
+
     def _eval_one(case: EvalCase) -> CaseResult:
         pr = plan_fn(model, case.question, catalog)
-        semantic = (tier == "main") or case.simple_eligible
+        # Un cas n'est scoré SÉMANTIQUEMENT que si son domaine est compatible avec
+        # le catalogue : sur un catalogue d'un autre domaine, les concepts demandés
+        # sont absents — on ne peut pas exiger le bon TYPE d'analyse. On y vérifie
+        # seulement la conformité JSON et l'absence de référence inventée.
+        domain_ok = (not catalog_domain) or (case.domain == catalog_domain)
+        semantic = domain_ok and ((tier == "main") or case.simple_eligible)
         if pr.interp is None:
             res = CaseResult(case.id, json_ok=False, semantic=semantic,
                              network_incident=(pr.error_kind == "network"),
