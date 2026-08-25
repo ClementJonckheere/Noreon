@@ -121,21 +121,26 @@ def _scan_forbidden(payload: dict) -> None:
 
 
 def repair_goal_ids(payload: dict) -> dict:
-    """Réparation SÛRE au point d'entrée de la sortie LLM : renumérote les `id`
-    d'objectifs en double (slip mécanique fréquent des modèles) en g1..gN.
+    """Réparation SÛRE au bord LLM (voir `repair_goal_ids_report`). Renvoie le
+    payload (réparé ou intact). La validation reste stricte en aval."""
+    return repair_goal_ids_report(payload)[0]
 
-    N'intervient QUE si aucune référence (`depends_on`, `unresolved_terms.goal_id`)
-    ne pointe vers un id dupliqué — sinon le plan est réellement ambigu et on le
-    laisse échouer à la validation (aucune correction silencieuse d'un vrai défaut).
-    La validation reste stricte ; ceci ne s'applique jamais aux plans internes."""
+
+def repair_goal_ids_report(payload: dict) -> tuple[dict, dict | None]:
+    """Comme `repair_goal_ids`, mais renvoie aussi un RAPPORT de réparation
+    `{type, duplicates, n_goals}` (ou `None`) — consommé par la télémétrie shadow
+    pour suivre le repair rate par modèle et détecter une dérive.
+
+    Ne renumérote QUE si aucune référence (`depends_on`, `unresolved_terms.goal_id`)
+    ne pointe vers un id dupliqué — sinon plan ambigu, laissé échouer à la validation."""
     if not isinstance(payload, dict):
-        return payload
+        return payload, None
     goals = payload.get("goals")
     if not isinstance(goals, list) or not all(isinstance(g, dict) for g in goals) or not goals:
-        return payload
+        return payload, None
     ids = [g.get("id") for g in goals]
     if len(ids) == len(set(ids)):
-        return payload                      # déjà uniques
+        return payload, None                # déjà uniques
     from collections import Counter
     counts = Counter(ids)
     dup = {k for k, v in counts.items() if v > 1}
@@ -146,7 +151,7 @@ def repair_goal_ids(payload: dict) -> dict:
         if isinstance(t, dict) and "goal_id" in t:
             referenced.add(t.get("goal_id"))
     if referenced & dup:
-        return payload                      # référence ambiguë → ne pas réparer
+        return payload, None                # référence ambiguë → ne pas réparer
     old_to_new = {old: f"g{i}" for i, old in enumerate(ids, start=1) if counts[old] == 1}
     new = dict(payload)
     new_goals = []
@@ -169,7 +174,8 @@ def repair_goal_ids(payload: dict) -> dict:
         "planner_repair applied=goal_id_renumber duplicates=%s n_goals=%d "
         "schema=%s types=%s",
         sorted(dup), len(goals), INTERPRETATION_SCHEMA_VERSION, GOAL_TYPES_VERSION)
-    return new
+    report = {"type": "goal_id_renumber", "duplicates": sorted(dup), "n_goals": len(goals)}
+    return new, report
 
 
 def validate_interpretation(payload: dict) -> Interpretation:

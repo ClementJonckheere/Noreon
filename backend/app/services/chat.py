@@ -105,7 +105,57 @@ def _pii_columns(db: Session, connection_id: int, tables_used: list[str]) -> dic
     return {p.column_name: p.pii_type for p in profiles}
 
 
+_SHADOW_EXECUTOR = None
+
+
+def _shadow_executor(settings):
+    global _SHADOW_EXECUTOR
+    if _SHADOW_EXECUTOR is None:
+        from app.analysis.shadow.executor import build_executor
+        _SHADOW_EXECUTOR = build_executor(settings)
+    return _SHADOW_EXECUTOR
+
+
+def _maybe_dispatch_shadow(conn, question, response, request_id, space_id, conversation_id) -> None:
+    """Déclenche l'observation shadow APRÈS que `response` est figée. Isolé : ne
+    peut ni muter `response` ni lever. En `legacy` (défaut) : no-op immédiat."""
+    try:
+        from app.core.config import settings
+        if (settings.planner_mode or "legacy").lower() == "legacy":
+            return
+        from app.analysis.shadow.service import dispatch_shadow
+        dispatch_shadow(
+            response=response, question=question, tenant_id=conn.tenant_id,
+            connection_id=conn.id, executor=_shadow_executor(settings), settings=settings,
+            request_id=request_id, space_id=space_id, conversation_id=conversation_id)
+    except Exception as exc:  # noqa: BLE001 - le shadow ne peut jamais impacter le chat
+        log.warning("shadow dispatch isolé après erreur : %s", exc)
+
+
 def answer_question(
+    db: Session,
+    conn: Connection,
+    question: str,
+    *,
+    user_ref: str = "system",
+    run_analysis: bool = True,
+    deep_analysis: bool = True,
+    hidden_tables: set[str] | None = None,
+    hidden_columns: set[tuple[str, str]] | None = None,
+    request_id: str | None = None,
+    space_id: int | None = None,
+    conversation_id: int | None = None,
+) -> ChatResponse:
+    """Chemin DÉCISIONNAIRE (fallback). En mode shadow, le planner LLM est ensuite
+    observé hors du chemin critique — jamais dans la réponse rendue."""
+    response = _answer_question_impl(
+        db, conn, question, user_ref=user_ref, run_analysis=run_analysis,
+        deep_analysis=deep_analysis, hidden_tables=hidden_tables, hidden_columns=hidden_columns)
+    _maybe_dispatch_shadow(conn, question, response, request_id, space_id, conversation_id)
+    return response
+
+
+def _answer_question_impl(
     db: Session,
     conn: Connection,
     question: str,

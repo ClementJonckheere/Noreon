@@ -37,12 +37,20 @@ _SIMPLE_INTENT = re.compile(
     re.IGNORECASE)
 
 
+# Version de la LOGIQUE de routage (règles preroute + allowlist). À bumper à
+# chaque changement de règle — la télémétrie shadow la persiste pour distinguer
+# une dérive « routeur » d'une dérive « modèle/prompt/comparateur ».
+ROUTER_VERSION = "1.0"
+
+
 @dataclass(frozen=True)
 class RoutingDecision:
     selected_model: str
     routing_reason: str
     previous_model: str | None = None
     escalation_reason: str | None = None
+    matched_rule: str | None = None      # règle/allowlist ayant décidé (télémétrie)
+    tier: str | None = None              # "simple" | "complex" (télémétrie)
 
     def as_dict(self) -> dict:
         return {
@@ -50,6 +58,9 @@ class RoutingDecision:
             "routing_reason": self.routing_reason,
             "previous_model": self.previous_model,
             "escalation_reason": self.escalation_reason,
+            "matched_rule": self.matched_rule,
+            "tier": self.tier,
+            "router_version": ROUTER_VERSION,
         }
 
 
@@ -67,10 +78,13 @@ def preroute(question: str, *, main_model: str, simple_model: str) -> RoutingDec
     simple part au 20b ; tout signal de complexité ou tout doute → 120b."""
     signal = _complexity_signal(question)
     if signal is not None:
-        return RoutingDecision(main_model, f"complexité détectée ({signal}) → modèle principal")
+        return RoutingDecision(main_model, f"complexité détectée ({signal}) → modèle principal",
+                               matched_rule=f"complexity:{signal}", tier="complex")
     if _SIMPLE_INTENT.search(question or ""):
-        return RoutingDecision(simple_model, "demande simple (count/aggregate/ranking) → modèle simple")
-    return RoutingDecision(main_model, "doute → modèle principal par défaut")
+        return RoutingDecision(simple_model, "demande simple (count/aggregate/ranking) → modèle simple",
+                               matched_rule="simple_intent", tier="simple")
+    return RoutingDecision(main_model, "doute → modèle principal par défaut",
+                           matched_rule="default_doubt", tier="complex")
 
 
 def plan_is_simple_eligible(interp: Interpretation) -> tuple[bool, str | None]:
@@ -114,5 +128,6 @@ def route_and_plan(question: str, catalog, *, plan_fn, main_model: str, simple_m
             interp = plan_fn(main_model, question, catalog)   # re-planification 120b
             decision = RoutingDecision(
                 selected_model=main_model, routing_reason="escalade après plan 20b non éligible",
-                previous_model=previous, escalation_reason=reason)
+                previous_model=previous, escalation_reason=reason,
+                matched_rule=f"escalation:{reason}", tier="complex")
     return interp, decision

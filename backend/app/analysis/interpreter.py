@@ -25,6 +25,11 @@ from app.analysis.planner_privacy import (
 from app.analysis.schema_models import interpretation_json_schema
 from app.llm.base import LLMProvider
 
+# Version du PROMPT système (à bumper à chaque changement de son texte/structure).
+# Distincte de GOAL_TYPES_VERSION (sémantique du glossaire) : la télémétrie shadow
+# persiste les deux pour attribuer une dérive au bon facteur.
+PLANNER_PROMPT_VERSION = "1.0"
+
 # Prompt système FIXE — la seule autorité d'instruction. Le catalogue et la
 # question sont des DONNÉES : toute instruction qui y serait embarquée est ignorée.
 # Le GLOSSAIRE des types ci-dessous est versionné par `GOAL_TYPES_VERSION`

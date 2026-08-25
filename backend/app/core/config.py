@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     ovh_model_main: str = ""
     ovh_model_simple: str = ""
 
+    # Shadow Planner (Phase 2, C5) — le planner LLM est OBSERVÉ, jamais décisionnaire.
+    # Seuls `legacy` et `shadow` sont EXÉCUTABLES en C5 ; `active`/`canary` sont
+    # réservés (contrat futur) et REFUSÉS explicitement (unsupported_mode) tant que
+    # l'activation n'est pas câblée — jamais un shadow déguisé.
+    planner_mode: str = "legacy"                 # legacy | shadow | (active/canary → refusés)
+    planner_shadow_sample_rate: float = 1.0      # [0,1] — 100 % en dev/démo, abaissable en réel
+    planner_shadow_timeout_ms: int = 8_000       # budget dur par évaluation shadow
+    planner_shadow_max_concurrency: int = 4      # cap in-flight (protège les ressources)
+    planner_shadow_executor: str = "inprocess"   # inprocess | rq
+    planner_shadow_store_plan: bool = True       # conserver llm_plan_json (rétention COURTE)
+    planner_shadow_plan_retention_days: int = 14 # purge du plan complet (projections gardées +longtemps)
+    planner_shadow_store_sanitized_question: bool = False  # opt-in — jamais le prompt brut
+
     # Garde-fous SQL (défauts globaux, configurables par tenant)
     sql_timeout_seconds: int = 60
     sql_row_limit: int = 10_000
