@@ -24,8 +24,21 @@ from app.analysis.contracts import ContractError, Interpretation
 from app.analysis.eval_cases import EvalCase
 
 _SUBSTITUTION_TYPES = frozenset({"trend", "attribution"})   # « défauts » fabriqués
+# Équivalences GLOBALES sûres (near-synonymes) appliquées slot par slot au rappel.
+# Volontairement minimal : dénombrer EST une forme d'agrégation.
+_EQUIV = {"count": frozenset({"aggregate"}), "aggregate": frozenset({"count"})}
 JSON_CONFORMITY_MIN = 0.99
 RECALL_MIN = 0.95
+
+
+def _synonyms(expected_type: str, expect: set, accept: frozenset) -> set:
+    """Types qui SATISFONT un slot attendu : équivalence globale + (pour les cas
+    MONO-intention seulement) les `accept_types` du cas. Sur un cas multi-objectifs,
+    `accept` ne compte PAS au rappel (pas de fuite entre slots)."""
+    syn = set(_EQUIV.get(expected_type, ()))
+    if len(expect) == 1:
+        syn |= set(accept)
+    return syn
 
 
 def catalog_refs(catalog) -> set[str]:
@@ -85,16 +98,24 @@ def score_case(case: EvalCase, interp: Interpretation | None, refs: set[str]) ->
     if interp is None:
         return CaseResult(case.id, json_ok=False, error="sortie non conforme")
     produced = {g.type for g in interp.goals}
-    expected = set(case.expect_types)
-    recall = len(expected & produced) / len(expected) if expected else 1.0
-    primary = min(interp.goals, key=lambda g: g.priority)
+    expect = set(case.expect_types)
+    accept = getattr(case, "accept_types", frozenset())
+    # Couverture SLOT PAR SLOT : un objectif attendu est couvert s'il est produit
+    # tel quel OU via un synonyme accepté. (Corrige « présent mais pas en tête » :
+    # aucune notion d'objectif « principal » basée sur la priorité.)
+    covered = sum(1 for e in expect if e in produced or (_synonyms(e, expect, accept) & produced))
+    recall = covered / len(expect) if expect else 1.0
+    missed_all = bool(expect) and covered == 0
     out_of_catalog = bool(_refs_used(interp) - refs)
-    primary_forgotten = primary.type not in expected
-    silent_substitution = primary.type in _SUBSTITUTION_TYPES and primary.type not in expected
+    # Substitution = la demande est IGNORÉE et remplacée par un défaut générique :
+    # rien de demandé n'est produit ET tout le produit se réduit à trend/attribution.
+    silent_substitution = missed_all and bool(produced) and produced <= _SUBSTITUTION_TYPES
+    acceptable = expect | set(accept) | {s for e in expect for s in _synonyms(e, expect, accept)}
+    primary = min(interp.goals, key=lambda g: g.priority)
     return CaseResult(
         case.id, json_ok=True, recall=recall, out_of_catalog=out_of_catalog,
-        primary_forgotten=primary_forgotten, silent_substitution=silent_substitution,
-        false_goals=len(produced - expected), n_goals=len(interp.goals),
+        primary_forgotten=missed_all, silent_substitution=silent_substitution,
+        false_goals=len(produced - acceptable), n_goals=len(interp.goals),
         has_dependencies=any(g.depends_on for g in interp.goals),
         has_ambiguities=any(g.raw.get("ambiguities") for g in interp.goals),
         primary_type=primary.type,
@@ -145,7 +166,7 @@ class ModelReport:
         if any(r.out_of_catalog for r in sem):
             reasons.append("référence hors catalogue")
         if any(r.primary_forgotten for r in sem):
-            reasons.append("objectif principal oublié")
+            reasons.append("analyse demandée absente")
         if any(r.silent_substitution for r in sem):
             reasons.append("substitution silencieuse")
         if self.json_conformity < JSON_CONFORMITY_MIN:

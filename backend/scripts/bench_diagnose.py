@@ -60,13 +60,14 @@ def main() -> int:
             print(f"\n[{cat_name}] modèle principal : aucun cas pénalisé ✔")
             continue
         print(f"\n[{cat_name}] {len(seen)} cas pénalisés (modèle principal) :")
-        print(f"  {'cas':<22} {'attendu':<34} {'principal':<14} {'produit':<28} flags")
+        print(f"  {'cas':<22} {'attendu (+accept)':<34} {'produit':<30} flags")
         for cid, c in sorted(seen.items()):
             case = CASES_BY_ID.get(cid)
             expected = ",".join(sorted(case.expect_types)) if case else "?"
+            accept = ",".join(sorted(getattr(case, "accept_types", ()))) if case else ""
+            exp_col = expected + (f" (+{accept})" if accept else "")
             produced = ",".join(c.get("produced_types") or [])
-            print(f"  {cid:<22} {expected:<34} {str(c.get('primary_type')):<14} "
-                  f"{produced:<28} {_flags(c)}")
+            print(f"  {cid:<22} {exp_col:<34} {produced:<30} {_flags(c)}")
     print("\nLecture : si « produit » est un type sensé mais ≠ « attendu », c'est un "
           "désaccord d'ÉTIQUETTE (corpus/scoring), pas une faute du modèle.")
     return 0

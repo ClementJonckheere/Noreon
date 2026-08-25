@@ -18,6 +18,7 @@ class EvalCase:
     question: str
     min_goals: int
     expect_types: frozenset
+    accept_types: frozenset = field(default_factory=frozenset)  # équivalents défendables
     depends_on_edges: tuple[tuple[str, str], ...] = ()
     expect_unresolved_roles: frozenset = field(default_factory=frozenset)
     expect_clarification: bool = False
@@ -27,16 +28,20 @@ class EvalCase:
     note: str = ""
 
 
-def _s(id, q, t, *, dom="generic", split="development", note=""):
+def _s(id, q, t, *, accept=(), dom="generic", split="development", note=""):
     """Cas SIMPLE (20b éligible) — un objectif count/aggregate/ranking."""
     return EvalCase(id=id, question=q, min_goals=1, expect_types=frozenset({t}),
+                    accept_types=frozenset(accept),
                     simple_eligible=True, split=split, domain=dom, note=note)
 
 
-def _c(id, q, types, *, dom="generic", split="development", edges=(), unresolved=frozenset(),
-       clar=False, min_goals=1, note=""):
-    """Cas COMPLEXE (120b)."""
+def _c(id, q, types, *, accept=(), dom="generic", split="development", edges=(),
+       unresolved=frozenset(), clar=False, min_goals=1, note=""):
+    """Cas COMPLEXE (120b). `accept` = types équivalents défendables (crédités au
+    rappel seulement si le cas est MONO-intention ; sinon ils évitent juste de
+    compter des « faux objectifs »)."""
     return EvalCase(id=id, question=q, min_goals=min_goals, expect_types=frozenset(types),
+                    accept_types=frozenset(accept),
                     depends_on_edges=edges, expect_unresolved_roles=unresolved,
                     expect_clarification=clar, simple_eligible=False, split=split,
                     domain=dom, note=note)
@@ -96,12 +101,13 @@ CASES: list[EvalCase] = [
        dom="retail"),
     _c("corr_tenure_value", "Corrélation entre l'ancienneté du compte et sa valeur", ("correlation",),
        dom="crm"),
-    # -- Croisement 2 dimensions --
+    # -- Croisement 2 dimensions (une mesure ventilée : aggregate/distribution/attribution) --
     _c("cross_prod_region", "Répartis le chiffre d'affaires par produit et par région",
-       ("attribution",), dom="retail"),
-    _c("cross_month_store", "Ventes par mois et par magasin", ("attribution",), dom="retail",
-       split="holdout"),
-    _c("cross_agent_cat", "Tickets par agent et par catégorie", ("attribution",), dom="crm"),
+       ("aggregate",), accept=("attribution", "distribution"), dom="retail"),
+    _c("cross_month_store", "Ventes par mois et par magasin", ("aggregate",),
+       accept=("attribution", "distribution", "trend"), dom="retail", split="holdout"),
+    _c("cross_agent_cat", "Tickets par agent et par catégorie", ("aggregate",),
+       accept=("attribution", "distribution"), dom="crm"),
     # -- Binning / intervalles dérivés --
     _c("bin_age", "Répartis mes clients par tranche d'âge", ("distribution",), dom="generic",
        unresolved=frozenset({"dimension"}), note="âge peut être absent"),
@@ -117,19 +123,21 @@ CASES: list[EvalCase] = [
        ("segmentation", "cohort"), dom="crm", min_goals=2, edges=(("cohort", "segmentation"),),
        split="holdout"),
     # -- Ambiguïté --
-    _c("ambig_ttc", "Analyse le chiffre d'affaires par segment (HT ou TTC ?)", ("attribution",),
-       dom="retail", clar=True),
-    _c("ambig_margin", "Analyse la marge par produit (brute ou nette ?)", ("attribution",),
-       dom="retail", clar=True, split="holdout"),
+    _c("ambig_ttc", "Analyse le chiffre d'affaires par segment (HT ou TTC ?)", ("aggregate",),
+       accept=("attribution", "distribution"), dom="retail", clar=True),
+    _c("ambig_margin", "Analyse la marge par produit (brute ou nette ?)", ("aggregate",),
+       accept=("attribution", "distribution"), dom="retail", clar=True, split="holdout"),
     # -- Tendance / causal --
     _c("trend_revenue", "Montre l'évolution du chiffre d'affaires par mois", ("trend",), dom="retail"),
     _c("trend_signups", "Tendance des inscriptions sur l'année", ("trend",), dom="crm"),
     _c("trend_mrr", "Évolution du revenu récurrent", ("trend",), dom="crm", split="holdout"),
+    # question causale « pourquoi » : famille diagnostique (attribution ou décompo équivalente)
     _c("causal_sales", "Pourquoi le chiffre d'affaires baisse-t-il depuis trois mois ?",
-       ("attribution",), dom="retail"),
-    _c("causal_churn", "Pourquoi le taux d'attrition augmente-t-il ?", ("attribution",), dom="crm"),
+       ("attribution",), accept=("trend", "correlation", "segmentation", "cohort"), dom="retail"),
+    _c("causal_churn", "Pourquoi le taux d'attrition augmente-t-il ?", ("attribution",),
+       accept=("trend", "correlation", "segmentation", "cohort"), dom="crm"),
     _c("causal_basket", "Qu'est-ce qui explique la hausse du panier moyen web", ("attribution",),
-       dom="retail", split="holdout"),
+       accept=("trend", "correlation", "segmentation", "cohort"), dom="retail", split="holdout"),
     # -- Distribution --
     _c("dist_basket", "Distribution des montants de commande", ("distribution",), dom="retail"),
     _c("dist_tenure", "Répartition des comptes par ancienneté", ("distribution",), dom="crm",
@@ -140,7 +148,7 @@ CASES: list[EvalCase] = [
        split="holdout", note="prédiction → complexe"),
     # -- Entonnoir --
     _c("funnel_conversion", "Analyse l'entonnoir de conversion des prospects", ("distribution",),
-       dom="crm"),
+       accept=("count", "cohort", "segmentation", "trend"), dom="crm"),
     # -- Ranking avec méthode --
     _c("rank_affinity", "Top produits par affinité d'achat", ("affinity", "ranking"), dom="retail",
        min_goals=1, split="holdout"),
