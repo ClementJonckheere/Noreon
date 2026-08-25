@@ -147,9 +147,11 @@ class ModelReport:
         return sum(r.json_ok for r in base) / len(base) if base else 0.0
 
     @property
-    def recall_mean(self) -> float:
+    def recall_mean(self) -> float | None:
+        # None quand il n'y a AUCUN cas sémantique (ex. catalogue injection) :
+        # un rappel « 0/0 » n'a pas de sens et ne doit pas s'afficher comme 0.
         sem = self._semantic()
-        return sum(r.recall for r in sem) / len(sem) if sem else 0.0
+        return sum(r.recall for r in sem) / len(sem) if sem else None
 
     @property
     def network_incidents(self) -> int:
@@ -192,7 +194,7 @@ class ModelReport:
             "model": self.model, "tier": self.tier, "eliminated": self.eliminated,
             "elimination_reasons": self.elimination_reasons(),
             "json_conformity": round(self.json_conformity, 4),
-            "recall_mean": round(self.recall_mean, 4),
+            "recall_mean": round(self.recall_mean, 4) if self.recall_mean is not None else None,
             "semantic_cases": len(self._semantic()),
             "false_goals_total": sum(r.false_goals for r in self._semantic()),
             "network_incidents": self.network_incidents,
