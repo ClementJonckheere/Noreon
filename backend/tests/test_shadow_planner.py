@@ -289,5 +289,5 @@ def test_worker_opens_its_own_session():
     env = _env("combien de clients", {"status": "answered", "analysis": {"goal_type": "count"}})
     S.run_shadow_from_envelope(
         env, session_factory=factory, plan_fn=lambda m, q, c: _plan(_interp("count")),
-        catalog_builder=lambda sess, cid: object(), settings=_settings())
+        catalog_builder=lambda sess, envp: (object(), None), settings=_settings())
     assert made["session"].commits == 1 and made["session"].closed is True   # session propre, fermée

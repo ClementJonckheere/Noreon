@@ -61,11 +61,23 @@ class PlannerShadowEvaluation(Base):
     llm_status: Mapped[str] = mapped_column(String(24), default="skipped")   # ok|contract_error|network_error|provider_error|timeout|skipped
     fallback_status: Mapped[str | None] = mapped_column(String(24), default=None)
 
-    # Plans / projections (rétention différenciée)
-    llm_plan_json: Mapped[dict | None] = mapped_column(JSON, default=None)          # rétention COURTE (opt-in)
+    # Trois ÉTAGES explicites (règle #2) — rétention COURTE (opt-in, purge_after) :
+    #  1) interpretation = ce que le LLM a compris (llm_plan_json, historique) ;
+    #  2) capability_resolution = ce que Noreon sait réellement satisfaire (C6) ;
+    #  3) legacy_execution_projection = ce que le legacy a réellement exécuté.
+    llm_plan_json: Mapped[dict | None] = mapped_column(JSON, default=None)              # interpretation_json
+    capability_resolution_json: Mapped[dict | None] = mapped_column(JSON, default=None)  # C6 riche
+    resolved_plan_json: Mapped[dict | None] = mapped_column(JSON, default=None)          # C6 → compiler (même rétention)
+    legacy_execution_projection_json: Mapped[dict | None] = mapped_column(JSON, default=None)
+    plan_purge_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # Projections/résumés DURABLES :
     llm_projection_json: Mapped[dict | None] = mapped_column(JSON, default=None)     # durable
     fallback_projection_json: Mapped[dict | None] = mapped_column(JSON, default=None)  # durable
-    plan_purge_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    capability_states_json: Mapped[dict | None] = mapped_column(JSON, default=None)   # {available,reserve,unresolved,blocked}
+    # Sécurité analytique (règles #5/#6) — DURABLE :
+    analytical_safety: Mapped[str | None] = mapped_column(String(24), default=None, index=True)  # same_safety|llm_safer|fallback_safer|not_comparable
+    analytical_safety_json: Mapped[dict | None] = mapped_column(JSON, default=None)
+    analytical_safety_version: Mapped[str | None] = mapped_column(String(16), default=None)
 
     # Comparaison (renommé : comparison_outcome, pas divergence_class)
     comparison_outcome: Mapped[str | None] = mapped_column(String(24), default=None, index=True)

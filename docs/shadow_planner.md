@@ -85,6 +85,52 @@ SHA attaquable par dictionnaire. Le prompt brut n'est jamais conservé ;
 (`repair_applied`, `repair_type`, `repair_details_json`) → suivi du repair rate
 par modèle et détection de dérive.
 
+## Câblage C6 (trois étages distincts)
+
+Depuis le câblage C6, le worker shadow travaille sur le **vrai contexte** du
+space/connection (catalogue + `ResolutionContext` construits ENSEMBLE depuis la
+DB, refs cohérentes) et persiste trois étages séparés :
+
+1. **`llm_plan_json`** (interpretation) — ce que le LLM a compris.
+2. **`capability_resolution_json`** + **`resolved_plan_json`** (C6) — ce que Noreon
+   sait réellement satisfaire (états available/reserve/unresolved/blocked, grain,
+   fanout, join path validé, stratégie anti-double-comptage).
+3. **`legacy_execution_projection_json`** — ce que le legacy a **réellement exécuté**
+   (agrégations, GROUP BY, jointures, count(*) vs count(distinct), pré-agrégation),
+   projeté depuis le SQL réel, pas depuis le texte de la réponse.
+
+Rétention : étages 1–3 en rétention courte (`plan_purge_after`) ; projections,
+comparaison, résumé capability et sécurité analytique durables.
+
+### Sécurité analytique (`analytical_safety`)
+
+Verdicts `same_safety | llm_safer | fallback_safer | not_comparable`
+(`ANALYTICAL_SAFETY_VERSION=1.0`). Définition **restrictive** : `llm_safer`
+seulement sur une différence **observable et déterministe** — ex. C6 impose
+`pre_aggregation` là où le legacy fait un `SUM` après `1→n` sans protection, ou
+C6 impose `count_distinct` là où le legacy fait `count(*)`. Jamais parce que C6
+porte plus de métadonnées. `llm_safer`/`fallback_safer` sont des signaux
+d'**investigation** (revue humaine prioritaire), **pas** une base d'activation :
+le legacy peut avoir une protection que la projection n'a pas su reconnaître.
+
+Les capabilities ne deviennent **matérielles** que si comparables des deux côtés
+(sinon `not_comparable`, jamais de divergence artificielle).
+
+## Campagne réelle (dev/staging)
+
+```bash
+export NOREON_PLANNER_MODE=shadow
+export NOREON_PLANNER_SHADOW_SAMPLE_RATE=1.0
+# + config OVH (NOREON_OVH_BASE_URL, NOREON_OVH_MODEL_MAIN/SIMPLE, OVH_AI_ENDPOINTS_ACCESS_TOKEN)
+# poser ~30–50 questions : simples, multi-objectifs, ambiguës, impossibles
+python scripts/shadow_report.py            # rapport de campagne
+```
+
+Le rapport décompose LLM contract, comparaison, résolution capability, sécurité
+analytique et routage, puis détaille divergences matérielles, écarts de sécurité,
+réparations et erreurs. Le fallback reste une **comparaison**, jamais la vérité
+terrain.
+
 ## Critères d'activation `shadow → (canary) → active`
 
 À décider sur **preuves**, sans traiter le fallback comme vérité terrain, sur une

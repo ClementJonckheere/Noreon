@@ -78,6 +78,14 @@ class ShadowPlanResult:
 
 
 # --- vue fallback (projetable) ----------------------------------------------
+def _legacy_exec(response) -> dict:
+    from app.analysis.shadow.legacy_projection import project_legacy_execution
+    try:
+        return project_legacy_execution(response)
+    except Exception:  # noqa: BLE001
+        return {"sql_present": False}
+
+
 def build_fallback_view(response) -> dict:
     """Extrait du `ChatResponse` une vue JSON-sérialisable pour la projection.
     Aucune donnée brute : statut, type d'analyse éventuel, latence."""
@@ -120,6 +128,7 @@ def dispatch_shadow(*, response, question: str, tenant_id: int, connection_id: i
             "question_hash": question_hash(safe_q, tenant_id, settings.secret_key),
             "question_sanitized": safe_q if settings.planner_shadow_store_sanitized_question else None,
             "fallback_view": build_fallback_view(response),
+            "legacy_execution": _legacy_exec(response),   # ce que le legacy a RÉELLEMENT exécuté (#3)
             "fallback_status": getattr(response, "status", None),
             "planner_mode": mode, "sample_rate": rate,
         }
@@ -212,15 +221,20 @@ def _build_plan_fn(settings):
 
 # --- cœur : évaluation shadow (session injectée) ----------------------------
 def run_shadow_evaluation(envelope: dict, *, session, plan_fn, catalog,
-                          main_model: str, simple_model: str,
+                          main_model: str, simple_model: str, context=None,
                           store_plan: bool = True, plan_retention_days: int = 14, now=None):
-    """Route + planifie (instrumenté) + projette + compare + persiste UNE ligne
-    dans `planner_shadow_evaluations`. Ne cible jamais une autre table."""
+    """Route + planifie (instrumenté) → CapabilityResolution (C6) → projette →
+    compare → sécurité analytique → persiste UNE ligne dans
+    `planner_shadow_evaluations`. Ne cible jamais une autre table.
+
+    Trois étages distincts (règle #2) : interpretation (LLM) → capability_resolution
+    (Noreon) → legacy_execution_projection (ce que le legacy a exécuté)."""
     from app.models.planner_shadow import PlannerShadowEvaluation
 
     now = now or datetime.now(timezone.utc)
     question = envelope["safe_question"]
     fallback_view = envelope.get("fallback_view") or {}
+    legacy_exec = envelope.get("legacy_execution") or {}
     fallback_status = _norm_fallback_status(envelope.get("fallback_status"))
 
     # Routage instrumenté (reproduit route_and_plan avec télémétrie complète).
@@ -239,15 +253,39 @@ def run_shadow_evaluation(envelope: dict, *, session, plan_fn, catalog,
             escalated = True
 
     llm_status = res.status
-    llm_proj = project_llm(res.interp) if res.interp is not None else None
+
+    # --- Étage 2 : CapabilityResolution (C6) sur le VRAI contexte. -----------
+    capability_resolution = None
+    resolved_plan = None
+    cap_states = None
+    if res.interp is not None and context is not None:
+        try:
+            from app.analysis.capability.resolver import resolve as _resolve
+            capability_resolution, resolved_plan = _resolve(res.interp, context)
+            cap_states = _count_capability_states(capability_resolution)
+        except Exception as exc:  # noqa: BLE001 - C6 ne doit jamais casser l'observation
+            log.warning("C6 shadow resolve isolé après erreur : %s", exc)
+
+    # Capabilities NON provisoires seulement si C6 a résolu (sinon informatives).
+    llm_proj = project_llm(res.interp, capability_resolution) if res.interp is not None else None
     fb_proj = project_fallback(fallback_view)
     comparison = compare(llm_proj, fb_proj, llm_status=llm_status, fallback_status=fallback_status)
 
+    # --- Sécurité analytique (restrictive) : C6 résolu vs exécution legacy. ---
+    from app.analysis.shadow.safety import ANALYTICAL_SAFETY_VERSION, LLM_SAFER, FALLBACK_SAFER, analytical_safety_delta
+    safety_verdict, safety_detail = analytical_safety_delta(resolved_plan, legacy_exec)
+
     plan_json = None
+    resolved_json = None
+    capres_json = None
+    legacy_json = None
     purge_after = None
     if store_plan and res.interp is not None:
         plan_json = {"goals": [g.raw for g in res.interp.goals],
                      "unresolved_terms": list(res.interp.unresolved_terms)}
+        resolved_json = resolved_plan
+        capres_json = capability_resolution.to_json() if capability_resolution else None
+        legacy_json = legacy_exec or None
         purge_after = now + timedelta(days=plan_retention_days)
 
     row = PlannerShadowEvaluation(
@@ -267,6 +305,12 @@ def run_shadow_evaluation(envelope: dict, *, session, plan_fn, catalog,
         llm_projection_json=llm_proj.to_json() if llm_proj else None,
         fallback_projection_json=fb_proj.to_json(),
         comparison_outcome=comparison.outcome, comparison_json=comparison.to_json(),
+        # Trois étages + résumé capability :
+        capability_resolution_json=capres_json, resolved_plan_json=resolved_json,
+        legacy_execution_projection_json=legacy_json, capability_states_json=cap_states,
+        # Sécurité analytique (durable) :
+        analytical_safety=safety_verdict, analytical_safety_json=safety_detail,
+        analytical_safety_version=ANALYTICAL_SAFETY_VERSION,
         repair_applied=res.repair is not None,
         repair_type=(res.repair or {}).get("type"),
         repair_details_json=res.repair,
@@ -274,11 +318,25 @@ def run_shadow_evaluation(envelope: dict, *, session, plan_fn, catalog,
         tokens_prompt=res.tokens_prompt, tokens_completion=res.tokens_completion,
         tokens_total=res.tokens_total,
         error_kind=res.error_kind, error_detail=(res.error_detail or "")[:2000] or None,
-        review_status=("sampled_for_review" if comparison.outcome == MATERIAL_DIVERGENCE else "none"),
+        # Revue humaine prioritaire : divergence matérielle OU écart de sécurité (#6).
+        review_status=("sampled_for_review"
+                       if (comparison.outcome == MATERIAL_DIVERGENCE
+                           or safety_verdict in (LLM_SAFER, FALLBACK_SAFER)) else "none"),
     )
     session.add(row)
     session.commit()
     return row
+
+
+def _count_capability_states(resolution) -> dict:
+    """Comptes {available, available_with_reserve, unresolved, blocked} sur toutes
+    les exigences de tous les goals — pour le rapport de campagne."""
+    from app.analysis.capability.model import S_AVAILABLE, S_BLOCKED, S_RESERVE, S_UNRESOLVED
+    counts = {S_AVAILABLE: 0, S_RESERVE: 0, S_UNRESOLVED: 0, S_BLOCKED: 0}
+    for g in resolution.goals:
+        for r in g.requirements:
+            counts[r.state] = counts.get(r.state, 0) + 1
+    return counts
 
 
 def _norm_fallback_status(status: str | None) -> str:
@@ -299,12 +357,34 @@ def run_shadow_from_envelope(envelope: dict, *, session_factory=None, plan_fn=No
         session_factory = SessionLocal
     session = session_factory()                       # session PROPRE
     try:
-        catalog = (catalog_builder or build_provisional_catalog)(session, envelope.get("connection_id"))
+        # VRAI contexte (règle #1) : catalogue + ResolutionContext cohérents depuis la DB.
+        catalog, context = (catalog_builder or _real_catalog_and_context)(session, envelope)
         pf = plan_fn or _build_plan_fn(settings)
         return run_shadow_evaluation(
-            envelope, session=session, plan_fn=pf, catalog=catalog,
+            envelope, session=session, plan_fn=pf, catalog=catalog, context=context,
             main_model=settings.ovh_model_main, simple_model=settings.ovh_model_simple,
             store_plan=settings.planner_shadow_store_plan,
             plan_retention_days=settings.planner_shadow_plan_retention_days, now=now)
     finally:
         session.close()
+
+
+def _real_catalog_and_context(session, envelope):
+    """Construit le VRAI (catalogue, contexte) pour le space/connection de l'envelope.
+    Applique la gouvernance (tables/colonnes masquées) si space_id présent."""
+    from app.analysis.capability.db_context import build_catalog_and_context
+
+    conn_id = envelope.get("connection_id")
+    if conn_id is None:
+        return None, None
+    hidden_t, hidden_c = None, None
+    space_id = envelope.get("space_id")
+    if space_id is not None:
+        try:
+            from app.services.spaces import hidden_columns, hidden_tables
+            hidden_t = hidden_tables(session, space_id, conn_id)
+            hidden_c = hidden_columns(session, space_id, conn_id)
+        except Exception:  # noqa: BLE001
+            hidden_t, hidden_c = None, None
+    return build_catalog_and_context(session, conn_id, tenant_id=envelope.get("tenant_id"),
+                                     hidden_tables=hidden_t, hidden_columns=hidden_c)
