@@ -1,0 +1,312 @@
+{
+  "r_count_under_fanout": {
+    "covers_question": true,
+    "creates_row_multiplication": true,
+    "join_path": [
+      {
+        "cardinality": "one_to_many",
+        "fanout_risk": true,
+        "rel": 2
+      }
+    ],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "dimension:dimension:product=available",
+      "entity:concept:order=available",
+      "grain:concept:order=available",
+      "relation:concept:order->concept:order_item=available"
+    ],
+    "requires_pre_aggregation": true,
+    "status": "SUPPORTED",
+    "strategy": "count_distinct",
+    "traversal": "one_to_many"
+  },
+  "r_hidden_measure": {
+    "covers_question": false,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": null,
+    "requirement_states": [
+      "dimension:dimension:region=available",
+      "entity:concept:order=available",
+      "grain:metric:net_revenue=available",
+      "measure:metric:net_revenue=blocked",
+      "relation:concept:order->concept:customer=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "UNSUPPORTED",
+    "strategy": "none",
+    "traversal": null
+  },
+  "r_inferred_relation": {
+    "covers_question": false,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": null,
+    "requirement_states": [
+      "dimension:dimension:supplier=available",
+      "entity:concept:order=available",
+      "grain:metric:net_revenue=available",
+      "measure:metric:net_revenue=available",
+      "relation:concept:order->concept:supplier=unresolved"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "UNSUPPORTED",
+    "strategy": "none",
+    "traversal": null
+  },
+  "r_missing_measure": {
+    "covers_question": false,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": null,
+    "requirement_states": [
+      "entity:concept:order=available",
+      "grain:concept:order=available",
+      "measure:metric:absent=unresolved"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "UNSUPPORTED",
+    "strategy": "none",
+    "traversal": null
+  },
+  "r_rev_by_product": {
+    "covers_question": true,
+    "creates_row_multiplication": true,
+    "join_path": [
+      {
+        "cardinality": "one_to_many",
+        "fanout_risk": true,
+        "rel": 2
+      }
+    ],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "dimension:dimension:product=available",
+      "entity:concept:order=available",
+      "grain:metric:net_revenue=available",
+      "measure:metric:net_revenue=available",
+      "relation:concept:order->concept:order_item=available"
+    ],
+    "requires_pre_aggregation": true,
+    "status": "SUPPORTED",
+    "strategy": "pre_aggregation",
+    "traversal": "one_to_many"
+  },
+  "r_rev_by_region": {
+    "covers_question": true,
+    "creates_row_multiplication": false,
+    "join_path": [
+      {
+        "cardinality": "many_to_one",
+        "fanout_risk": false,
+        "rel": 1
+      }
+    ],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "dimension:dimension:region=available",
+      "entity:concept:order=available",
+      "grain:metric:net_revenue=available",
+      "measure:metric:net_revenue=available",
+      "relation:concept:order->concept:customer=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "SUPPORTED",
+    "strategy": "none",
+    "traversal": "many_to_one"
+  },
+  "r_rev_by_tag": {
+    "covers_question": true,
+    "creates_row_multiplication": true,
+    "join_path": [
+      {
+        "cardinality": "many_to_many",
+        "fanout_risk": true,
+        "rel": 3
+      }
+    ],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "dimension:dimension:tag=available",
+      "entity:concept:order=available",
+      "grain:metric:net_revenue=available",
+      "measure:metric:net_revenue=available",
+      "relation:concept:order->concept:tag=available"
+    ],
+    "requires_pre_aggregation": true,
+    "status": "SUPPORTED",
+    "strategy": "pre_aggregation",
+    "traversal": "many_to_many"
+  },
+  "s_balance_over_month": {
+    "covers_question": true,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": "semi",
+    "requirement_states": [
+      "dimension:dimension:month=available",
+      "entity:concept:e=available",
+      "grain:metric:balance=available_with_reserve",
+      "measure:metric:balance=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "PARTIAL",
+    "strategy": "semi_additive",
+    "traversal": "one_to_one"
+  },
+  "s_mrr_by_line": {
+    "covers_question": true,
+    "creates_row_multiplication": true,
+    "join_path": [
+      {
+        "cardinality": "one_to_many",
+        "fanout_risk": true,
+        "rel": 2
+      }
+    ],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "dimension:dimension:line=available",
+      "entity:concept:e=available",
+      "grain:metric:mrr=available",
+      "measure:metric:mrr=available",
+      "relation:concept:e->concept:line=available"
+    ],
+    "requires_pre_aggregation": true,
+    "status": "SUPPORTED",
+    "strategy": "pre_aggregation",
+    "traversal": "one_to_many"
+  },
+  "s_mrr_by_plan": {
+    "covers_question": true,
+    "creates_row_multiplication": false,
+    "join_path": [
+      {
+        "cardinality": "many_to_one",
+        "fanout_risk": false,
+        "rel": 1
+      }
+    ],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "dimension:dimension:plan=available",
+      "entity:concept:e=available",
+      "grain:metric:mrr=available",
+      "measure:metric:mrr=available",
+      "relation:concept:e->concept:plan=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "SUPPORTED",
+    "strategy": "none",
+    "traversal": "many_to_one"
+  },
+  "s_quality_hardstop": {
+    "covers_question": false,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": null,
+    "requirement_states": [
+      "entity:concept:e=available",
+      "grain:metric:mrr=available",
+      "measure:metric:mrr=blocked"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "UNSUPPORTED",
+    "strategy": "none",
+    "traversal": null
+  },
+  "s_rate_sum": {
+    "covers_question": false,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": null,
+    "requirement_states": [
+      "dimension:dimension:plan=available",
+      "entity:concept:e=available",
+      "grain:metric:conversion_rate=unresolved",
+      "measure:metric:conversion_rate=available",
+      "relation:concept:e->concept:plan=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "UNSUPPORTED",
+    "strategy": "none",
+    "traversal": null
+  },
+  "s_source_down": {
+    "covers_question": false,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": null,
+    "requirement_states": [
+      "entity:concept:e=blocked",
+      "grain:metric:mrr=available",
+      "measure:metric:mrr=blocked"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "UNSUPPORTED",
+    "strategy": "none",
+    "traversal": null
+  },
+  "s_stale_mrr": {
+    "covers_question": true,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "entity:concept:e=available",
+      "grain:metric:mrr=available",
+      "measure:metric:mrr=available_with_reserve"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "PARTIAL",
+    "strategy": "none",
+    "traversal": "one_to_one"
+  },
+  "s_unknown_grain_fanout": {
+    "covers_question": false,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": null,
+    "requirement_states": [
+      "dimension:dimension:line=available",
+      "entity:concept:e=available",
+      "grain:metric:mystery=unresolved",
+      "measure:metric:mystery=available",
+      "relation:concept:e->concept:line=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "UNSUPPORTED",
+    "strategy": "none",
+    "traversal": null
+  },
+  "solo_count": {
+    "covers_question": true,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "entity:concept:e=available",
+      "grain:concept:e=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "SUPPORTED",
+    "strategy": "none",
+    "traversal": "one_to_one"
+  },
+  "solo_sum": {
+    "covers_question": true,
+    "creates_row_multiplication": false,
+    "join_path": [],
+    "metric_additivity": "full",
+    "requirement_states": [
+      "entity:concept:e=available",
+      "grain:metric:amount=available",
+      "measure:metric:amount=available"
+    ],
+    "requires_pre_aggregation": false,
+    "status": "SUPPORTED",
+    "strategy": "none",
+    "traversal": "one_to_one"
+  }
+}

@@ -55,10 +55,14 @@ def test_retail_saas_solo_all_resolve_and_emit_only_catalog_refs():
 
 
 def test_capability_package_has_no_business_literals():
+    # Règle n°1 : le MOTEUR est domain-agnostic. `resolver_eval.py` est un corpus
+    # de fixtures (catalogues de démo) — exclu, comme demo_retail.py pour l'arbitrage.
     forbidden = ("magasin", "boutique", "facture", "invoice", "abonnement",
                  "subscription", "chiffre_affaires")
     pkg = pathlib.Path(__file__).resolve().parents[1] / "app" / "analysis" / "capability"
     for py in pkg.glob("*.py"):
+        if py.name == "resolver_eval.py":
+            continue
         text = py.read_text(encoding="utf-8").lower()
         for word in forbidden:
             assert word not in text, f"{word} dans {py.name}"

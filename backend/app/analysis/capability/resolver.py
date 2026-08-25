@@ -140,7 +140,7 @@ def resolve(interp, context: ResolutionContext):
         greq = CapabilityRequirement(kind="grain", ref=(measure0.ref if measure0 else (entity_ref or "grain")),
                                      capability_state=grain.state, strategy=grain.strategy,
                                      reason_code=grain.reason_code, reason_detail=grain.reason_detail,
-                                     reserve=grain.reserve,
+                                     reserve=grain.reserve, creates_row_multiplication=grain.creates_row_multiplication,
                                      cause_class=(CAUSE_CAPABILITY if grain.state != S_AVAILABLE else None))
         reqs.append(greq)
 

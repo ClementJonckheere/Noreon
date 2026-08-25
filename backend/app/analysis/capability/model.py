@@ -128,6 +128,7 @@ class CapabilityRequirement:
     reason_detail: str | None = None
     reserve: dict | None = None
     strategy: str = STRAT_NONE
+    creates_row_multiplication: bool = False    # fanout DÉTECTÉ (grain req), même si le goal est unsupported
 
     @property
     def state(self) -> str:
