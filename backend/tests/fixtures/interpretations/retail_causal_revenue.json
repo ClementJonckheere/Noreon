@@ -1,0 +1,28 @@
+{
+  "domain": "retail",
+  "plan_schema_version": "1.0",
+  "goals": [
+    {
+      "id": "g1",
+      "priority": 1,
+      "type": "attribution",
+      "intent_text": "Expliquer la baisse du chiffre d'affaires",
+      "entity_ref": "concept:order",
+      "metrics": [
+        {
+          "ref": "metric:net_revenue"
+        }
+      ],
+      "dimensions": [
+        {
+          "ref": "dimension:product_category"
+        },
+        {
+          "ref": "dimension:region"
+        }
+      ],
+      "depends_on": []
+    }
+  ],
+  "unresolved_terms": []
+}

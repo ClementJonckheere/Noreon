@@ -1,0 +1,65 @@
+{
+  "domain": "retail",
+  "plan_schema_version": "1.0",
+  "goals": [
+    {
+      "id": "g1",
+      "priority": 1,
+      "type": "segmentation",
+      "intent_text": "Segmenter les clients par valeur (RFM)",
+      "entity_ref": "concept:customer",
+      "metrics": [
+        {
+          "ref": "metric:recency",
+          "of_ref": "concept:order"
+        },
+        {
+          "ref": "metric:frequency",
+          "of_ref": "concept:order"
+        },
+        {
+          "ref": "metric:monetary",
+          "of_ref": "concept:order"
+        }
+      ],
+      "method": {
+        "name": "rfm"
+      },
+      "depends_on": []
+    },
+    {
+      "id": "g2",
+      "priority": 2,
+      "type": "distribution",
+      "intent_text": "Répartition des produits par segment",
+      "entity_ref": "concept:product",
+      "dimensions": [
+        {
+          "ref": "dimension:product_category"
+        }
+      ],
+      "depends_on": [
+        "g1"
+      ]
+    },
+    {
+      "id": "g3",
+      "priority": 3,
+      "type": "distribution",
+      "intent_text": "Répartition par tranche d'âge",
+      "entity_ref": "concept:customer",
+      "depends_on": [
+        "g1"
+      ]
+    }
+  ],
+  "unresolved_terms": [
+    {
+      "goal_id": "g3",
+      "term": "tranche d'âge",
+      "role": "dimension",
+      "source_span": "par quelle tranche d'âge",
+      "reason": "aucune dimension âge dans le catalogue"
+    }
+  ]
+}

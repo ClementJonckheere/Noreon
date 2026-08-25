@@ -16,10 +16,22 @@ Toute violation lève `ContractError(code=...)` — les codes sont testés.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 
-PLAN_SCHEMA_VERSION = "1.0"
+# Versions VERSIONNÉES SÉPARÉMENT (C4) :
+# - INTERPRETATION_SCHEMA_VERSION : structure du document `interpretation_json`
+#   (champs, imbrications, invariants). Portée sur le fil via `plan_schema_version`.
+# - GOAL_TYPES_VERSION : vocabulaire fermé des types d'objectifs + leur glossaire
+#   (prompt). Peut évoluer indépendamment de la structure.
+# Bumper l'une n'oblige pas à bumper l'autre. Toute sortie déclarant une version
+# de structure non supportée est REJETÉE (pas de réparation silencieuse).
+INTERPRETATION_SCHEMA_VERSION = "1.0"
+GOAL_TYPES_VERSION = "1.0"
+PLAN_SCHEMA_VERSION = INTERPRETATION_SCHEMA_VERSION   # alias historique (fil)
+
+logger = logging.getLogger("noreon.planner.contract")
 
 # --- Vocabulaires fermés -----------------------------------------------------
 GOAL_TYPES = frozenset({
@@ -152,6 +164,11 @@ def repair_goal_ids(payload: dict) -> dict:
             ({**t, "goal_id": old_to_new.get(t.get("goal_id"), t.get("goal_id"))}
              if isinstance(t, dict) and "goal_id" in t else t)
             for t in uts]
+    # Journalisée : toute réparation appliquée est un signal de DÉRIVE modèle à suivre.
+    logger.warning(
+        "planner_repair applied=goal_id_renumber duplicates=%s n_goals=%d "
+        "schema=%s types=%s",
+        sorted(dup), len(goals), INTERPRETATION_SCHEMA_VERSION, GOAL_TYPES_VERSION)
     return new
 
 
@@ -161,6 +178,13 @@ def validate_interpretation(payload: dict) -> Interpretation:
     les validateurs custom (références sémantiques, DAG, liaisons) et leurs codes."""
     _require(isinstance(payload, dict), "not_object", "$")
     _scan_forbidden(payload)
+
+    # Échec PROPRE et précoce sur version de structure non supportée : aucune
+    # tentative de réparation au-delà de repair_goal_ids (appelé en AMONT au bord LLM).
+    _ver = payload.get("plan_schema_version")
+    _require(_ver == INTERPRETATION_SCHEMA_VERSION, "unsupported_schema_version",
+             "$.plan_schema_version",
+             f"attendu {INTERPRETATION_SCHEMA_VERSION!r}, reçu {_ver!r}")
 
     # (1) Structure — Pydantic est la source unique du contrat structurel.
     from pydantic import ValidationError

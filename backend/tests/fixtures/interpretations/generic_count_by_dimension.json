@@ -1,0 +1,20 @@
+{
+  "domain": "generic",
+  "plan_schema_version": "1.0",
+  "goals": [
+    {
+      "id": "g1",
+      "priority": 1,
+      "type": "count",
+      "intent_text": "Nombre d'entités par région",
+      "entity_ref": "concept:customer",
+      "dimensions": [
+        {
+          "ref": "dimension:region"
+        }
+      ],
+      "depends_on": []
+    }
+  ],
+  "unresolved_terms": []
+}

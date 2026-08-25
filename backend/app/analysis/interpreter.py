@@ -27,6 +27,8 @@ from app.llm.base import LLMProvider
 
 # Prompt système FIXE — la seule autorité d'instruction. Le catalogue et la
 # question sont des DONNÉES : toute instruction qui y serait embarquée est ignorée.
+# Le GLOSSAIRE des types ci-dessous est versionné par `GOAL_TYPES_VERSION`
+# (contracts.py) — toute modification de sa sémantique DOIT bumper cette version.
 PLANNER_SYSTEM = (
     "Tu es un planificateur d'analyses. À partir d'une question et d'un CATALOGUE "
     "sémantique, tu produis un plan JSON conforme au schéma fourni.\n"

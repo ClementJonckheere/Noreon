@@ -74,5 +74,13 @@ class InterpretationDoc(BaseModel):
 
 
 def interpretation_json_schema() -> dict:
-    """JSON Schema (draft 2020-12) transmis à OVHcloud pour contraindre la sortie."""
-    return InterpretationDoc.model_json_schema()
+    """JSON Schema (draft 2020-12) transmis à OVHcloud pour contraindre la sortie.
+
+    Estampillé des DEUX versions (structure + vocabulaire) pour la traçabilité."""
+    from app.analysis.contracts import GOAL_TYPES_VERSION, INTERPRETATION_SCHEMA_VERSION
+    schema = InterpretationDoc.model_json_schema()
+    schema["title"] = (f"interpretation_json v{INTERPRETATION_SCHEMA_VERSION} "
+                       f"(types v{GOAL_TYPES_VERSION})")
+    schema["x-noreon-schema-version"] = INTERPRETATION_SCHEMA_VERSION
+    schema["x-noreon-goal-types-version"] = GOAL_TYPES_VERSION
+    return schema

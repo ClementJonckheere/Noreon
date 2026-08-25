@@ -1,0 +1,23 @@
+{
+  "domain": "crm",
+  "plan_schema_version": "1.0",
+  "goals": [
+    {
+      "id": "g1",
+      "priority": 1,
+      "type": "segmentation",
+      "intent_text": "Identifier les comptes à risque de résiliation",
+      "entity_ref": "concept:account",
+      "metrics": [
+        {
+          "ref": "metric:usage"
+        },
+        {
+          "ref": "metric:tenure"
+        }
+      ],
+      "depends_on": []
+    }
+  ],
+  "unresolved_terms": []
+}

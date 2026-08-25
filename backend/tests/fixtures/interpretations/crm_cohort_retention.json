@@ -1,0 +1,25 @@
+{
+  "domain": "crm",
+  "plan_schema_version": "1.0",
+  "goals": [
+    {
+      "id": "g1",
+      "priority": 1,
+      "type": "cohort",
+      "intent_text": "Rétention par cohorte mensuelle d'inscription",
+      "entity_ref": "concept:account",
+      "metrics": [
+        {
+          "ref": "metric:retention_rate"
+        }
+      ],
+      "dimensions": [
+        {
+          "ref": "dimension:signup_month"
+        }
+      ],
+      "depends_on": []
+    }
+  ],
+  "unresolved_terms": []
+}

@@ -57,6 +57,21 @@ def test_valid_interpretation_parses_and_orders_deterministically():
     assert order == ["g1", "g2", "g3"]
 
 
+# --- C4 : versions séparées + échec propre ----------------------------------
+def test_schema_and_types_versioned_separately():
+    assert isinstance(C.INTERPRETATION_SCHEMA_VERSION, str)
+    assert isinstance(C.GOAL_TYPES_VERSION, str)
+    assert C.PLAN_SCHEMA_VERSION == C.INTERPRETATION_SCHEMA_VERSION   # alias fil
+
+
+def test_unsupported_schema_version_is_rejected_cleanly():
+    p = _valid_interpretation()
+    p["plan_schema_version"] = "9.9"
+    with pytest.raises(C.ContractError) as e:
+        C.validate_interpretation(p)
+    assert e.value.code == "unsupported_schema_version"
+
+
 # --- Invariant 1 : validation du DAG ----------------------------------------
 def test_dag_rejects_duplicate_ids():
     p = _valid_interpretation()
