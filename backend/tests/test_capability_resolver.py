@@ -28,7 +28,7 @@ def _goal(gtype, metrics=(), dims=(), entity="concept:e"):
         g["metrics"] = [{"ref": m} for m in metrics]
     if dims:
         g["dimensions"] = [{"ref": d} for d in dims]
-    return validate_interpretation({"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [g]})
+    return validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [g]})
 
 
 def _req(res, kind):
@@ -38,11 +38,13 @@ def _req(res, kind):
 # === Multi-domaines (même resolver, zéro nom métier) ========================
 def test_retail_saas_solo_all_resolve_and_emit_only_catalog_refs():
     domains = {
-        "retail": {"entities": [{"ref": "concept:e", "grain_keys": ["id"]}],
-                   "measures": [{"ref": "metric:m", "home_entity": "concept:e"}], "dimensions": [], "relations": []},
-        "saas": {"entities": [{"ref": "concept:e", "grain_keys": ["id"]}],
-                 "measures": [{"ref": "metric:m", "home_entity": "concept:e"}], "dimensions": [], "relations": []},
-        "solo": {"entities": [{"ref": "concept:e", "grain_keys": ["id"]}],
+        "retail": {"entities": [{"ref": "concept:e", "grain_keys": ["id"], "physical": "e"}],
+                   "measures": [{"ref": "metric:m", "home_entity": "concept:e",
+                                 "physical": "e.m"}], "dimensions": [], "relations": []},
+        "saas": {"entities": [{"ref": "concept:e", "grain_keys": ["id"], "physical": "e"}],
+                 "measures": [{"ref": "metric:m", "home_entity": "concept:e",
+                               "physical": "e.m"}], "dimensions": [], "relations": []},
+        "solo": {"entities": [{"ref": "concept:e", "grain_keys": ["id"], "physical": "e"}],
                  "measures": [], "dimensions": [], "relations": []},
     }
     for name, spec in domains.items():
@@ -71,7 +73,8 @@ def test_capability_package_has_no_business_literals():
 # === Capability : rien n'est inventé ========================================
 def test_missing_measure_is_unresolved_not_invented():
     ctx = DictCatalogAdapter().to_context(
-        {"entities": [{"ref": "concept:e", "grain_keys": ["id"]}], "measures": [], "dimensions": [], "relations": []})
+        {"entities": [{"ref": "concept:e", "grain_keys": ["id"], "physical": "e"}],
+         "measures": [], "dimensions": [], "relations": []})
     res, plan = resolve(_goal("aggregate", ["metric:absent"]), ctx)
     m = _req(res, "measure")[0]
     assert m.state == S_UNRESOLVED and m.cause_class == CAUSE_CAPABILITY
@@ -79,9 +82,10 @@ def test_missing_measure_is_unresolved_not_invented():
 
 
 def test_inferred_fk_not_usable_but_constraint_fk_is_system_validated():
-    ent = [{"ref": "concept:e", "grain_keys": ["id"]}, {"ref": "concept:d", "grain_keys": ["id"]}]
-    meas = [{"ref": "metric:m", "home_entity": "concept:e"}]
-    dims = [{"ref": "dimension:x", "home_entity": "concept:d"}]
+    ent = [{"ref": "concept:e", "grain_keys": ["id"], "physical": "e"},
+           {"ref": "concept:d", "grain_keys": ["id"], "physical": "d"}]
+    meas = [{"ref": "metric:m", "home_entity": "concept:e", "physical": "e.m"}]
+    dims = [{"ref": "dimension:x", "home_entity": "concept:d", "physical": "d.x"}]
     rel = {"id": 1, "from_entity": "concept:e", "to_entity": "concept:d", "cardinality": "n-1",
            "from_key": "e.d_id", "to_key": "d.id"}
 
@@ -101,8 +105,9 @@ def test_inferred_fk_not_usable_but_constraint_fk_is_system_validated():
 
 # === Qualité : reserve vs hard-stop, jamais unresolved ======================
 def _quality_ctx(**over):
-    spec = {"entities": [{"ref": "concept:e", "grain_keys": ["id"]}],
-            "measures": [{"ref": "metric:m", "home_entity": "concept:e"}], "dimensions": [], "relations": []}
+    spec = {"entities": [{"ref": "concept:e", "grain_keys": ["id"], "physical": "e"}],
+            "measures": [{"ref": "metric:m", "home_entity": "concept:e", "physical": "e.m"}],
+            "dimensions": [], "relations": []}
     spec.update(over)
     return DictCatalogAdapter().to_context(spec)
 
@@ -148,10 +153,11 @@ def test_source_unreachable_is_blocked_access():
 
 # === Chemins ambigus → clarification ========================================
 def test_ambiguous_join_path_needs_clarification():
-    ent = [{"ref": "concept:e", "grain_keys": ["id"]}, {"ref": "concept:d", "grain_keys": ["id"]},
-           {"ref": "concept:mid", "grain_keys": ["id"]}]
-    meas = [{"ref": "metric:m", "home_entity": "concept:e"}]
-    dims = [{"ref": "dimension:x", "home_entity": "concept:d"}]
+    ent = [{"ref": "concept:e", "grain_keys": ["id"], "physical": "e"},
+           {"ref": "concept:d", "grain_keys": ["id"], "physical": "d"},
+           {"ref": "concept:mid", "grain_keys": ["id"], "physical": "mid"}]
+    meas = [{"ref": "metric:m", "home_entity": "concept:e", "physical": "e.m"}]
+    dims = [{"ref": "dimension:x", "home_entity": "concept:d", "physical": "d.x"}]
     # deux chemins e→d aussi sûrs (n-1) et aussi courts (1 étape) : direct et via un autre id
     rels = [
         {"id": 1, "from_entity": "concept:e", "to_entity": "concept:d", "cardinality": "n-1",

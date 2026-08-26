@@ -58,7 +58,7 @@ def _interp(*types_ids, deps=None):
         if deps and f"g{i}" in deps:
             g["depends_on"] = deps[f"g{i}"]
         goals.append(g)
-    return validate_interpretation({"plan_schema_version": "1.0", "unresolved_terms": [], "goals": goals})
+    return validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": goals})
 
 
 def _plan(interp=None, status="ok", repair=None):
@@ -188,7 +188,7 @@ def test_repair_recorded_in_telemetry():
 def test_all_versions_persisted():
     row, _ = _run("combien de clients", lambda m, q, c: _plan(_interp("count")),
                   {"status": "answered", "analysis": {"goal_type": "count"}})
-    assert row.interpretation_schema_version == "1.0" and row.goal_types_version == "1.0"
+    assert row.interpretation_schema_version == "1.2" and row.goal_types_version == "1.0"
     assert row.router_version == "1.0"
     assert row.comparator_version == "1.1" and row.projection_version == "1.1"   # promotion capabilities (#7)
 

@@ -51,19 +51,22 @@ class DictCatalogAdapter(CapabilityCatalogAdapter):
     def to_context(self, spec: dict) -> ResolutionContext:
         entities = {}
         for e in spec.get("entities", []):
-            entities[e["ref"]] = Entity(ref=e["ref"], grain_keys=tuple(e.get("grain_keys") or ()),
-                                        physical=e.get("physical"))
+            entities[e["ref"]] = Entity(
+                ref=e["ref"], grain_keys=tuple(e.get("grain_keys") or ()),
+                physical=e.get("physical"), grain_key_types=dict(e.get("grain_key_types") or {}))
         measures = {}
         for m in spec.get("measures", []):
             measures[m["ref"]] = Measure(
                 ref=m["ref"], home_entity=m.get("home_entity", ""),
                 additivity=m.get("additivity", ADD_FULL),
                 non_additive_dims=frozenset(m.get("non_additive_dims") or ()),
-                physical=m.get("physical"))
+                physical=m.get("physical"), data_type=m.get("data_type"))
         dimensions = {}
         for d in spec.get("dimensions", []):
-            dimensions[d["ref"]] = Dimension(ref=d["ref"], home_entity=d.get("home_entity", ""),
-                                             physical=d.get("physical"))
+            dimensions[d["ref"]] = Dimension(
+                ref=d["ref"], home_entity=d.get("home_entity", ""),
+                physical=d.get("physical"), data_type=d.get("data_type"),
+                is_temporal=bool(d.get("is_temporal", False)))
         relations = tuple(
             Relation(id=int(r["id"]), from_entity=r["from_entity"], to_entity=r["to_entity"],
                      cardinality=normalize_cardinality(r.get("cardinality")),
@@ -81,4 +84,6 @@ class DictCatalogAdapter(CapabilityCatalogAdapter):
                 min_coverage=pol.get("min_coverage", 0.0),
                 min_target_uniqueness=pol.get("min_target_uniqueness", 0.0),
                 quality_hard_stop=pol.get("quality_hard_stop", 0.0),
-                max_path_depth=pol.get("max_path_depth", 5)))
+                max_path_depth=pol.get("max_path_depth", 5)),
+            snapshot_id=(str(spec["snapshot_id"]) if spec.get("snapshot_id") is not None else None),
+            snapshot_captured_at=spec.get("snapshot_captured_at"))

@@ -13,7 +13,7 @@ from app.llm.base import AnalysisResult, LLMProvider, SQLGenerationResult
 
 # Plan RFM valide (3 objectifs, DAG, terme âge non résolu relié à g3).
 _RFM = {
-    "plan_schema_version": "1.0",
+    "plan_schema_version": "1.2",
     "goals": [
         {"id": "g1", "priority": 1, "type": "segmentation",
          "intent_text": "Segmenter les clients par valeur (RFM)",
@@ -37,7 +37,7 @@ _RFM = {
 
 # Repli déterministe pour les questions simples (une agrégation).
 _SINGLE = {
-    "plan_schema_version": "1.0",
+    "plan_schema_version": "1.2",
     "goals": [
         {"id": "g1", "priority": 1, "type": "aggregate",
          "intent_text": "Agrégation d'une mesure",

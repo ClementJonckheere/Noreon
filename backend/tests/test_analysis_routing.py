@@ -30,7 +30,7 @@ def test_preroute_matches_expected_tier(case):
 # --- Allowlist déterministe sur le PLAN -------------------------------------
 def _interp(goals, unresolved=None):
     return validate_interpretation({
-        "plan_schema_version": "1.0", "goals": goals,
+        "plan_schema_version": "1.2", "goals": goals,
         "unresolved_terms": unresolved or []})
 
 
@@ -70,12 +70,12 @@ def test_plan_ineligible_on_complexity(mutation, expect_reason):
 def test_escalation_is_audited_when_20b_plan_is_complex():
     """20b pré-routé mais plan complexe (2 objectifs) → rejet + relance 120b,
     avec audit complet."""
-    simple_plan = {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    simple_plan = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "segmentation", "intent_text": "seg",
          "entity_ref": "concept:customer"},
         {"id": "g2", "priority": 2, "type": "affinity", "intent_text": "aff",
          "entity_ref": "concept:product", "depends_on": ["g1"]}]}
-    main_plan = {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    main_plan = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "segmentation", "intent_text": "seg",
          "entity_ref": "concept:customer"}]}
 
@@ -95,7 +95,7 @@ def test_escalation_is_audited_when_20b_plan_is_complex():
 
 
 def test_no_escalation_when_20b_plan_is_simple():
-    plan = {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    plan = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "count", "intent_text": "combien",
          "entity_ref": "concept:customer"}]}
     calls = []

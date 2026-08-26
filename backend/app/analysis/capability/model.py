@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-CAPABILITY_RESOLVER_VERSION = "1.0"
+CAPABILITY_RESOLVER_VERSION = "2.0"
 
 # Cardinalités canoniques (alignées sur le contrat resolved_plan).
 MANY_TO_ONE = "many_to_one"
@@ -48,6 +48,7 @@ class Entity:
     ref: str
     grain_keys: tuple[str, ...]                 # clés d'unicité (le GRAIN)
     physical: str | None = None                 # table physique
+    grain_key_types: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ class Measure:
     additivity: str = ADD_FULL                  # full | semi | non
     non_additive_dims: frozenset[str] = field(default_factory=frozenset)  # axes non sommables (semi)
     physical: str | None = None
+    data_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,8 @@ class Dimension:
     ref: str
     home_entity: str
     physical: str | None = None
+    data_type: str | None = None
+    is_temporal: bool = False
 
 
 _INVERSE_CARD = {MANY_TO_ONE: ONE_TO_MANY, ONE_TO_MANY: MANY_TO_ONE,
@@ -115,6 +119,8 @@ class ResolutionContext:
     quality: dict = field(default_factory=dict)       # ref → score 0..1
     access: dict = field(default_factory=dict)        # {hidden: set[ref], source_reachable: bool}
     policy: ResolutionPolicy = field(default_factory=ResolutionPolicy)
+    snapshot_id: str | None = None
+    snapshot_captured_at: str | None = None
 
 
 @dataclass
@@ -129,6 +135,8 @@ class CapabilityRequirement:
     reserve: dict | None = None
     strategy: str = STRAT_NONE
     creates_row_multiplication: bool = False    # fanout DÉTECTÉ (grain req), même si le goal est unsupported
+    necessity: str | None = None                # required|optional pour unresolved_term
+    unresolved_role: str | None = None
 
     @property
     def state(self) -> str:
@@ -144,6 +152,7 @@ class CapabilityRequirement:
             "capability_state": self.capability_state, "access_state": self.access_state,
             "cause_class": self.cause_class, "reason_code": self.reason_code,
             "reason_detail": self.reason_detail, "reserve": self.reserve, "strategy": self.strategy,
+            "necessity": self.necessity, "unresolved_role": self.unresolved_role,
         }
 
 

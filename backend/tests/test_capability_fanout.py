@@ -40,18 +40,21 @@ def _goal(gtype, metrics=(), dims=(), entity="concept:order"):
         g["metrics"] = [{"ref": m} for m in metrics]
     if dims:
         g["dimensions"] = [{"ref": d} for d in dims]
-    return validate_interpretation({"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [g]})
+    return validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [g]})
 
 
-_REV = [{"ref": "metric:net_revenue", "home_entity": "concept:order", "additivity": "full"}]
+_REV = [{"ref": "metric:net_revenue", "home_entity": "concept:order", "additivity": "full",
+         "physical": "orders.net_revenue"}]
 _REL_ITEM = {"id": 2, "from_entity": "concept:order", "to_entity": "concept:order_item",
              "cardinality": "1-n", "status": "validated", "from_key": "orders.id",
              "to_key": "order_items.order_id", "coverage": 1.0}
 _REL_CUST = {"id": 1, "from_entity": "concept:order", "to_entity": "concept:customer",
              "cardinality": "n-1", "status": "validated", "from_key": "orders.customer_id",
              "to_key": "customers.id", "coverage": 1.0}
-_DIM_PRODUCT = {"ref": "dimension:product", "home_entity": "concept:order_item"}
-_DIM_REGION = {"ref": "dimension:region", "home_entity": "concept:customer"}
+_DIM_PRODUCT = {"ref": "dimension:product", "home_entity": "concept:order_item",
+                "physical": "order_items.product_id"}
+_DIM_REGION = {"ref": "dimension:region", "home_entity": "concept:customer",
+               "physical": "customers.region"}
 
 
 def _grain(plan):
@@ -70,11 +73,12 @@ def test_one_to_many_forces_pre_aggregation():
 def test_many_to_many_forces_pre_aggregation():
     rel_nn = {"id": 3, "from_entity": "concept:order", "to_entity": "concept:tag",
               "cardinality": "n-n", "status": "validated", "from_key": "orders.id", "to_key": "tags.id"}
-    ctx = _ctx(_REV, [rel_nn], [{"ref": "dimension:tag", "home_entity": "concept:tag"}])
+    ctx = _ctx(_REV, [rel_nn], [{"ref": "dimension:tag", "home_entity": "concept:tag",
+                                "physical": "tags.name"}])
     _, plan = resolve(_goal("aggregate", ["metric:net_revenue"], ["dimension:tag"]), ctx)
     g = _grain(plan)
     assert g["creates_row_multiplication"] and g["aggregation_strategy"] == STRAT_PRE_AGG
-    assert plan["resolution"][0]["join_path"][0]["cardinality"] == "many_to_many"
+    assert plan["resolution"][0]["join_graph"]["edges"][0]["cardinality"] == "many_to_many"
 
 
 def test_many_to_one_has_no_fanout():
@@ -89,7 +93,7 @@ def test_valid_join_is_not_a_safe_aggregation():
     ctx = _ctx(_REV, [_REL_ITEM], [_DIM_PRODUCT])
     _, plan = resolve(_goal("aggregate", ["metric:net_revenue"], ["dimension:product"]), ctx)
     # relation validée ET pourtant pré-agrégation imposée (contrat : pas de fanout sans pré-agg)
-    assert plan["resolution"][0]["join_path"][0]["fanout_risk"] is True
+    assert plan["resolution"][0]["join_graph"]["edges"][0]["fanout_risk"] is True
     assert _grain(plan)["requires_pre_aggregation"] is True
 
 
@@ -102,7 +106,8 @@ def test_count_across_fanout_uses_count_distinct():
 
 def test_unknown_measure_grain_under_fanout_is_unresolved():
     # mesure sans home_entity connu → grain inconnu → jamais une somme fausse
-    measures = [{"ref": "metric:mystery", "home_entity": "", "additivity": "full"}]
+    measures = [{"ref": "metric:mystery", "home_entity": "", "additivity": "full",
+                 "physical": "orders.mystery"}]
     ctx = _ctx(measures, [_REL_ITEM], [_DIM_PRODUCT])
     res, plan = resolve(_goal("aggregate", ["metric:mystery"], ["dimension:product"]), ctx)
     assert plan["resolution"][0]["status"] == "UNSUPPORTED"
@@ -111,7 +116,8 @@ def test_unknown_measure_grain_under_fanout_is_unresolved():
 
 
 def test_non_additive_measure_is_unresolved():
-    measures = [{"ref": "metric:conversion_rate", "home_entity": "concept:order", "additivity": "non"}]
+    measures = [{"ref": "metric:conversion_rate", "home_entity": "concept:order", "additivity": "non",
+                 "physical": "orders.conversion_rate"}]
     ctx = _ctx(measures, [_REL_CUST], [_DIM_REGION])
     res, plan = resolve(_goal("aggregate", ["metric:conversion_rate"], ["dimension:region"]), ctx)
     assert plan["resolution"][0]["status"] == "UNSUPPORTED"
@@ -121,8 +127,10 @@ def test_non_additive_measure_is_unresolved():
 
 def test_semi_additive_over_non_additive_axis_is_reserve():
     measures = [{"ref": "metric:balance", "home_entity": "concept:order", "additivity": "semi",
+                 "physical": "orders.balance",
                  "non_additive_dims": ["dimension:month"]}]
-    ctx = _ctx(measures, [], [{"ref": "dimension:month", "home_entity": "concept:order"}])
+    ctx = _ctx(measures, [], [{"ref": "dimension:month", "home_entity": "concept:order",
+                              "physical": "orders.month"}])
     res, plan = resolve(_goal("aggregate", ["metric:balance"], ["dimension:month"]), ctx)
     assert plan["resolution"][0]["status"] == "PARTIAL"
     grain_req = [r for r in res.goals[0].requirements if r.kind == "grain"][0]

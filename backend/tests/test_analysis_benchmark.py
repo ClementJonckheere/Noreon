@@ -24,7 +24,7 @@ def _interp(type_, extra=()):
     for i, t in enumerate(extra, start=2):
         goals.append({"id": f"g{i}", "priority": i, "type": t, "intent_text": "x",
                       "entity_ref": "concept:order", "depends_on": ["g1"]})
-    return validate_interpretation({"plan_schema_version": "1.0", "goals": goals,
+    return validate_interpretation({"plan_schema_version": "1.2", "goals": goals,
                                     "unresolved_terms": []})
 
 
@@ -81,7 +81,7 @@ def test_invented_ref_eliminates_even_cross_domain():
     def plan_fn(model, q, cat):
         from app.analysis.contracts import validate_interpretation
         return B.PlanResult(interp=validate_interpretation({
-            "plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+            "plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
                 {"id": "g1", "priority": 1, "type": "count", "intent_text": "x",
                  "entity_ref": "concept:invented_entity"}]}))
     rep = B.run_model(MAIN, [crm_case], _cat_domain("retail"), plan_fn=plan_fn, tier="main")

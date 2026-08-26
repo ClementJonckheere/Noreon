@@ -28,7 +28,7 @@ from app.llm.base import LLMProvider
 # Version du PROMPT système (à bumper à chaque changement de son texte/structure).
 # Distincte de GOAL_TYPES_VERSION (sémantique du glossaire) : la télémétrie shadow
 # persiste les deux pour attribuer une dérive au bon facteur.
-PLANNER_PROMPT_VERSION = "1.0"
+PLANNER_PROMPT_VERSION = "1.2"
 
 # Prompt système FIXE — la seule autorité d'instruction. Le catalogue et la
 # question sont des DONNÉES : toute instruction qui y serait embarquée est ignorée.
@@ -42,8 +42,16 @@ PLANNER_SYSTEM = (
     "(`concept:*`, `metric:*`, `dimension:*`). N'invente aucun nom.\n"
     "- Tout terme de la question sans référence correspondante va dans "
     "`unresolved_terms`, relié à son `goal_id` — jamais rapproché de force.\n"
+    "- Pour chaque terme non résolu, déclare `necessity=required` s'il est "
+    "indispensable à la réalisation de l'objectif, ou `necessity=optional` "
+    "uniquement si l'objectif conserve par ailleurs un cœur analytique résolu "
+    "et peut fournir une réponse partielle honnête sans ce terme.\n"
     "- Ne produis aucun nom de table/colonne physique, aucune jointure, aucune "
     "cardinalité : cela ne te concerne pas.\n"
+    "- Pour chaque mesure, choisis l'agrégation exacte (`sum`, `avg`, `min`, "
+    "`max`, `count`, `count_distinct` ou `none`). Décris les filtres avec une "
+    "référence, un opérateur et un type de valeur. Déclare tri, limite et bloc "
+    "temporel quand la question les demande ; toujours en références sémantiques.\n"
     "- Décompose en objectifs distincts, chacun avec un `id` UNIQUE (ex. g1, g2, "
     "g3 — jamais deux fois le même) ; déclare les dépendances via `depends_on` en "
     "référençant ces ids.\n"

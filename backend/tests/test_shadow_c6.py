@@ -36,13 +36,15 @@ def test_legacy_projection_detects_count_distinct_and_preagg():
 # --- sécurité analytique (restrictive) --------------------------------------
 def _fanout_resolved():
     ctx = DictCatalogAdapter().to_context({
-        "entities": [{"ref": "concept:o", "grain_keys": ["oid"]}, {"ref": "concept:i", "grain_keys": ["iid"]}],
-        "measures": [{"ref": "metric:rev", "home_entity": "concept:o", "additivity": "full"}],
-        "dimensions": [{"ref": "dimension:p", "home_entity": "concept:i"}],
+        "entities": [{"ref": "concept:o", "grain_keys": ["oid"], "physical": "o"},
+                     {"ref": "concept:i", "grain_keys": ["iid"], "physical": "i"}],
+        "measures": [{"ref": "metric:rev", "home_entity": "concept:o", "additivity": "full",
+                      "physical": "o.rev"}],
+        "dimensions": [{"ref": "dimension:p", "home_entity": "concept:i", "physical": "i.p"}],
         "relations": [{"id": 1, "from_entity": "concept:o", "to_entity": "concept:i", "cardinality": "1-n",
                        "status": "validated", "from_key": "o.id", "to_key": "i.oid"}]})
     from app.analysis.capability.resolver import resolve
-    interp = validate_interpretation({"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x", "entity_ref": "concept:o",
          "metrics": [{"ref": "metric:rev"}], "dimensions": [{"ref": "dimension:p"}]}]})
     _, plan = resolve(interp, ctx)
@@ -59,12 +61,14 @@ def test_safety_llm_safer_on_unprotected_legacy_sum():
 
 def test_safety_llm_safer_on_count_star_vs_count_distinct():
     ctx = DictCatalogAdapter().to_context({
-        "entities": [{"ref": "concept:o", "grain_keys": ["oid"]}, {"ref": "concept:i", "grain_keys": ["iid"]}],
-        "measures": [], "dimensions": [{"ref": "dimension:p", "home_entity": "concept:i"}],
+        "entities": [{"ref": "concept:o", "grain_keys": ["oid"], "physical": "o"},
+                     {"ref": "concept:i", "grain_keys": ["iid"], "physical": "i"}],
+        "measures": [], "dimensions": [{"ref": "dimension:p", "home_entity": "concept:i",
+                                          "physical": "i.p"}],
         "relations": [{"id": 1, "from_entity": "concept:o", "to_entity": "concept:i", "cardinality": "1-n",
                        "status": "validated", "from_key": "o.id", "to_key": "i.oid"}]})
     from app.analysis.capability.resolver import resolve
-    interp = validate_interpretation({"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "count", "intent_text": "x", "entity_ref": "concept:o",
          "dimensions": [{"ref": "dimension:p"}]}]})
     _, plan = resolve(interp, ctx)                # C6 : count_distinct
@@ -87,11 +91,12 @@ def test_safety_not_comparable_when_c6_unsupported():
 
 def test_safety_same_when_no_fanout():
     ctx = DictCatalogAdapter().to_context({
-        "entities": [{"ref": "concept:o", "grain_keys": ["oid"]}],
-        "measures": [{"ref": "metric:rev", "home_entity": "concept:o", "additivity": "full"}],
+        "entities": [{"ref": "concept:o", "grain_keys": ["oid"], "physical": "o"}],
+        "measures": [{"ref": "metric:rev", "home_entity": "concept:o", "additivity": "full",
+                      "physical": "o.rev"}],
         "dimensions": [], "relations": []})
     from app.analysis.capability.resolver import resolve
-    interp = validate_interpretation({"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x", "entity_ref": "concept:o",
          "metrics": [{"ref": "metric:rev"}]}]})
     _, plan = resolve(interp, ctx)
@@ -109,12 +114,14 @@ class _FakeSession:
 
 def test_run_shadow_evaluation_persists_three_stages_and_safety():
     ctx = DictCatalogAdapter().to_context({
-        "entities": [{"ref": "concept:o", "grain_keys": ["oid"]}, {"ref": "concept:i", "grain_keys": ["iid"]}],
-        "measures": [{"ref": "metric:rev", "home_entity": "concept:o", "additivity": "full"}],
-        "dimensions": [{"ref": "dimension:p", "home_entity": "concept:i"}],
+        "entities": [{"ref": "concept:o", "grain_keys": ["oid"], "physical": "o"},
+                     {"ref": "concept:i", "grain_keys": ["iid"], "physical": "i"}],
+        "measures": [{"ref": "metric:rev", "home_entity": "concept:o", "additivity": "full",
+                      "physical": "o.rev"}],
+        "dimensions": [{"ref": "dimension:p", "home_entity": "concept:i", "physical": "i.p"}],
         "relations": [{"id": 1, "from_entity": "concept:o", "to_entity": "concept:i", "cardinality": "1-n",
                        "status": "validated", "from_key": "o.id", "to_key": "i.oid"}]})
-    interp = validate_interpretation({"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x", "entity_ref": "concept:o",
          "metrics": [{"ref": "metric:rev"}], "dimensions": [{"ref": "dimension:p"}]}]})
     env = {"tenant_id": 1, "connection_id": 7, "request_id": "r1", "question_hash": "h",

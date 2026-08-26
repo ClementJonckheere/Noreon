@@ -8,8 +8,9 @@ est la référence ; le code fait foi (`app/analysis/contracts.py`,
 
 | Constante | Sens | Valeur |
 |-----------|------|--------|
-| `INTERPRETATION_SCHEMA_VERSION` | Structure du document (champs, imbrications, invariants). Portée sur le fil via `plan_schema_version`. | `1.0` |
+| `INTERPRETATION_SCHEMA_VERSION` | Structure du document (champs, imbrications, invariants). Portée sur le fil via `plan_schema_version`. | `1.2` |
 | `GOAL_TYPES_VERSION` | Vocabulaire fermé des types d'objectifs + leur glossaire (prompt système). | `1.0` |
+| `RESOLVED_PLAN_SCHEMA_VERSION` | Structure autonome produite par C6. Portée via `resolved_plan_schema_version`, indépendamment du contrat LLM. | `2.0` |
 
 Bumper l'une n'oblige pas à bumper l'autre : on peut affiner le glossaire des
 types sans casser la structure, et inversement. Le JSON Schema envoyé au provider
@@ -42,6 +43,13 @@ est estampillé des deux (`title`, `x-noreon-schema-version`,
 2. **Fanout = un CALCUL** (côté `resolved_plan`, pas côté LLM).
 3. **Physique interdit côté LLM** : aucun nom de table/colonne, `join_path`,
    cardinalité ni fanout dans `interpretation_json`.
+4. **Sincérité de couverture** : chaque `unresolved_term` est rattaché à son
+   `goal_id` et porte `necessity=required|optional`. Le défaut conservateur est
+   `required`. `optional` n'est légitime que si le goal conserve un cœur
+   analytique résolu permettant une réponse partielle honnête.
+5. **Intention compilable** : chaque mesure porte son agrégation exacte ; les
+   filtres sont typés ; tri, limite et bloc temporel restent sémantiques côté C4
+   puis sont physiquement figés par C6.
 
 ## Fixtures de référence
 

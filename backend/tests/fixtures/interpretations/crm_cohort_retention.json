@@ -1,6 +1,6 @@
 {
   "domain": "crm",
-  "plan_schema_version": "1.0",
+  "plan_schema_version": "1.2",
   "goals": [
     {
       "id": "g1",

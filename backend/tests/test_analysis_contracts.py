@@ -5,7 +5,7 @@ Verrouille les trois invariants exigés avant C1 :
      pas de cycle, priorités cohérentes) + tri topologique déterministe.
   2. Le descripteur de fanout est un CALCUL (sens de parcours + grains), pas un
      OR statique : « multiplie les lignes » ⇒ « exige une pré-agrégation ».
-  3. `join_path`, cardinalités et noms physiques n'existent QUE dans
+  3. `join_graph`, cardinalités et noms physiques n'existent QUE dans
      resolved_plan_json — interdits dans la sortie LLM.
 Plus : références sémantiques obligatoires, termes non résolus reliés au goal,
 `covers_question` calculé par Noreon, confidentialité des entrées (Δ6).
@@ -24,7 +24,7 @@ from app.analysis.eval_cases import CASES
 # --- interprétation valide de référence (RFM) --------------------------------
 def _valid_interpretation() -> dict:
     return {
-        "plan_schema_version": "1.0",
+        "plan_schema_version": "1.2",
         "goals": [
             {"id": "g1", "priority": 1, "type": "segmentation",
              "intent_text": "Segmenter les clients par valeur (RFM)",
@@ -61,7 +61,8 @@ def test_valid_interpretation_parses_and_orders_deterministically():
 def test_schema_and_types_versioned_separately():
     assert isinstance(C.INTERPRETATION_SCHEMA_VERSION, str)
     assert isinstance(C.GOAL_TYPES_VERSION, str)
-    assert C.PLAN_SCHEMA_VERSION == C.INTERPRETATION_SCHEMA_VERSION   # alias fil
+    assert C.PLAN_SCHEMA_VERSION == C.RESOLVED_PLAN_SCHEMA_VERSION
+    assert C.RESOLVED_PLAN_SCHEMA_VERSION != C.INTERPRETATION_SCHEMA_VERSION
 
 
 def test_unsupported_schema_version_is_rejected_cleanly():
@@ -83,7 +84,7 @@ def test_dag_rejects_duplicate_ids():
 
 def test_repair_renumbers_safe_duplicate_ids():
     """Slip mécanique (ids en double) SANS dépendance vers le doublon → réparé."""
-    p = {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    p = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g1", "priority": 1, "type": "count", "intent_text": "a", "entity_ref": "concept:customer"},
         {"id": "g1", "priority": 2, "type": "aggregate", "intent_text": "b", "entity_ref": "concept:order"}]}
     repaired = C.repair_goal_ids(p)
@@ -94,7 +95,7 @@ def test_repair_renumbers_safe_duplicate_ids():
 
 def test_repair_leaves_ambiguous_duplicate_untouched():
     """Si un depends_on pointe un id dupliqué, le plan est ambigu → non réparé, rejeté."""
-    p = {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [
+    p = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
         {"id": "g2", "priority": 1, "type": "segmentation", "intent_text": "a", "entity_ref": "concept:customer"},
         {"id": "g2", "priority": 2, "type": "affinity", "intent_text": "b",
          "entity_ref": "concept:product", "depends_on": ["g2"]}]}
@@ -153,8 +154,9 @@ def test_dag_rejects_incoherent_priority():
 
 # --- Invariant 3 : pas de champ Noreon-only dans la sortie LLM ---------------
 @pytest.mark.parametrize("forbidden", [
-    "join_path", "physical", "cardinality", "fanout_risk", "grain",
-    "relations_used", "validated_relation_id",
+    "join_path", "join_graph", "physical", "cardinality", "fanout_risk", "grain",
+    "relations_used", "validated_relation_id", "operation", "compile_ready",
+    "catalog_snapshot", "pre_aggregations",
 ])
 def test_llm_output_forbids_noreon_only_fields(forbidden):
     p = _valid_interpretation()
@@ -189,39 +191,57 @@ def test_unresolved_term_must_link_to_existing_goal():
     assert e.value.code == "unresolved_unknown_goal"
 
 
+def test_filter_value_must_match_its_declared_type():
+    p = _valid_interpretation()
+    p["goals"][0]["filters"] = [{
+        "ref": "dimension:age", "operator": "gte", "value_type": "integer",
+        "value": "18",
+    }]
+    with pytest.raises(C.ContractError) as e:
+        C.validate_interpretation(p)
+    assert e.value.code == "filter_value_type_mismatch"
+
+
 # --- resolved_plan_json ------------------------------------------------------
 def _valid_resolved() -> dict:
-    return {
-        "plan_schema_version": "1.0",
-        "coherence": {"covers_question": True, "computed_by": "noreon"},
-        "resolution": [
-            {"goal_id": "g1", "status": "SUPPORTED",
-             "concepts": ["concept:customer", "concept:order"],
-             "physical": {"fact": "orders", "entity_key": "orders.customer_id"},
-             "join_path": [
-                 {"from": "orders.customer_id", "to": "customers.id",
-                  "cardinality": "many_to_one", "validated_relation_id": 42,
-                  "fanout_risk": False}],
-             "grain": {"base_grain": "one_row_per_customer",
-                       "source_grain": "one_row_per_order",
-                       "metric_grain": "one_row_per_order",
-                       "input_grain": "one_row_per_customer",
-                       "traversal": "one_to_many",
-                       "metric_additivity": "order_level",
-                       "creates_row_multiplication": True,
-                       "requires_pre_aggregation": True,
-                       "aggregation_strategy": "aggregate_orders_then_score"},
-             "method": {"name": "rfm", "version": "1.0",
-                        "params": {"reference_date": "2024-05-31",
-                                   "reference_date_source": "latest_complete_period"}}},
-            {"goal_id": "g3", "status": "UNSUPPORTED",
-             "unsupported_reason": "aucune dimension âge dans le schéma"},
+    from app.analysis.capability.adapter import DictCatalogAdapter
+    from app.analysis.capability.resolver import resolve
+
+    context = DictCatalogAdapter().to_context({
+        "entities": [
+            {"ref": "concept:order", "grain_keys": ["id"], "physical": "orders"},
+            {"ref": "concept:item", "grain_keys": ["id"], "physical": "items"},
         ],
-    }
+        "measures": [{"ref": "metric:amount", "home_entity": "concept:order",
+                      "physical": "orders.amount"}],
+        "dimensions": [{"ref": "dimension:item", "home_entity": "concept:item",
+                        "physical": "items.label"}],
+        "relations": [{
+            "id": 42, "from_entity": "concept:order", "to_entity": "concept:item",
+            "cardinality": "1-n", "status": "validated",
+            "from_key": "orders.id", "to_key": "items.order_id",
+        }],
+    })
+    interpretation = C.validate_interpretation({
+        "plan_schema_version": "1.2", "unresolved_terms": [], "goals": [{
+            "id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x",
+            "entity_ref": "concept:order", "metrics": [{"ref": "metric:amount"}],
+            "dimensions": [{"ref": "dimension:item"}],
+        }],
+    })
+    return resolve(interpretation, context)[1]
 
 
 def test_valid_resolved_plan_passes():
     assert C.validate_resolved(_valid_resolved())
+
+
+def test_resolved_plan_has_an_independent_version():
+    r = _valid_resolved()
+    r["resolved_plan_schema_version"] = C.INTERPRETATION_SCHEMA_VERSION
+    with pytest.raises(C.ContractError) as e:
+        C.validate_resolved(r)
+    assert e.value.code == "bad_resolved_schema_version"
 
 
 def test_resolved_coherence_must_be_computed_by_noreon():
@@ -234,10 +254,18 @@ def test_resolved_coherence_must_be_computed_by_noreon():
 
 def test_join_step_requires_validated_relation_id():
     r = _valid_resolved()
-    del r["resolution"][0]["join_path"][0]["validated_relation_id"]
+    del r["resolution"][0]["join_graph"]["edges"][0]["validated_relation_id"]
     with pytest.raises(C.ContractError) as e:
         C.validate_resolved(r)
-    assert e.value.code == "missing_validated_relation_id"
+    assert e.value.code == "join_relation_not_in_snapshot"
+
+
+def test_supported_must_be_compile_ready():
+    r = _valid_resolved()
+    r["resolution"][0]["compile_ready"] = False
+    with pytest.raises(C.ContractError) as e:
+        C.validate_resolved(r)
+    assert e.value.code == "supported_not_compile_ready"
 
 
 # --- Invariant 2 : fanout = calcul, pas OR statique --------------------------

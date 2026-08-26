@@ -52,7 +52,7 @@ def test_stub_pipeline_simple_question():
 
 def test_pipeline_rejects_nonconforming_output(monkeypatch):
     bad = StubPlanner()
-    monkeypatch.setattr(bad, "plan", lambda **k: json.dumps({"plan_schema_version": "1.0", "goals": []}))
+    monkeypatch.setattr(bad, "plan", lambda **k: json.dumps({"plan_schema_version": "1.2", "goals": []}))
     with pytest.raises(C.ContractError) as e:
         plan_interpretation(bad, question="x", catalog=_catalog())
     assert e.value.code == "schema_invalid"   # goals vide → Pydantic
@@ -81,7 +81,7 @@ def test_ovh_plan_uses_json_schema_response_format(monkeypatch):
         def raise_for_status(self): pass
         def json(self):
             return {"choices": [{"message": {"content": json.dumps(
-                {"plan_schema_version": "1.0",
+                {"plan_schema_version": "1.2",
                  "goals": [{"id": "g1", "priority": 1, "type": "aggregate",
                             "intent_text": "x", "entity_ref": "concept:order",
                             "metrics": [{"ref": "metric:net_revenue"}]}],

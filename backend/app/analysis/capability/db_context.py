@@ -27,6 +27,7 @@ from app.analysis.capability.model import (
 from app.analysis.interpreter import PlannerCatalog
 
 _NUMERIC = ("int", "float", "numeric", "double", "decimal", "real", "money", "serial")
+_TEMPORAL = ("date", "time", "timestamp")
 
 
 def _tok(*parts: str) -> str:
@@ -55,7 +56,10 @@ def build_catalog_and_context(session, connection_id: int, *, tenant_id: int | N
         tname = t.table_name
         ent_ref = f"concept:{_tok(tname)}"
         pk = tuple(c.name for c in (getattr(t, "columns", []) or []) if getattr(c, "is_primary_key", False))
-        entities[ent_ref] = Entity(ref=ent_ref, grain_keys=pk, physical=tname)
+        key_types = {c.name: (c.data_type or "unknown") for c in (getattr(t, "columns", []) or [])
+                     if getattr(c, "is_primary_key", False)}
+        entities[ent_ref] = Entity(ref=ent_ref, grain_keys=pk, physical=tname,
+                                   grain_key_types=key_types)
         concepts_cat.append({"entity_ref": ent_ref, "entity_label": tname})
         table_hidden = tname.lower() in hidden_tables
         if table_hidden:
@@ -67,11 +71,13 @@ def build_catalog_and_context(session, connection_id: int, *, tenant_id: int | N
             if any(n in dt for n in _NUMERIC):
                 ref = f"metric:{ref_tok}"
                 measures[ref] = Measure(ref=ref, home_entity=ent_ref, additivity=ADD_FULL,
-                                        physical=f"{tname}.{c.name}")
+                                        physical=f"{tname}.{c.name}", data_type=c.data_type)
                 metrics_cat.append({"metric_ref": ref, "metric_label": c.name})
             else:
                 ref = f"dimension:{ref_tok}"
-                dimensions[ref] = Dimension(ref=ref, home_entity=ent_ref, physical=f"{tname}.{c.name}")
+                dimensions[ref] = Dimension(
+                    ref=ref, home_entity=ent_ref, physical=f"{tname}.{c.name}",
+                    data_type=c.data_type, is_temporal=any(x in dt for x in _TEMPORAL))
                 dims_cat.append({"dimension_ref": ref, "dimension_label": c.name})
             if col_hidden:
                 hidden_refs.add(ref)
@@ -83,7 +89,10 @@ def build_catalog_and_context(session, connection_id: int, *, tenant_id: int | N
     context = ResolutionContext(
         entities=entities, measures=measures, dimensions=dimensions, relations=tuple(relations),
         quality={}, freshness={}, access={"hidden": hidden_refs, "source_reachable": True},
-        policy=ResolutionPolicy())
+        policy=ResolutionPolicy(),
+        snapshot_id=(str(getattr(snap, "id", "")) or None),
+        snapshot_captured_at=(getattr(snap, "created_at", None).isoformat()
+                              if getattr(snap, "created_at", None) else None))
     return catalog, context
 
 

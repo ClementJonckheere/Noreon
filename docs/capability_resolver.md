@@ -11,9 +11,27 @@ et produit le `resolved_plan_json` (contrat C1). `goal_type ≠ capability`.
 
 - `CapabilityResolution` (riche) : par goal, des `CapabilityRequirement` avec
   `state`, `cause_class`, `reason`, `reserve`, `strategy` → narration / coverage / shadow.
-- `resolved_plan_json` (contrat C1, **validé** par `validate_resolved`) : `status`,
-  `physical`, `join_path`, `grain`, `method`, `coherence.covers_question(computed_by=noreon)`
+- `resolved_plan_json` v2 (contrat C1, **validé** par `validate_resolved`) : `status`,
+  `compile_ready`, `physical`, `join_graph`, `grain`, `method`, couverture par goal et
+  `coherence.covers_question(computed_by=noreon)`
   → consommé par le PlanCompiler.
+
+## Sincérité de couverture
+
+Les `interpretation_json.unresolved_terms` sont des exigences C6 de premier
+ordre, rattachées à leur `goal_id` :
+
+- `necessity=required` ⇒ `unresolved`, goal `UNSUPPORTED`, donc jamais de
+  `covers_question=true` ;
+- `necessity=optional` avec un cœur analytique référencé ⇒ `available_with_reserve`,
+  goal `PARTIAL`, et le manque est listé dans `coverage.optional_unresolved` ;
+- `necessity=optional` sans cœur résolu ⇒ requalifié conservatoirement en
+  `required` pour empêcher une fausse réponse partielle.
+
+La couverture agrégée est `full|partial|none|needs_clarification` et
+`covers_question=true` si et seulement si elle vaut `full`. Le contrat recalcule
+le roll-up et les compteurs required/optional à partir des goals : une déclaration
+incohérente est éliminée.
 
 ## Grain & fanout — primitives de 1er ordre
 
@@ -38,6 +56,29 @@ Tri **sûreté d'abord** (moins de fanout, éviter `n-n`) puis brièveté puis
 coverage/uniqueness. Aucun chemin ⇒ `unresolved(no_validated_relation)` ; chemins
 également sûrs et courts ⇒ `NEEDS_CLARIFICATION` + alternatives.
 
+Le plan émis ne concatène plus ces chemins. C6 construit un `join_graph`
+canonique en arbre : relations dédupliquées par id validé, alias stables `t0…`,
+clés physiques et ordre d'exécution complets. Chaque mesure est résolue depuis
+son propre `home_entity` et possède son grain/sa stratégie ; aucune mesure
+secondaire n'hérite du traitement de la première.
+
+## Contrat compile-ready v2
+
+`resolved_plan_json` est versionné indépendamment (`2.0`) et contient tout ce
+dont C7 aura besoin sans catalogue vivant :
+
+- snapshot canonique complet du catalogue avec empreinte SHA-256 ;
+- DAG multi-goals et ordre topologique ;
+- opération exacte, agrégation par mesure et mappings table/colonne ;
+- filtres typés, tri, limite et temporalité ;
+- clé physique de `count_distinct` ;
+- instruction de pré-agrégation complète (`group_by`, agrégats, alias de sortie,
+  jointure de retour, relations du chemin de fanout).
+
+Invariant éliminatoire : `SUPPORTED => compile_ready=true`. Un mapping physique,
+une clé, une méthode exacte ou une instruction requise qui manque requalifie le
+goal en `UNSUPPORTED`; le validateur rejette tout plan qui contourne cette règle.
+
 ## États et causes (axes séparés)
 
 | État | Sens | cause_class |
@@ -61,10 +102,11 @@ métier dans le paquet `app/analysis/capability`.
 
 ## Frontière C6 ↔ PlanCompiler
 
-- **C6 décide** : faisabilité, grain, `join_path` validé, **stratégie anti-fanout**
+- **C6 décide** : faisabilité, grain, `join_graph` validé, **stratégie anti-fanout**
   (`requires_pre_aggregation` = instruction contraignante), méthode (name/version/params).
 - **C7 (compiler) exécute** : LogicalQueryIR → SQL par dialecte, applique la
-  pré-agrégation imposée, garde-fous. Il ne redécide jamais un `join_path` ni un fanout.
+  pré-agrégation imposée, garde-fous. Il ne redécide jamais une jointure, une
+  agrégation, un filtre, un tri, une temporalité ni un fanout.
 - Contrat de passage : `validate_resolved` doit passer.
 
 ## Effet sur le comparateur shadow (C5, #7)
@@ -84,4 +126,7 @@ matériel tant que les deux côtés ne sont pas résolus.
   constraint ⇒ résout ; stale ⇒ reserve / strict ⇒ blocked(quality) ; hard-stop
   qualité ⇒ blocked ; ref masqué ⇒ blocked(access) tout en restant capability-available ;
   source injoignable ⇒ blocked ; chemin ambigu ⇒ clarification.
+- **Coverage sincerity** : météo, concurrents, sentiment et prédiction requis
+  bloquent la couverture ; un terme optionnel manquant conserve une réponse
+  partielle uniquement si le goal possède un cœur résolu.
 - **Multi-domaines** (retail/saas/solo) + absence de littéral métier dans le paquet.

@@ -77,11 +77,12 @@ def _retail():
             {"ref": "concept:customer", "grain_keys": ["customer_id"], "physical": "customers"},
             {"ref": "concept:order_item", "grain_keys": ["order_item_id"], "physical": "order_items"},
             {"ref": "concept:tag", "grain_keys": ["tag_id"], "physical": "tags"}],
-        "measures": [{"ref": "metric:net_revenue", "home_entity": "concept:order", "additivity": "full"}],
+        "measures": [{"ref": "metric:net_revenue", "home_entity": "concept:order", "additivity": "full",
+                      "physical": "orders.net_revenue"}],
         "dimensions": [
-            {"ref": "dimension:region", "home_entity": "concept:customer"},
-            {"ref": "dimension:product", "home_entity": "concept:order_item"},
-            {"ref": "dimension:tag", "home_entity": "concept:tag"}],
+            {"ref": "dimension:region", "home_entity": "concept:customer", "physical": "customers.region"},
+            {"ref": "dimension:product", "home_entity": "concept:order_item", "physical": "order_items.product"},
+            {"ref": "dimension:tag", "home_entity": "concept:tag", "physical": "tags.name"}],
         "relations": [
             {"id": 1, "from_entity": "concept:order", "to_entity": "concept:customer", "cardinality": "n-1",
              "status": "validated", "from_key": "orders.customer_id", "to_key": "customers.id", "coverage": 1.0},
@@ -95,8 +96,10 @@ def _retail():
 def _retail_inferred():
     r = _retail()
     # dimension atteignable seulement via une relation INFÉRÉE (non validée)
-    r["dimensions"].append({"ref": "dimension:supplier", "home_entity": "concept:supplier"})
-    r["entities"].append({"ref": "concept:supplier", "grain_keys": ["supplier_id"]})
+    r["dimensions"].append({"ref": "dimension:supplier", "home_entity": "concept:supplier",
+                            "physical": "suppliers.name"})
+    r["entities"].append({"ref": "concept:supplier", "grain_keys": ["supplier_id"],
+                          "physical": "suppliers"})
     r["relations"].append({"id": 9, "from_entity": "concept:order", "to_entity": "concept:supplier",
                            "cardinality": "n-1", "status": "candidate", "origin": "inferred",
                            "from_key": "orders.supplier_id", "to_key": "suppliers.id"})
@@ -110,14 +113,16 @@ def _saas():
             {"ref": "concept:plan", "grain_keys": ["plan_id"], "physical": "plans"},
             {"ref": "concept:line", "grain_keys": ["line_id"], "physical": "invoice_lines"}],
         "measures": [
-            {"ref": "metric:mrr", "home_entity": "concept:e", "additivity": "full"},
+            {"ref": "metric:mrr", "home_entity": "concept:e", "additivity": "full",
+             "physical": "subscriptions.mrr"},
             {"ref": "metric:balance", "home_entity": "concept:e", "additivity": "semi",
-             "non_additive_dims": ["dimension:month"]},
-            {"ref": "metric:conversion_rate", "home_entity": "concept:e", "additivity": "non"}],
+             "non_additive_dims": ["dimension:month"], "physical": "subscriptions.balance"},
+            {"ref": "metric:conversion_rate", "home_entity": "concept:e", "additivity": "non",
+             "physical": "subscriptions.conversion_rate"}],
         "dimensions": [
-            {"ref": "dimension:plan", "home_entity": "concept:plan"},
-            {"ref": "dimension:line", "home_entity": "concept:line"},
-            {"ref": "dimension:month", "home_entity": "concept:e"}],
+            {"ref": "dimension:plan", "home_entity": "concept:plan", "physical": "plans.name"},
+            {"ref": "dimension:line", "home_entity": "concept:line", "physical": "invoice_lines.kind"},
+            {"ref": "dimension:month", "home_entity": "concept:e", "physical": "subscriptions.month"}],
         "relations": [
             {"id": 1, "from_entity": "concept:e", "to_entity": "concept:plan", "cardinality": "n-1",
              "status": "validated", "from_key": "subscriptions.plan_id", "to_key": "plans.id"},
@@ -128,7 +133,8 @@ def _saas():
 
 def _solo():
     return {"entities": [{"ref": "concept:e", "grain_keys": ["id"], "physical": "t"}],
-            "measures": [{"ref": "metric:amount", "home_entity": "concept:e", "additivity": "full"}],
+            "measures": [{"ref": "metric:amount", "home_entity": "concept:e", "additivity": "full",
+                          "physical": "t.amount"}],
             "dimensions": [], "relations": []}
 
 
@@ -209,8 +215,10 @@ def signature(resolution, resolved_plan) -> dict:
         "requires_pre_aggregation": bool(grain.get("requires_pre_aggregation", False)),
         "traversal": grain.get("traversal"),
         "metric_additivity": grain.get("metric_additivity"),
-        "join_path": [{"cardinality": s["cardinality"], "fanout_risk": s["fanout_risk"],
-                       "rel": s["validated_relation_id"]} for s in item.get("join_path", [])],
+        "join_graph": [{"cardinality": step["cardinality"], "fanout_risk": step["fanout_risk"],
+                        "rel": step["validated_relation_id"]}
+                       for step in (item.get("join_graph") or {}).get("edges", [])],
+        "compile_ready": item.get("compile_ready"),
         "requirement_states": sorted(f"{r.kind}:{r.ref}={r.state}"
                                      for r in resolution.goals[0].requirements),
         "covers_question": resolved_plan["coherence"]["covers_question"],
@@ -236,7 +244,7 @@ def _validated_ids(catalog: dict) -> set[int]:
 def detect_violations(case: ResolverCase, resolution, plan) -> list[str]:
     item = plan["resolution"][0]
     grain = item.get("grain") or {}
-    steps = item.get("join_path", [])
+    steps = (item.get("join_graph") or {}).get("edges", [])
     v: list[str] = []
 
     # Invariants UNIVERSELS (indépendants des attentes).
@@ -290,7 +298,7 @@ def run_eval(*, snapshots: dict | None = None) -> dict:
     for case in CASES:
         ctx = DictCatalogAdapter().to_context(case.catalog)
         interp = validate_interpretation(
-            {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [case.goal]})
+            {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [case.goal]})
         resolution, plan = resolve(interp, ctx)
         sig = signature(resolution, plan)
         item = plan["resolution"][0]
@@ -337,7 +345,7 @@ def write_snapshots() -> dict:
     for case in CASES:
         ctx = DictCatalogAdapter().to_context(case.catalog)
         interp = validate_interpretation(
-            {"plan_schema_version": "1.0", "unresolved_terms": [], "goals": [case.goal]})
+            {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [case.goal]})
         resolution, plan = resolve(interp, ctx)
         sigs[case.id] = signature(resolution, plan)
     _SNAPSHOT_PATH.write_text(json.dumps(sigs, ensure_ascii=False, indent=2, sort_keys=True),

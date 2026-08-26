@@ -1,8 +1,9 @@
 {
   "r_count_under_fanout": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": true,
-    "join_path": [
+    "join_graph": [
       {
         "cardinality": "one_to_many",
         "fanout_risk": true,
@@ -14,7 +15,11 @@
       "dimension:dimension:product=available",
       "entity:concept:order=available",
       "grain:concept:order=available",
-      "relation:concept:order->concept:order_item=available"
+      "physical_column:dimension:product=available",
+      "physical_entity:concept:order=available",
+      "physical_entity:concept:order_item=available",
+      "physical_join:relation:2:left=available",
+      "physical_join:relation:2:right=available"
     ],
     "requires_pre_aggregation": true,
     "status": "SUPPORTED",
@@ -22,16 +27,22 @@
     "traversal": "one_to_many"
   },
   "r_hidden_measure": {
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": null,
     "requirement_states": [
       "dimension:dimension:region=available",
       "entity:concept:order=available",
       "grain:metric:net_revenue=available",
       "measure:metric:net_revenue=blocked",
-      "relation:concept:order->concept:customer=available"
+      "physical_column:dimension:region=available",
+      "physical_column:metric:net_revenue=available",
+      "physical_entity:concept:customer=available",
+      "physical_entity:concept:order=available",
+      "physical_join:relation:1:left=available",
+      "physical_join:relation:1:right=available"
     ],
     "requires_pre_aggregation": false,
     "status": "UNSUPPORTED",
@@ -39,15 +50,19 @@
     "traversal": null
   },
   "r_inferred_relation": {
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": null,
     "requirement_states": [
       "dimension:dimension:supplier=available",
       "entity:concept:order=available",
       "grain:metric:net_revenue=available",
       "measure:metric:net_revenue=available",
+      "physical_column:dimension:supplier=available",
+      "physical_column:metric:net_revenue=available",
+      "physical_entity:concept:order=available",
       "relation:concept:order->concept:supplier=unresolved"
     ],
     "requires_pre_aggregation": false,
@@ -56,14 +71,17 @@
     "traversal": null
   },
   "r_missing_measure": {
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": null,
     "requirement_states": [
       "entity:concept:order=available",
-      "grain:concept:order=available",
-      "measure:metric:absent=unresolved"
+      "grain:metric:absent=available",
+      "measure:metric:absent=unresolved",
+      "physical_column:metric:absent=unresolved",
+      "physical_entity:concept:order=available"
     ],
     "requires_pre_aggregation": false,
     "status": "UNSUPPORTED",
@@ -71,9 +89,10 @@
     "traversal": null
   },
   "r_rev_by_product": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": true,
-    "join_path": [
+    "join_graph": [
       {
         "cardinality": "one_to_many",
         "fanout_risk": true,
@@ -86,7 +105,12 @@
       "entity:concept:order=available",
       "grain:metric:net_revenue=available",
       "measure:metric:net_revenue=available",
-      "relation:concept:order->concept:order_item=available"
+      "physical_column:dimension:product=available",
+      "physical_column:metric:net_revenue=available",
+      "physical_entity:concept:order=available",
+      "physical_entity:concept:order_item=available",
+      "physical_join:relation:2:left=available",
+      "physical_join:relation:2:right=available"
     ],
     "requires_pre_aggregation": true,
     "status": "SUPPORTED",
@@ -94,9 +118,10 @@
     "traversal": "one_to_many"
   },
   "r_rev_by_region": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": false,
-    "join_path": [
+    "join_graph": [
       {
         "cardinality": "many_to_one",
         "fanout_risk": false,
@@ -109,7 +134,12 @@
       "entity:concept:order=available",
       "grain:metric:net_revenue=available",
       "measure:metric:net_revenue=available",
-      "relation:concept:order->concept:customer=available"
+      "physical_column:dimension:region=available",
+      "physical_column:metric:net_revenue=available",
+      "physical_entity:concept:customer=available",
+      "physical_entity:concept:order=available",
+      "physical_join:relation:1:left=available",
+      "physical_join:relation:1:right=available"
     ],
     "requires_pre_aggregation": false,
     "status": "SUPPORTED",
@@ -117,9 +147,10 @@
     "traversal": "many_to_one"
   },
   "r_rev_by_tag": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": true,
-    "join_path": [
+    "join_graph": [
       {
         "cardinality": "many_to_many",
         "fanout_risk": true,
@@ -132,7 +163,12 @@
       "entity:concept:order=available",
       "grain:metric:net_revenue=available",
       "measure:metric:net_revenue=available",
-      "relation:concept:order->concept:tag=available"
+      "physical_column:dimension:tag=available",
+      "physical_column:metric:net_revenue=available",
+      "physical_entity:concept:order=available",
+      "physical_entity:concept:tag=available",
+      "physical_join:relation:3:left=available",
+      "physical_join:relation:3:right=available"
     ],
     "requires_pre_aggregation": true,
     "status": "SUPPORTED",
@@ -140,15 +176,19 @@
     "traversal": "many_to_many"
   },
   "s_balance_over_month": {
-    "covers_question": true,
+    "compile_ready": true,
+    "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": "semi",
     "requirement_states": [
       "dimension:dimension:month=available",
       "entity:concept:e=available",
       "grain:metric:balance=available_with_reserve",
-      "measure:metric:balance=available"
+      "measure:metric:balance=available",
+      "physical_column:dimension:month=available",
+      "physical_column:metric:balance=available",
+      "physical_entity:concept:e=available"
     ],
     "requires_pre_aggregation": false,
     "status": "PARTIAL",
@@ -156,9 +196,10 @@
     "traversal": "one_to_one"
   },
   "s_mrr_by_line": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": true,
-    "join_path": [
+    "join_graph": [
       {
         "cardinality": "one_to_many",
         "fanout_risk": true,
@@ -171,7 +212,12 @@
       "entity:concept:e=available",
       "grain:metric:mrr=available",
       "measure:metric:mrr=available",
-      "relation:concept:e->concept:line=available"
+      "physical_column:dimension:line=available",
+      "physical_column:metric:mrr=available",
+      "physical_entity:concept:e=available",
+      "physical_entity:concept:line=available",
+      "physical_join:relation:2:left=available",
+      "physical_join:relation:2:right=available"
     ],
     "requires_pre_aggregation": true,
     "status": "SUPPORTED",
@@ -179,9 +225,10 @@
     "traversal": "one_to_many"
   },
   "s_mrr_by_plan": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": false,
-    "join_path": [
+    "join_graph": [
       {
         "cardinality": "many_to_one",
         "fanout_risk": false,
@@ -194,7 +241,12 @@
       "entity:concept:e=available",
       "grain:metric:mrr=available",
       "measure:metric:mrr=available",
-      "relation:concept:e->concept:plan=available"
+      "physical_column:dimension:plan=available",
+      "physical_column:metric:mrr=available",
+      "physical_entity:concept:e=available",
+      "physical_entity:concept:plan=available",
+      "physical_join:relation:1:left=available",
+      "physical_join:relation:1:right=available"
     ],
     "requires_pre_aggregation": false,
     "status": "SUPPORTED",
@@ -202,14 +254,17 @@
     "traversal": "many_to_one"
   },
   "s_quality_hardstop": {
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": null,
     "requirement_states": [
       "entity:concept:e=available",
       "grain:metric:mrr=available",
-      "measure:metric:mrr=blocked"
+      "measure:metric:mrr=blocked",
+      "physical_column:metric:mrr=available",
+      "physical_entity:concept:e=available"
     ],
     "requires_pre_aggregation": false,
     "status": "UNSUPPORTED",
@@ -217,16 +272,22 @@
     "traversal": null
   },
   "s_rate_sum": {
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": null,
     "requirement_states": [
       "dimension:dimension:plan=available",
       "entity:concept:e=available",
       "grain:metric:conversion_rate=unresolved",
       "measure:metric:conversion_rate=available",
-      "relation:concept:e->concept:plan=available"
+      "physical_column:dimension:plan=available",
+      "physical_column:metric:conversion_rate=available",
+      "physical_entity:concept:e=available",
+      "physical_entity:concept:plan=available",
+      "physical_join:relation:1:left=available",
+      "physical_join:relation:1:right=available"
     ],
     "requires_pre_aggregation": false,
     "status": "UNSUPPORTED",
@@ -234,14 +295,17 @@
     "traversal": null
   },
   "s_source_down": {
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": null,
     "requirement_states": [
       "entity:concept:e=blocked",
       "grain:metric:mrr=available",
-      "measure:metric:mrr=blocked"
+      "measure:metric:mrr=blocked",
+      "physical_column:metric:mrr=available",
+      "physical_entity:concept:e=available"
     ],
     "requires_pre_aggregation": false,
     "status": "UNSUPPORTED",
@@ -249,14 +313,17 @@
     "traversal": null
   },
   "s_stale_mrr": {
-    "covers_question": true,
+    "compile_ready": true,
+    "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": "full",
     "requirement_states": [
       "entity:concept:e=available",
       "grain:metric:mrr=available",
-      "measure:metric:mrr=available_with_reserve"
+      "measure:metric:mrr=available_with_reserve",
+      "physical_column:metric:mrr=available",
+      "physical_entity:concept:e=available"
     ],
     "requires_pre_aggregation": false,
     "status": "PARTIAL",
@@ -264,16 +331,24 @@
     "traversal": "one_to_one"
   },
   "s_unknown_grain_fanout": {
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": null,
     "requirement_states": [
       "dimension:dimension:line=available",
       "entity:concept:e=available",
       "grain:metric:mystery=unresolved",
       "measure:metric:mystery=available",
-      "relation:concept:e->concept:line=available"
+      "measure_home:metric:mystery=unresolved",
+      "physical_column:dimension:line=available",
+      "physical_column:metric:mystery=unresolved",
+      "physical_entity:concept:e=available",
+      "physical_entity:concept:line=available",
+      "physical_join:relation:2:left=available",
+      "physical_join:relation:2:right=available",
+      "pre_aggregation_key:metric:mystery=unresolved"
     ],
     "requires_pre_aggregation": false,
     "status": "UNSUPPORTED",
@@ -281,13 +356,15 @@
     "traversal": null
   },
   "solo_count": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": "full",
     "requirement_states": [
       "entity:concept:e=available",
-      "grain:concept:e=available"
+      "grain:concept:e=available",
+      "physical_entity:concept:e=available"
     ],
     "requires_pre_aggregation": false,
     "status": "SUPPORTED",
@@ -295,14 +372,17 @@
     "traversal": "one_to_one"
   },
   "solo_sum": {
+    "compile_ready": true,
     "covers_question": true,
     "creates_row_multiplication": false,
-    "join_path": [],
+    "join_graph": [],
     "metric_additivity": "full",
     "requirement_states": [
       "entity:concept:e=available",
       "grain:metric:amount=available",
-      "measure:metric:amount=available"
+      "measure:metric:amount=available",
+      "physical_column:metric:amount=available",
+      "physical_entity:concept:e=available"
     ],
     "requires_pre_aggregation": false,
     "status": "SUPPORTED",

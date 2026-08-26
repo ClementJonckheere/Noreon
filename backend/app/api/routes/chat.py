@@ -23,6 +23,7 @@ def ask(
     response = chat_svc.answer_question(
         db, conn, payload.question,
         run_analysis=payload.run_analysis, deep_analysis=payload.deep_analysis,
+        request_id=payload.request_id,
     )
     db.commit()
     return response.as_dict()
