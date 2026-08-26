@@ -5,9 +5,36 @@ peuvent être surchargées par tenant dans la table `tenant_settings`.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _load_dotenv_into_environ() -> None:
+    """Charge `.env` dans `os.environ` (sans écraser une variable shell existante).
+
+    Pydantic lit déjà `.env` pour les champs `NOREON_*`, mais les SECRETS
+    non préfixés (ex. `OVH_AI_ENDPOINTS_ACCESS_TOKEN`, lus via `os.getenv`)
+    ne seraient pas vus sans ça. Cherche `.env` dans le CWD puis à la racine
+    de `backend/`. Sans dépendance externe."""
+    here = Path(__file__).resolve()
+    for candidate in (Path.cwd() / ".env", here.parents[2] / ".env"):
+        if not candidate.is_file():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+        break
+
+
+_load_dotenv_into_environ()
 
 
 class Settings(BaseSettings):
