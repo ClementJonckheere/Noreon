@@ -83,6 +83,15 @@ def main() -> int:
                "port": args.pg_port, "database": args.demo_db,
                "username": args.ro_user, "password": args.ro_pass}
     with httpx.Client(timeout=60.0) as c:
+        try:
+            c.get(f"{args.api_url}/connections", headers=headers)   # préflight : l'API est-elle là ?
+        except httpx.ConnectError:
+            print(f"\nERREUR : l'API Noreon n'est pas joignable sur {args.api_url}.\n"
+                  "   Ouvre un AUTRE terminal, va dans backend/ et lance (laisse-le tourner) :\n"
+                  "     python -m uvicorn app.main:app --port 8000\n"
+                  "   puis relance ce bootstrap (il reprendra à l'étape 4 — la base est déjà prête).",
+                  file=sys.stderr)
+            return 5
         r = c.post(f"{args.api_url}/connections", headers=headers, json=payload)
         if r.status_code >= 300:
             print(f"ERREUR création connexion : HTTP {r.status_code} · {r.text[:300]}", file=sys.stderr)
