@@ -41,6 +41,21 @@ app = FastAPI(
     ),
 )
 
+@app.on_event("startup")
+def _log_shadow_readiness() -> None:
+    """Affiche au démarrage l'état du planner shadow (aide au diagnostic campagne)."""
+    import os
+
+    from app.core.logging import get_logger
+    mode = (settings.planner_mode or "legacy").lower()
+    ovh_ready = bool(settings.ovh_base_url and os.getenv("OVH_AI_ENDPOINTS_ACCESS_TOKEN")
+                     and settings.ovh_model_main and settings.ovh_model_simple)
+    get_logger("noreon.startup").info(
+        "planner_mode=%s · ovh_ready=%s (base=%s, models=%s/%s, token=%s)",
+        mode, ovh_ready, bool(settings.ovh_base_url), settings.ovh_model_main or "∅",
+        settings.ovh_model_simple or "∅", bool(os.getenv("OVH_AI_ENDPOINTS_ACCESS_TOKEN")))
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
