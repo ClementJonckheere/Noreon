@@ -16,6 +16,7 @@ from app.services.sources.base import (
     TableInfo,
     RelationInfo,
     infer_relations,
+    infer_value_overlap,
 )
 
 log = get_logger("noreon.source.postgres")
@@ -156,6 +157,35 @@ class PostgresAdapter(SourceAdapter):
             relations.append(RelationInfo(fs, ft, fc, ts, tt, tc, kind="declared", confidence=1.0))
             declared_pairs.add((fs, ft, fc))
         relations.extend(infer_relations(list(tables.values()), declared_pairs))
+
+        # Relations par RECOUVREMENT DE VALEURS (FK non déclarées, noms opaques) —
+        # best-effort, borné, jamais bloquant (P-05).
+        try:
+            related = {(r.from_schema, r.from_table, r.from_column) for r in relations}
+
+            def _containment(child, ccol, parent, pk):
+                cq = self.qualified(child.schema, child.name)
+                pq = self.qualified(parent.schema, parent.name)
+                cc, pc = self.quote_ident(ccol.name), self.quote_ident(pk)
+                with self._open(statement_timeout_ms=15_000) as c2:
+                    with c2.cursor() as cur2:
+                        cur2.execute(f"SELECT count(DISTINCT {cc}) FROM {cq} WHERE {cc} IS NOT NULL")
+                        distinct = int(cur2.fetchone()[0] or 0)
+                        if distinct < 2:
+                            return (0, distinct, 0)
+                        cur2.execute(f"SELECT count(*) FROM {pq}")
+                        parent_count = int(cur2.fetchone()[0] or 0)
+                        cur2.execute(
+                            f"SELECT count(*) FROM (SELECT DISTINCT {cc} v FROM {cq} "
+                            f"WHERE {cc} IS NOT NULL) s LEFT JOIN {pq} p ON s.v = p.{pc} "
+                            f"WHERE p.{pc} IS NULL"
+                        )
+                        orphans = int(cur2.fetchone()[0] or 0)
+                return (orphans, distinct, parent_count)
+
+            relations.extend(infer_value_overlap(list(tables.values()), related, _containment))
+        except Exception:  # noqa: BLE001 - l'inférence par valeurs ne bloque jamais un scan
+            pass
         return ScanResult(tables=list(tables.values()), relations=relations)
 
     # --- exécution ---

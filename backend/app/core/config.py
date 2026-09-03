@@ -5,9 +5,36 @@ peuvent être surchargées par tenant dans la table `tenant_settings`.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _load_dotenv_into_environ() -> None:
+    """Charge `.env` dans `os.environ` (sans écraser une variable shell existante).
+
+    Pydantic lit déjà `.env` pour les champs `NOREON_*`, mais les SECRETS
+    non préfixés (ex. `OVH_AI_ENDPOINTS_ACCESS_TOKEN`, lus via `os.getenv`)
+    ne seraient pas vus sans ça. Cherche `.env` dans le CWD puis à la racine
+    de `backend/`. Sans dépendance externe."""
+    here = Path(__file__).resolve()
+    for candidate in (Path.cwd() / ".env", here.parents[2] / ".env"):
+        if not candidate.is_file():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+        break
+
+
+_load_dotenv_into_environ()
 
 
 class Settings(BaseSettings):
@@ -30,6 +57,29 @@ class Settings(BaseSettings):
     # Couche LLM
     llm_provider: str = "heuristic"
     llm_model: str = ""
+
+    # Planificateur analytique (Phase 2) — OVHcloud AI Endpoints (OpenAI-compat).
+    # Le SECRET (OVH_AI_ENDPOINTS_ACCESS_TOKEN) est lu via os.environ, jamais ici.
+    # Aucun modèle par défaut : une config incomplète produit une erreur explicite.
+    ovh_base_url: str = ""
+    ovh_model: str = ""
+    # Routage à deux modèles (C3) : principal (toute complexité) et simple
+    # (demandes strictement count/aggregate/ranking, sans méthode/dépendance).
+    ovh_model_main: str = ""
+    ovh_model_simple: str = ""
+
+    # Shadow Planner (Phase 2, C5) — le planner LLM est OBSERVÉ, jamais décisionnaire.
+    # Seuls `legacy` et `shadow` sont EXÉCUTABLES en C5 ; `active`/`canary` sont
+    # réservés (contrat futur) et REFUSÉS explicitement (unsupported_mode) tant que
+    # l'activation n'est pas câblée — jamais un shadow déguisé.
+    planner_mode: str = "legacy"                 # legacy | shadow | (active/canary → refusés)
+    planner_shadow_sample_rate: float = 1.0      # [0,1] — 100 % en dev/démo, abaissable en réel
+    planner_shadow_timeout_ms: int = 8_000       # budget dur par évaluation shadow
+    planner_shadow_max_concurrency: int = 4      # cap in-flight (protège les ressources)
+    planner_shadow_executor: str = "inprocess"   # inprocess | rq
+    planner_shadow_store_plan: bool = True       # conserver llm_plan_json (rétention COURTE)
+    planner_shadow_plan_retention_days: int = 14 # purge du plan complet (projections gardées +longtemps)
+    planner_shadow_store_sanitized_question: bool = False  # opt-in — jamais le prompt brut
 
     # Garde-fous SQL (défauts globaux, configurables par tenant)
     sql_timeout_seconds: int = 60

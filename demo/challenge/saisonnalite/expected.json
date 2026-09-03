@@ -1,0 +1,9 @@
+{
+  "mode": "challenge",
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "intent": "diagnostic",
+  "trend_direction": "baisse",
+  "difficulty": "La baisse des 4 derniers mois est un creux estival qui se répète chaque année (rien d'anormal).",
+  "ideal": "Reconnaître que la baisse est SAISONNIÈRE : en glissement annuel, le CA est comparable (voire au-dessus). Ne recommander AUCUNE action corrective.",
+  "expects_seasonal": true
+}

@@ -1,0 +1,28 @@
+{
+  "domain": "crm",
+  "plan_schema_version": "1.3",
+  "goals": [
+    {
+      "id": "g1",
+      "priority": 1,
+      "type": "segmentation",
+      "intent_text": "Identifier les comptes à risque de résiliation",
+      "entity_ref": "concept:account",
+      "entity_label": null,
+      "metrics": [
+        {"ref": "metric:usage", "of_ref": null, "aggregation": "none"},
+        {"ref": "metric:tenure", "of_ref": null, "aggregation": "none"}
+      ],
+      "dimensions": [],
+      "filters": [],
+      "method": {"name": "risk_segmentation", "version": "1.0", "params": {}},
+      "depends_on": [],
+      "ambiguities": [],
+      "binning_requested": false,
+      "sort": [],
+      "limit": null,
+      "temporal": null
+    }
+  ],
+  "unresolved_terms": []
+}

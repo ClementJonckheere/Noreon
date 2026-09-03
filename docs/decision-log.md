@@ -317,6 +317,377 @@ mémoire, calculs à la volée).
 
 ---
 
+### D-24 — Evidence Graph, divulgation progressive, auto-critique & chronologie (G→H)
+**Contexte.** Retour produit : réunir Pourquoi/Preuve/SQL/Sources en un graphe,
+nuancer les preuves, décomposer la confiance — et surtout NE PAS tout afficher en
+permanence (risque de fatigue).
+**Décision.**
+- **G — Evidence Graph** : chaîne logique unique (Question → Hypothèses → Tables
+  → Jointures → Preuve → SQL → Résultat → Conclusion) colorée par **niveau de
+  preuve** (🟢 forte / 🟡 moyenne / 🔴 faible). **Confidence breakdown** : l'indice
+  devient une **somme pondérée** décomposée (qualité 35 / concepts 25 / relations
+  18 / SQL 12 / couverture 6 / hypothèses 4). **UI 3 niveaux** (Décision /
+  Comprendre / Preuve) pour la divulgation progressive.
+- **Unification UX** : la page connexion (rendu plat historique) et le chat
+  d'espace partagent désormais le même `AnswerView` à 3 niveaux (fin de la
+  duplication).
+- **H — Auto-critique** (`self_critique.py`) : section « ce qui pourrait remettre
+  en question cette conclusion » fondée sur des signaux RÉELS (colonne de statut
+  non filtrée → commandes annulées ; entités de test ; promotion exceptionnelle
+  sur une série de revenu ; base HT/TTC ; récence de période ; échantillon /
+  troncature). **Chronologie narrée** (`chronicle.py`) : « cette tendance dure
+  depuis N périodes » calculée sur la série réelle (streak terminal).
+**Conséquence.** Le raisonnement est visualisable et gradué, la confiance est
+lisible, et Noreon **affiche ses propres angles morts** — le tout hors-ligne,
+sans migration (calculs à la volée), et rangé derrière une divulgation
+progressive pour rester lisible.
+
+---
+
+### D-25 — Insight Score + rapports comparables (I)
+**Contexte.** Toutes les découvertes se ressemblaient ; rien ne disait ce qui
+avait changé depuis la dernière fois.
+**Décision.**
+- **Insight Score /100** (`discoveries.py`) = 0.30·impact + 0.25·nouveauté +
+  0.25·confiance + 0.20·intérêt métier (impact adossé au niveau + magnitude ;
+  confiance/nouveauté/intérêt par catégorie). Les insights sont classés par
+  niveau puis par score → **les plus intéressants remontent**.
+- **Rapports comparables** (`InsightBaseline`, migration `f6a7b8c9d0e1`) :
+  chaque insight a une **clé stable** (catégorie|table|colonne|période) ; à
+  chaque relevé, on compare à la référence précédente → **nouvelles / corrigées
+  / confirmées** (par catégorie), puis on met à jour la référence. « Depuis le
+  dernier relevé : 2 nouvelles, 1 corrigée, 3 confirmées. »
+**Conséquence.** Les Insights deviennent priorisés et suivis dans le temps —
+sans LLM, déterministe ; une seule ligne persistée par connexion.
+
+---
+
+### D-26 — Mémoire du Reasoning Engine (J)
+**Contexte.** Chaque investigation repartait de zéro ; le moteur ne capitalisait
+pas sur les stratégies qui marchent.
+**Décision.** `ReasoningMemory` (migration `a7b8c9d0e1f2`) mémorise, par
+(connexion, sujet, dimension), une **efficacité** = moyenne mobile exponentielle
+(α=0,4) du « power » observé lors des segmentations. Avant d'analyser, l'agent
+**réordonne** les dimensions candidates par efficacité éprouvée (`memory.rank`)
+et teste les meilleures d'abord (utile quand le nombre d'étapes est plafonné) ;
+après, il **enregistre** le signal observé (`memory.record`). La priorisation est
+tracée dans le **journal de raisonnement**.
+**Conséquence.** Le moteur apprend quelles chaînes de jointures / dimensions
+portent le signal et les teste en priorité — déterministe, borné au tenant, sans
+donnée brute. Le chemin chat commit la transaction ; en test, flush + rollback.
+
+---
+
+### D-27 — Rythme narratif, score en mots, intention & Decision Engine (K)
+**Contexte.** Retours : raconter le RYTHME (pas juste le fait), traduire le
+score en mots, identifier l'objectif de la question, et surtout **adapter les
+décisions au rôle**.
+**Décision.**
+- **Rythme** (`chronicle.py`) : détecte la phase stable initiale et
+  l'accélération/ralentissement terminal → « Après une stabilité jusqu'en mars,
+  le CA recule progressivement pendant 4 mois, avec une accélération en juillet. »
+- **Score en mots** (`discoveries.py`) : `score_label` (Priorité maximale /
+  Prioritaire / À surveiller / Mineur) affiché avant le nombre.
+- **Objectif** (`decision_engine.detect_intent`) : diagnostic / comparaison /
+  reporting / suivi / exploration, exposé sur chaque réponse.
+- **Decision Engine** (`decision_engine.py`) : à partir des facteurs dominants
+  RÉELS de l'investigation (`Investigation.drivers_struct`), produit des décisions
+  **par rôle** — mêmes données, priorités différentes : Finance (marge/coûts),
+  CRM (réactivation des segments clients), Réseau (audit local des magasins),
+  Produit (assortiment). Le rôle est déduit du vocabulaire de l'axe dominant.
+**Conséquence.** Noreon passe de l'analyse à la **décision** : il ne dit plus
+seulement « ce qui se passe » mais « que faire, selon qui je suis » — déterministe,
+dérivé des données réelles, rangé au Niveau 1 (décision).
+
+---
+
+### D-28 — Decision Engine approfondi : objectif reformulé, impact, journal, inaction (L)
+**Contexte.** Retours : reformuler l'objectif, estimer l'impact des actions,
+justifier chaque reco, et projeter l'inaction — sans jamais prétendre prédire.
+**Décision.**
+- **Objectif reformulé** (`restate_intent`) : « diagnostic » → « Diagnostiquer une
+  baisse de {mesure} », « comparaison » → « Comparer les performances par {axe} ».
+- **Impact estimé** (`_estimate_impact`) : fourchette récupérable = part du facteur
+  × |variation| × [0,3 ; 0,6], + niveau de confiance ; toujours étiquetée
+  « estimation basée sur la structure historique des données ».
+- **Decision Journal** : chaque décision porte sa **justification** (« parce que
+  65% de la variation provient de « Store 3 » »).
+- **« Et si je ne fais rien ? »** : projection prudente à partir de la cadence
+  récente (`chronicle.recent_rate`) sur 3 périodes, **formulée sans certitude**
+  (« si la tendance se maintient et qu'aucun changement majeur n'intervient… une
+  projection sous hypothèses, pas une prédiction »).
+**Conséquence.** La décision devient priorisable (impact), défendable (journal) et
+lucide sur le coût de l'inaction — tout en restant rigoureux sur l'incertitude.
+
+### D-29 — Sérendipité, matrice effort/impact, mémoire métier & ton mesuré (M)
+**Contexte.** Le moteur devrait parfois **surprendre** (découverte adjacente plus
+importante que la demande), **prioriser** les recommandations par rapport
+effort/impact, **apprendre** des décisions prises, et garder un **ton mesuré**
+(« les données suggèrent que… » plutôt que « je pense que… »).
+**Décision.**
+- **Sérendipité** (`discoveries.top_side_finding`) : la découverte la plus notable
+  **sur une autre table** que le sujet analysé (score ≥ 55), calculée sans requête
+  source (relations + profils). Rendue « 🔭 Découverte inattendue — les données ont
+  aussi révélé… », jamais une certitude.
+- **Matrice effort/impact** : chaque décision porte `effort`, `impact_level` et un
+  rang d'**étoiles** `_stars = clamp(3 + impact − effort, 1, 5)` ; la liste est
+  triée par priorité décroissante (fort impact + faible effort d'abord).
+- **Mémoire métier** (`DecisionRecord` + `decision_memory`) : l'humain qualifie une
+  reco (retenue / mise en œuvre / réussie / abandonnée) via
+  `POST /connections/{id}/decisions/feedback` (réservé analyste). Une reco proche
+  (recouvrement lexical ≥ 40 % sur le même rôle) est ensuite annotée « déjà
+  appliquée avec succès dans un contexte similaire » — boucle d'amélioration
+  continue. Aucune donnée métier brute stockée (axe d'analyse + rôle + texte).
+- **Ton mesuré** : formulations ancrées sur le fait constaté, sans « je pense » ni
+  promesse — cohérent avec l'architecture déterministe autour du LLM.
+**Conséquence.** Le moteur devient proactif (il signale l'important ailleurs),
+actionnable (priorité coût/bénéfice) et cumulatif (il capitalise sur les décisions
+passées) — sans jamais imiter une confiance humaine qu'il n'a pas.
+
+### D-30 — Attribution de la variation + bibliothèque de démonstration (N)
+**Contexte.** La construction du **scénario vitrine** de la bibliothèque de
+démonstration (`demo/retail/`, « Pourquoi le CA baisse depuis 4 mois ? ») a révélé,
+via la méthode **Gold Standard**, un manque du moteur : l'investigation rapportait
+la **part du total** (« le plus gros segment pèse 80 % » — tautologie) au lieu de
+la **contribution à la baisse**. Un analyste senior dit « la baisse vient de PACA »,
+pas « la majorité du CA vient de la majorité des clients ».
+**Décision.**
+- **Attribution de la variation** (`agent._attribute_variation`) : pour une mesure
+  en baisse/hausse avec un axe temporel, on compare la **fenêtre récente** à la
+  **précédente**, axe par axe, et on classe par **contribution au changement**
+  (part de la baisse brute portée par le segment, ∈ [0, 100]). La fenêtre = le
+  nombre de périodes consécutives de la tendance (`_trailing_run`).
+- **Priorité à la cause du changement** : quand l'attribution est concluante
+  (≥ 55 %), elle **remplace** les facteurs de structure dans `drivers_struct` (on
+  ne garde un facteur secondaire que s'il est lui aussi concentré ≥ 65 %) ; les
+  tranches numériques sont écartées (libellés bruts peu parlants).
+- **Decision Engine** : la cause dominante (1er facteur) est **rehaussée d'une
+  étoile** pour mener les recommandations (« agir au bon endroit » prime sur « agir
+  à faible effort mais hors sujet »).
+- **Auto-révision cohérente** : le « changement d'avis » s'ancre sur l'attribution
+  (« la structure pointait X, mais la baisse vient de Y »).
+- **Bibliothèque de démonstration** (`demo/`) : une base Postgres synthétique et
+  déterministe par scénario (`setup_scenario.sh`), un **runner de vérification**
+  (`verify.py`) qui rejoue le pipeline et imprime ce que le moteur trouve, et pour
+  chaque scénario un **Gold Standard** écrit à la main + les documents attendus
+  (raisonnement, SQL, graphiques, rapport, décisions, vérité plantée).
+**Conséquence.** Sur le scénario vitrine, Noreon passe de « le plus gros segment
+pèse le plus » à **« la baisse est portée à 97 % par la région PACA »**, avec le bon
+décideur (réseau) en tête — vérifié end-to-end. Le Gold Standard devient l'outil de
+non-régression du moteur.
+
+### D-31 — 5 scénarios métier vérifiés + corrections révélées (Étape 2)
+**Contexte.** Extension de la bibliothèque aux 4 domaines restants (CRM, Finance,
+Supply Chain, RH), chacun avec une cause plantée et un Gold Standard. La
+vérification end-to-end a fait apparaître trois corrections.
+**Décision.**
+- **5 scénarios** (`demo/crm|finance|supply_chain|hr`) : une base Postgres
+  synthétique par domaine, l'axe causal porté par une colonne propre de la table de
+  faits (attribution fiable sans jointure). Causes découvertes par le moteur :
+  Publicité payante (100 %), Composants (92 %), Fournisseur Delta (97 %),
+  Ingénierie (100 %).
+- **Rôles supply chain & RH** ajoutés au Decision Engine (`_ROLE_HINTS` /
+  `_ROLE_ACTIONS`) : un axe « fournisseur » → *Directeur supply chain* (sécuriser
+  l'appro) ; « département » → *Directeur des ressources humaines* (plan de rétention).
+- **Faux positif de mesure corrigé** : le sous-mot « net » dans « ancienneté »
+  déclenchait la détection de mesure monétaire → colonne de démo renommée
+  (`duree_poste_mois`) ; note laissée sur la fragilité de la détection par sous-chaîne.
+- **Plafond de crédibilité des impacts** (`_estimate_impact`) : la fourchette
+  d'impact récupérable est bornée (≤ +25 à +45 %) — une variation extrême ne produit
+  plus « +81 à +162 % ».
+- **Cohérence hausse/baisse** de l'auto-révision (le texte disait « baisse » même
+  pour une hausse).
+**Conséquence.** Cinq démonstrations métier reproductibles et vérifiées, chacune
+avec le bon décideur et un impact crédible. La méthode Gold Standard a directement
+produit quatre améliorations du moteur.
+
+### D-32 — Framework de non-régression Gold Standard (Étape 3)
+**Contexte.** Formaliser `Gold Standard → Noreon → écart → score` pour que chaque
+évolution du moteur soit testée contre les scénarios — sans relecture manuelle.
+**Décision.**
+- **`expected.json` par scénario** : projection machine-vérifiable du Gold Standard
+  (intention, sens de la variation, axe causal, segment, contribution minimale,
+  décideur attendu).
+- **`demo/benchmark.py`** : rejoue le moteur (pipeline partagé `demo/_runner.py`,
+  factorisé avec `verify.py`) et note l'écart sur 100 via un barème pondéré (axe
+  causal + segment = 50 pts, le cœur du diagnostic). Bulletin par scénario +
+  moyenne ; sortie non nulle sous le seuil (CI-friendly).
+- **`backend/tests/test_benchmark.py`** : intègre le benchmark à la suite pytest,
+  ignoré scénario par scénario si la base source est absente.
+- **Réglage révélé** : l'axe « canal d'acquisition » d'un churn était routé vers le
+  rôle CRM (« campagne de réactivation sur un canal » — incohérent) ; recentré sur
+  le rôle « opérations / canal » (« analyser le parcours sur le canal »).
+**Conséquence.** 5/5 PASS, moyenne 100/100. Le Gold Standard n'est plus un document
+mais un **test exécutable** : toute régression de qualité d'analyse est détectée
+automatiquement. Les trois étapes de la bibliothèque de démonstration sont livrées.
+
+### D-33 — Noreon Challenge + lift causal + benchmark vivant
+**Contexte.** Un benchmark à 100/100 sur des cas simples ne fait pas progresser le
+moteur. On introduit des scénarios **adversariaux** (`demo/challenge/`) conçus pour
+le casser, et on mesure la **démarche**, pas seulement la réponse.
+**Décision.**
+- **Challenge « cause diffuse »** : baisse **systémique** (panier −15 % partout,
+  aucun coupable localisé). Le moteur retombait sur une **tautologie** — « la baisse
+  est portée à 93 % par le plus gros segment ».
+- **Lift causal** (`agent._attribute_variation`) : un segment n'est une cause que si
+  sa part dans la variation dépasse sa part dans la base (**lift ≥ 1.5**). Une baisse
+  uniforme a des lifts ≈ 1 → aucune cause → **`broad_based`** : « baisse
+  généralisée, cause probablement transverse (prix, saison, macro) ». Le lift est un
+  **garde-fou** ; le classement reste piloté par la contribution (pour ne pas
+  confondre cause et conséquence — ex. le *canal* d'un churn plutôt que le *plan*).
+- **Suppression de la tautologie** : plus de « plus gros segment » émis quand la
+  variation est diffuse.
+- **Benchmark vivant** (`demo/benchmark.py`) : scorecard du **raisonnement** (Plan ·
+  Dimensions · Mesure · Explication · Décision · Efficacité) + section
+  **`--challenge`** non notée qui affiche `APPRIS ✅` / `À CORRIGER ❌` avec la limite
+  connue.
+**Conséquence.** Le premier challenge, en cassant le moteur, a produit une vraie
+amélioration (distinguer une cause concentrée d'un simple gros segment). Les 5
+scénarios restent à 100/100 (lift = garde-fou, pas régression). C'est la boucle
+scientifique en marche : *on code parce que le benchmark dit que le moteur s'est
+trompé.*
+
+### D-34 — Robustesse aux colonnes opaques : comprendre les données, pas le schéma
+**Contexte.** Le test décisif de la promesse fondatrice : si on renomme toutes les
+colonnes en identifiants opaques (`col_003`, `a3`…), Noreon trouve-t-il encore ?
+Sinon, il est « adapté aux jeux de données », pas intelligent.
+**Décision (détection PAR LES DONNÉES, `deep_analysis`).**
+- **`_Col.is_identifier`** : une colonne est un identifiant si elle est clé, **FK**
+  (marquée depuis les relations dans `_load_schema`), nommée `xxx_id`, **ou un
+  entier quasi-unique** (`distinct_ratio ≥ 0.98`) — robuste aux noms opaques. Un
+  identifiant n'est jamais une mesure ni un axe.
+- **Détection de la mesure en deux temps** (`_pick_measure`) : (1) indice de nom
+  (rapide quand le nom parle) ; (2) à défaut, **la variable numérique la plus
+  continue** (le plus de valeurs distinctes), ni identifiant ni catégorie. →
+  `col_003` reconnu comme le montant sans aucun indice de nom.
+- **Axes** : `_candidate_dimensions` s'appuie sur `is_identifier` (données) plutôt
+  que sur le nom, et la cause est attribuée **par la valeur du segment**
+  (« Provence-Alpes-Côte d'Azur »), pas par le nom de l'axe.
+- **Challenge `colonnes_opaques_n1`** + robustness dans le benchmark
+  (`--challenge`) : mesure trouvée ✓, cause par la valeur ✓ (97 %).
+**Limite connue.** Le routage vers un rôle métier dépend encore du **nom** de
+l'axe : sur colonnes opaques, la décision reste générique. Pistes : dictionnaire
+métier + inférence du type d'axe par les valeurs ; et N2 = FK non déclarées
+inférées par recouvrement de valeurs.
+**Conséquence.** Même scénario que retail, tous les noms opacifiés : Noreon
+retrouve la mesure et la cause. Preuve tangible qu'il reconstruit la **sémantique à
+partir des données**, pas du vocabulaire du schéma. Les 5 scénarios nommés restent
+à 100/100 (l'indice de nom reste prioritaire quand il existe).
+
+### D-35 — Responsibility Engine : du concept au décideur (P-02)
+**Contexte.** Limite laissée par D-34 : le routage vers un rôle métier dépendait
+encore du **nom** de l'axe (`if "store" in name → Directeur réseau`). Sur colonnes
+opaques, la décision retombait sur un rôle générique.
+**Décision.**
+- Nouveau composant **`services/responsibility.py`** : `valeurs → concept →
+  responsabilité`. Pipeline explicite `Reasoning Engine → Concepts →
+  Responsibility Engine → Decision Engine`.
+- **Détection du concept par les VALEURS d'abord** (régions/villes françaises,
+  tokens de fournisseur/canal, ensembles département/segment/produit), **nom de
+  l'axe en repli**. Concepts : geo, store, supplier, channel, employee,
+  customer_segment, product, time.
+- **`decide()`** appelle `responsibility.resolve(dimension, segment, samples)` au
+  lieu de `_role_of(nom)` ; l'agent fournit un **échantillon de valeurs** de l'axe
+  (`samples`) dans `drivers_struct`. Le texte de décision affiche le **concept**
+  (« zone géographique ») plutôt que le nom d'axe brut.
+- `_ROLE_HINTS` / `_role_of` retirés du Decision Engine (logique déplacée dans le
+  Responsibility Engine, enrichie des valeurs).
+**Conséquence.** Le challenge `colonnes_opaques_n1` route désormais l'axe opaque
+`a3` vers **Directeur réseau** (ses valeurs sont des régions) — limite de D-34
+levée. Propriété **P-02** validée. Les 5 scénarios nommés restent à 100/100.
+
+### D-36 — Attribution multi-causes (P-06)
+**Contexte.** Le challenge `causes_multiples` (baisse répartie 40/35/25 % sur 3
+foyers) était mal classé « généralisée » : l'attribution ne regardait que le
+**premier** segment de chaque axe (< 55 % → aucune cause).
+**Décision.**
+- `_attribute_variation` calcule la contribution **et le lift de CHAQUE segment**,
+  puis classe l'axe : **cause unique** (un segment ≥ 55 %, lift franc) / **causes
+  multiples** (≥ 2 foyers ≥ 15 %, lift ≥ 1,3, expliquant ≥ 60 %) / **diffuse**.
+- Retour typé `{"mode": "single"|"multi", …}` ; `Investigation.multi_causes`
+  alimente `drivers_struct`, la conclusion (« 3 foyers — … »), une recommandation
+  (« agir sur les N foyers ») et le benchmark.
+- **Rasoir d'Occam** pour choisir l'axe : on préfère l'explication la plus
+  concentrée (« une région à 97 % » plutôt que « deux villes à 51/46 % »).
+**Conséquence.** Le challenge affiche « 3 foyers : PACA 44 %, ARA 32 %, HdF 20 % »
+(APPRIS ✅). Propriété **P-06** validée. Les 5 scénarios (cause unique) restent à
+100/100 grâce au rasoir d'Occam (concentration prioritaire).
+
+### D-37 — Relations inférées par recouvrement de valeurs (P-05)
+**Contexte.** Le challenge `colonnes_opaques_n2` durcit N1 : colonnes opaques ET
+**aucune FK déclarée**. L'inférence de relations existante est purement basée sur
+le NOM (`xxx_id`) — inopérante ici. Pour atteindre la région (sur `t_s`), il faut
+deviner `col_002 → t_s.k0` par les VALEURS.
+**Décision.**
+- `sources/base.infer_value_overlap` : une colonne entière, non clé, sans relation
+  connue, dont les valeurs sont **incluses** dans la PK d'une autre table (0
+  orphelin) **et en couvrent ≥ 90 %**, est une clé étrangère de fait. L'adaptateur
+  Postgres fournit le calcul de containment (SQL natif) ; best-effort, borné
+  (`max_checks`), jamais bloquant pour un scan.
+- **Précision avant rappel** : les seuils stricts (couverture ≥ 0,9, 0 orphelin)
+  évitent le faux positif classique — un attribut « âge » (18..72) inclus par
+  hasard dans des identifiants (produits 1..80) n'est PAS pris pour une FK (69 % de
+  couverture). Ce garde-fou est né d'un vrai faux positif détecté en test
+  (âge → produits) — exactement la démarche « anti-benchmark ».
+**Conséquence.** N2 (colonnes opaques + sans FK) : Noreon infère les relations,
+atteint la région et attribue la baisse à PACA (97 %) → Directeur réseau. Propriété
+**P-05** validée. Les 5 scénarios et les tests d'intégration restent verts (aucune
+relation parasite introduite).
+
+### D-38 — Conscience de la saisonnalité (P-07)
+**Contexte.** Le challenge `saisonnalite` : la baisse des 4 derniers mois est un
+creux estival qui se répète chaque année. Le moteur criait à la baisse alors qu'en
+**glissement annuel** le niveau est comparable (voire supérieur) — fausse alerte.
+**Décision.**
+- **Test de saisonnalité** (`agent`, dès ~ 16 mois d'historique) : avant de chercher
+  une cause, comparer la fenêtre récente aux **mêmes mois de l'année N-1**. Si
+  ≥ −4 % (pas pire que l'an dernier) → `Investigation.seasonal = True`.
+- Quand la baisse est saisonnière : l'**attribution est sautée**, la conclusion dit
+  « baisse SAISONNIÈRE — pas une anomalie », la recommandation invite à suivre
+  l'indicateur **en glissement annuel**, et le Decision Engine **ne produit aucune
+  décision corrective** (recommander une action serait une erreur d'analyse).
+**Conséquence.** Le challenge affiche « baisse reconnue saisonnière ✓ / aucune
+action corrective ✓ » (APPRIS ✅). Propriété **P-07** validée. Les 5 scénarios (dont
+la vraie baisse de retail, nettement pire qu'en N-1) restent à 100/100.
+
+### D-39 — Humilité : abstention calibrée sur données catastrophiques (P-08)
+**Contexte.** Le challenge `qualite_catastrophique` : montants (~ 45 %) et dates
+(~ 50 %) majoritairement manquants. Le meilleur comportement n'est pas d'inventer
+une réponse à partir des données restantes, mais de **s'abstenir honnêtement**.
+**Décision.**
+- **Garde-fou d'humilité** (`agent`, avant l'étape tendance) : lecture du taux de
+  valeurs manquantes (profilage) de la **mesure** et de la **date**. Au-delà de
+  40 %, `Investigation.low_quality = True`, l'investigation **s'arrête** sur un
+  constat de fiabilité, la conclusion est « je ne peux pas conclure… » (avec les
+  taux exacts), et **aucune décision** n'est produite (chat.py).
+- La recommandation invite à **fiabiliser la saisie** (mesure + date) avant de
+  relancer l'analyse.
+**Conséquence.** Le challenge affiche « abstention honnête ✓ / aucune décision ✓ »
+(APPRIS ✅). Propriété **P-08** validée. Les 5 scénarios (données saines) restent à
+100/100. Sept propriétés vérifiées (P-01 → P-08, hors P-06 déjà comptée) forment le
+socle « comprendre les données, pas le schéma » + « conclure avec discernement ».
+
+### D-40 — Challenge de l'analyste humain : mesurer la VALEUR (V-01)
+**Contexte.** Après avoir mesuré la *justesse* (benchmark) et la *robustesse*
+(challenges), il manquait la mesure la plus parlante pour un investisseur/client :
+**qu'apporte Noreon face à un vrai analyste ?**
+**Décision.**
+- `demo/human_challenge.py` : harnais de comparaison. Une **ligne de base humaine**
+  écrite à la main (`demo/<scenario>/human_baseline.json` — ce qu'un analyste
+  compétent produit en ~45 min, estimation honnête) est confrontée, critère par
+  critère, à ce que Noreon produit **réellement** (extrait de la réponse, temps
+  chronométré) : cause principale, causes secondaires, recommandations, projection,
+  auto-critique, traçabilité, reproductibilité, contexte métier, temps.
+- Restitution en **tableau** + synthèse de valeur (avantages nets de chaque côté),
+  et doc `demo/HUMAN_CHALLENGE.md`. Lignes de base : retail, CRM.
+**Conséquence.** La comparaison est **honnête et complémentaire** : Noreon apporte
+la vitesse (~ 10 s vs 45 min) et la rigueur que les humains sautent (auto-critique,
+preuves rejouables, projection, reproductibilité) ; l'humain garde le contexte
+métier et le jugement causal. C'est la mesure de la **valeur**, pas seulement de la
+justesse (propriété **V-01**).
+
+---
+
 ## Dettes / limites connues (à traiter)
 
 - **Concurrence des garde-fous** : le sémaphore « une requête par connexion » est
@@ -332,3 +703,321 @@ mémoire, calculs à la volée).
 - **Coûts LLM** : jetons/coût réels à 0 tant que le provider heuristique
   hors-ligne est utilisé ; le remplissage devient effectif dès qu'une clé
   OpenAI/Anthropic/Mistral est branchée (l'instrumentation est déjà en place).
+
+---
+
+## Refonte UI (handoff design) — passe d'alignement architectural
+
+Refonte du frontend selon le handoff design (« Precision editorial »). D'abord la
+**machine à états** et la **navigation**, avant les écrans — pour ne pas plaquer un
+beau design sur l'ancienne structure fonctionnelle.
+
+- **Machine à états (`frontend/lib/state/`)** — 7 objets de la Carte v2 + l'objet
+  **Conclusion** (distinct de Réponse et Rapport). `transitions.ts` (local) séparé
+  de `propagations.ts` (E1–E4, orchestration → `Effect[]`). Garde-fous : **8
+  interdits = 7 invariants (R1,R2,R3,R4,R6,R7,R8) + 1 règle d'interaction (Q3)** —
+  la Carte v2 ne définit pas de R5. 22 tests (vitest).
+- **Navigation par capabilities** — la sidebar/actions/CTA dérivent d'un ensemble
+  de permissions, pas d'un `if (role===…)`. Gouvernance hors nav, Espaces →
+  switcher, Concepts/Qualité en domaines de 1er niveau, Journal → `/settings/audit`.
+- **Conversation objet racine** (`/conversations/[id]`) via `ConversationRepository`
+  (adapter sur `conv*` aujourd'hui, `spaceConv*`/API dédiée demain). Dossiers à
+  gauche, panneau droit contextuel Comprendre/Preuve/Sources.
+- **Semantic Layer** (`backend/app/services/concepts.py`) — projection **de
+  présentation** : concept en couche Decision, physique en Preuve (lignage
+  `ConceptReference` + `PhysicalLineage`). Ne touche pas l'objet Investigation
+  (benchmark intact).
+
+### Cible (à ne pas perdre)
+
+- **Semantic Layer complète** : les `ConceptReference` doivent entrer dans le
+  **planning/reasoning**, pas seulement le rendu (raisonner sur `concept_id`).
+  Conserver `investigation.raw` (exécuté) et `investigation.semantic` (concepts).
+  Sinon Noreon reste « un moteur SQL avec un excellent traducteur de labels ».
+
+### Backlog commit 6 (AnswerView sur le contrat)
+
+- **Chaîne établie** quitte le centre → Preuve. Centre = Question → Observation
+  initiale → Résultat → graphe → Recommandation ; Comprendre = hypothèses/limites.
+- **Confiance** : 4 dimensions métier (Qualité des données · Certitude sémantique ·
+  Couverture analytique · Robustesse des comparaisons) ; SQL/relations/contrôles →
+  Preuve → Contrôles techniques. **Règle de publication** : `confiance ≥ seuil ET
+  aucun bloqueur critique` (qualité non évaluée + 77 % → « 77 % · vérification
+  requise », pas publiable) — via `canPublishAnswer` de la machine à états.
+- **Certitude sémantique conséquente** : N concepts *proposés* / 0 validé doit
+  réellement peser (p. ex. ~50 %), pas seulement s'afficher.
+- **Humanisation Decision/Understand** : pluriels (« 4 périodes consécutives »),
+  dates (« novembre 2024 »), unités ; le physique exact reste en Preuve.
+- **« Facteurs classés »** reformulé (« Concentration principale · Région : … ·
+  97 % du recul ») ou retiré du centre quand la chaîne part en Preuve.
+- **Graphe de preuve** : répondre à « qu'est-ce qui soutient la conclusion ? »
+  (« orders · source principale · 18 lignes utilisées ») plutôt que la structure.
+
+### Protection du langage métier — fuites de schéma physique résiduelles (suivi commit 6)
+
+Les captures commit 6 montraient trois fuites du schéma physique dans des chaînes
+destinées à l'utilisateur (couche Decision/Understand), là où seuls les *facteurs
+retenus* et le `metric_label` complet étaient traduits :
+
+- `amount_ttc` nu dans « Objectif compris : Diagnostiquer une baisse de amount_ttc »
+  (le remplacement ne couvrait que « total de amount_ttc », pas la colonne nue) ;
+- `loyalty_Points` dans « tranche de loyalty_Points » (dimension explorée mais non
+  retenue comme facteur → hors des remplacements connus) ;
+- `Gender` dans « par « Gender » » (idem : axe exploré, libellé physique brut).
+
+Correctifs dans `services/concepts.py`, tous en **présentation** (l'objet
+Investigation reste intact — benchmark préservé) :
+
+1. La **colonne de mesure nue** est ajoutée à la table de remplacement quand c'est
+   un identifiant physique (`_looks_physical` : underscore ou mot de colonne connu),
+   jamais un mot générique (« commandes »).
+2. **`_detechnify`** : sweep final sur les identifiants physiques nus résiduels
+   dans « … par « X » » et « tranche de X ». On ne traduit QUE ce qui ressemble à
+   du physique (underscore, colonne anglaise connue, axe reconnu par le lexique) —
+   les **valeurs de segment** (« F », « Particulier », « Paris ») sont préservées.
+
+Le physique exact demeure dans la **Preuve** (SQL, lignage). Rappel d'architecture
+inchangé : le lexique reste un pont de migration ; la cible est le `ConceptReference`
+dans le planning/reasoning.
+
+### Finition AnswerView — 4 corrections (suite feedback commit 6)
+
+1. **Semantic Layer généralisée à tous les consommateurs** (plus seulement la
+   conclusion et la chaîne) : la colonne de mesure nue (`amount_ttc`) et les axes
+   physiques nus (`loyalty_points`, `Gender`, `tranche de age`) sont traduits dans
+   l'objectif reformulé, les décisions, les révisions et la Vérification.
+   Nouveaux concepts au lexique : **Niveau de fidélité**, **Genre**, **Tranche
+   d'âge**. Contraction grammaticale Decision (`humanize_decision_text` :
+   « une baisse de Chiffre d'affaires » → « une baisse du chiffre d'affaires »).
+   Humanisation des VALEURS codées par axe (`F` → `Femmes`, `M` → `Hommes`) —
+   uniquement sous un axe dont le codage est connu (jamais en aveugle).
+
+2. **« J'ai revu mon analyse » → « Vérification automatique »** : plus de journal
+   introspectif (« à première vue… mais en isolant… »). Le moteur expose ce qui a
+   été **testé et chiffré** — `Investigation.verification` = {text, winner, tested[]}
+   construit dans `_attribute_variation` (chaque axe examiné + sa force explicative).
+   L'UI affiche un texte factuel + un tableau comparatif (axe · segment · %),
+   pilote « retenu » en violet. Axes temporels exclus, dédoublonnage par concept,
+   bruit (< 12 %) écarté, cap à 4 pistes.
+
+3. **Contradiction « 70 % / non évaluée » levée** : chaque dimension de confiance
+   porte un `state` (`evaluated` | `partial` | `not_evaluated`) + `detail` chiffré.
+   L'UI affiche « NON ÉVALUÉE » (barre hachurée neutre) ou « N % · PARTIELLE » ou
+   le score, jamais un score qui contredit l'état. Concepts : « N proposés, M
+   validés ». Phrase de publication reformulée en énumération des vérifications
+   restantes. La **règle de publication** (≥ seuil ET 0 bloqueur) est conservée.
+
+4. **Humanisation de la Preuve terminée** : `Gender` → « Genre », segment `F` →
+   « Femmes », `tranche de age` → « Tranche d'âge ». Le SQL et les noms physiques
+   restent accessibles derrière chaque étape.
+
+Reste en backlog (non bloquant) : graphique principal entre Résultat et
+Recommandations (hiérarchie Observe → Démontre → Recommande).
+
+### Mini-commit AnswerView final — 8 points de relecture
+
+1. **Métriques de Vérification comparables (contrat backend, pas que l'affichage)**
+   Toutes les valeurs de `verification.tested[]` proviennent d'UNE seule mesure
+   (`contribution_pct` de `_attribute_variation` : part de la variation concentrée
+   par le segment le plus mouvant de l'axe) — jamais une part de CA (qui vit dans
+   les étapes de segmentation). Contrat explicité : `verification.metric =
+   "contribution_to_change"` + `measure_label` affiché en légende. La valeur du
+   pilote (97 %) correspond exactement à la conclusion. `contribution_to_change`
+   (dénominateur commun = variation nette totale) est aussi calculé et exposé pour
+   l'audit.
+2. **Dédoublonnage APRÈS résolution sémantique** : clé = `ConceptReference.id +
+   segment normalisé` (deux colonnes physiques → un concept = un seul axe), plus
+   sur le nom physique avant transformation.
+3. **« Non évalué » ≠ « non validé »** : `annotate_semantic_confidence` aligne la
+   dimension « Certitude sémantique » sur les concepts RÉELLEMENT proposés par la
+   Semantic Layer → « 50 % · PARTIELLE · 2 concepts proposés · 0 validé ». NON
+   ÉVALUÉE ⇔ aucune résolution sémantique.
+4. **Qualité NON ÉVALUÉE** : la phrase de publication distingue « n'a pas encore
+   été évaluée » (aucun contrôle) de « n'est pas encore entièrement évaluée »
+   (partielle).
+5. **Graphique principal** entre Résultat et Vérification (mini-courbe SVG inline,
+   offline) — rythme Observer → Démontrer → Recommander. Le gros graphique
+   exportable n'est plus doublonné au centre (évité quand la mini-courbe existe).
+6. **« Décisions » → « Recommandations »** (Noreon propose des options ; l'humain
+   décide).
+7. **« Investigation terminée »** : pastille violette (processus machine terminé),
+   plus verte (le vert = validation externe).
+8. **Grain temporel** : « 4 mois consécutifs » au lieu de « 4 période(s) » (lu du
+   format des libellés). Sérendipité passée par la Semantic Layer (pluriels/dates).
+
+Reste (mineur, différé) : clipping/scroll de la sidebar sous « Nouveau dossier »
+(à inspecter visuellement). La colonne physique d'une alerte QUALITÉ (sérendipité
+« customers.email ») est CONSERVÉE : précision actionnable, comme la Preuve.
+
+### Commit 7 — Data / Trust (drill-down de confiance de source)
+
+Dernière étape de la passe d'alignement : remplacer le « Score qualité » global
+opaque (retiré du panneau Confiance au commit 6) par une **fiche de confiance par
+source**, auditable.
+
+- **`/quality/[id]`** (nouveau) : confiance globale + **dimensions auditables**
+  (Fraîcheur, Complétude, Cohérence, Validité, Unicité — agrégées côté client à
+  partir des scores colonne de l'API `GET /connections/{id}/quality`), **incidents**
+  concrets (colonnes/relations sous le seuil, détail chiffré), et **conclusions
+  impactées** (tables sous le seuil → réserve de confiance sur les réponses qui s'y
+  appuient — le pont Trust → Décision).
+- **Action** « Lancer les contrôles » / « Relancer les contrôles » (`POST
+  /quality`), dérivée de la capacité `inspectQuality` (pas de `if role===`).
+- **Drill-down depuis la Preuve** : `RightPanel` reçoit `connectionId` ; chaque
+  source de l'onglet Sources mène à `/quality/{id}?table=…` (la source est
+  surlignée), et « Confiance de la source → » ouvre la fiche.
+- **Couleur** : c'est le seul endroit où le VERT est légitime — un contrôle qui
+  passe est une **validation externe de la donnée**, pas une estimation machine
+  (violet). Orange = à surveiller, rouge = à corriger.
+- `/quality` (liste) pointe désormais vers `/quality/{id}` (« Voir la confiance »),
+  plus vers l'ancienne page de connexion.
+
+Note : « stabilité » de la cible handoff est couverte par Validité + Unicité (les
+dimensions réellement auditables du backend), plus précises qu'un libellé unique.
+
+**Fin de la passe d'alignement architectural** (machine à états → nav → Conversation
+racine → Semantic Layer → demo/live → AnswerView sur le contrat → Data/Trust).
+
+### Passe de cohérence « confiance » (avant de figer Conversation + Qualité)
+
+Sept corrections issues des captures, plus deux ajustements — la sémantique de
+« confiance » ne devait plus désigner trois choses différentes.
+
+1. **Plus de note globale de source** : la fiche Qualité affiche un ÉTAT
+   multidimensionnel (« 4 dimensions conformes · 1 à surveiller · réserve :
+   Fraîcheur ») au lieu d'un « 98 % » qu'on ne peut pas reconstruire depuis les
+   dimensions et qui masque une fraîcheur à 33 %.
+2. **Taxonomie du vocabulaire** — chaque notion garde sa sémantique :
+   Analyse → **Confiance** ; Source → **Qualité** (« Qualité de la source »,
+   plus « Confiance de la source ») ; Concept → statut proposé/validé ;
+   Incident → sévérité réserve/bloquant. Liste `/quality` : « Voir les contrôles ».
+3. **Header réconcilié** : « Synchronisé · HH:MM » (technique) par défaut ;
+   « Données à jour » UNIQUEMENT si la fraîcheur est contrôlée ET conforme ;
+   sinon « Fraîcheur à vérifier » / « N sources à surveiller » (dérivé des
+   contrôles réels, plus d'un « à jour » codé en dur).
+4. **Qualité branchée sur l'analyse** (fondamental) : `tables_trust(tables
+   utilisées)` calcule les dimensions + incidents des SEULES tables employées.
+   Le panneau Comprendre affiche « Qualité des données · partielle · 3/4
+   dimensions conformes · Fraîcheur à surveiller · Voir l'incident → ». Une
+   colonne CRM obsolète ne pénalise plus une conclusion sur les ventes.
+   Pipeline : analyse → tables utilisées → contrôles pertinents → incidents →
+   dimension « Qualité » → confiance + réserves.
+5. **Incidents = objets** (quoi · dimension · sévérité · depuis), plus de simple
+   score : « customers.signup_date — FRAÎCHEUR · RÉSERVE — dernière valeur : 3
+   nov. 2023 ».
+6. **Recommandations Finance honnêtes** : plus de « sécuriser la trésorerie /
+   arbitrer les dépenses » génériques quand la marge n'est pas connectée →
+   « L'effet sur la marge et la trésorerie n'est pas quantifiable ici : ces
+   mesures ne font pas partie de l'analyse ». Noreon est meilleur quand il dit ce
+   qu'il ne peut pas conclure.
+7. **« A porté ses fruits » retiré** : un RÉSULTAT ne se déclare pas d'un clic.
+   Il reviendra sous « Résultat mesuré · +N % » quand le protocole de mesure sera
+   branché — posé par le système, jamais par l'utilisateur.
+
+Extras : **couleur** — la fraîcheur médiocre est ORANGE (réserve / obsolescence),
+jamais rouge (le rouge = blocage opérationnel réel). **Graphique** — l'annotation
+illustre exactement la comparaison de la conclusion (premier → dernier point,
+« −8 % »), le trait renforcé mettant en avant le recul récent.
+
+Portée assumée : la qualité de l'analyse est calculée sur la table-sujet
+(`inv.subject`) ; un lignage « colonnes exactes de la conclusion » reste un
+raffinement futur. Conversation + Qualité peuvent maintenant être figés.
+
+### Test fonctionnel complet du cycle de vie Trust (avant de figer)
+
+Deux parcours de bout en bout, exécutés en réel (mutation de la fraîcheur d'une
+colonne réellement utilisée + relance des contrôles) :
+
+**Aller** — 86 % · vérification requise · Fraîcheur à surveiller → source corrigée
+→ contrôles relancés → Fraîcheur 100 % conforme → l'incident disparaît
+automatiquement (dérivé, non stocké) → « Qualité des données » passe à 4/4
+dimensions conformes → la réserve est retirée → confiance 86 → **87 %** → il ne
+reste qu'« une vérification » (concepts non validés). Publiable dès qu'aucun autre
+bloqueur. **PASSE.**
+
+**Retour** — analyse publiable sur données fraîches → rapport validé (aucun
+incident) → un incident apparaît sur une table réellement utilisée (obsolescence)
+→ la réserve est ré-ajoutée à l'analyse → le **rapport validé reste inchangé**
+(instantané intact) → mention **« incident postérieur à la validation »**. **PASSE.**
+
+Pour rendre le retour possible : pont **Trust → Rapport** (nouveau). Migration
+`c9d0e1f2a3b4` (reports.source_connection_id + source_tables) ; capture de la
+source à la génération ; `get_report` calcule `posterior_incidents` =
+`tables_trust(tables du rapport)` filtré aux contrôles POSTÉRIEURS à la validation
+(`computed_at > created_at`) ; bandeau orange (réserve) sur la fiche rapport, qui
+ne réécrit jamais la conclusion.
+
+**Conversation + Qualité + Trust sont figés.** Les fondations de confiance sont
+cohérentes de bout en bout ; place aux écrans (Rapports, Plan d'action, Concepts,
+relations, recherche, notifications, responsive).
+
+### Rapports — versionnement (instantanés validés)
+
+Le rapport de travail reste éditable ; « Valider cette version » fige un
+**instantané immuable** : `ReportVersion` (migration `d0e1f2a3b4c5`) copie les
+blocs + la source + l'horodatage, avec un numéro (v1, v2…). Historique des versions
+sur la fiche, consultation en lecture seule (« Revenir au brouillon »), l'éditeur
+est masqué pendant la consultation d'une version figée.
+
+L'**incident postérieur** s'ancre désormais sur la dernière VERSION validée si
+elle existe (sinon la création du rapport) : valider une version acquitte l'état
+qualité connu ; seul un contrôle exécuté APRÈS la validation devient « postérieur ».
+
+### Plan d'action (les décisions retenues, suivies)
+
+`/plan` n'est plus un placeholder : les `DecisionRecord` retenus depuis les
+analyses deviennent un vrai plan. Route tenant `GET /plan` (+ `include_closed`)
+et `PATCH /plan/{id}` (retenue → mise en œuvre → abandonnée). Cartes groupées
+« En cours » / « Closes », capability-driven (`decideAction`).
+
+Règle de responsabilité conservée : le statut « **réussie** » ne se pose pas d'un
+clic (`PATCH` le refuse) — c'est la **mesure du résultat** qui le posera. Le bouton
+« Mesurer le résultat → » est le point d'entrée du prochain morceau (Mesure).
+
+### Mesure d'une action — approche C (baseline figé à la mise en œuvre)
+
+Le protocole est défini à la RÉTENTION (`MeasurementPlan`, sans valeur), le
+baseline est calculé et FIGÉ au moment réel de la MISE EN ŒUVRE (`implemented_at`,
+jamais `created_at`, jamais envoyé par le front), et chaque échéance crée un
+`MeasurementRun` (jamais d'écrasement — J+30, J+90…).
+
+- Modèles `MeasurementPlan` (1 par décision) / `MeasurementRun` (N), migration
+  `e1f2a3b4c5d6`. `services/measurement.py` : `classify_action` (impact /
+  performance / completion / diagnostic — le KPI de l'ACTION, pas du diagnostic),
+  `freeze_baseline`, `run_measurement` (SQL réel via l'adaptateur, auditable).
+- **Résultat CONTRÔLÉ** : `raw_delta` (cible) vs `control_delta` (témoins) →
+  `adjusted_delta` (points). Classé `objectif_atteint | objectif_non_atteint |
+  inconclusif`. L'action passe à `measured`, **jamais `successful` automatique**.
+  Démo réelle : cible +3,1 % mais témoins +4,5 % → **−1,4 pt → objectif non atteint**.
+- Types non-impact (audit, prévision, hypothèse) → `inconclusif` avec une limite
+  explicite : leur résultat ne se mesure pas par l'évolution du CA.
+- UI Plan : « Résultat mesuré · +3,1 % · Écart vs témoins · −1,4 pts · Objectif
+  +2 % · non atteint » + fenêtre/témoin + limites ; tag MESURÉE neutre.
+- Scénario mesurable seedé (`action_impact` sur la source démo) : action mise en
+  œuvre il y a 45 j, baseline figé, fenêtres cible/témoins comparables.
+
+Séquence Rapports/versionnement → Plan d'action → **Mesure** complète et cohérente
+avec le principe : résultat contrôlé, jamais de causalité proclamée.
+
+### Mesure — drill-down de preuve + témoins figés avant observation
+
+« Voir la mesure → » ouvre la PREUVE auditable (`/plan/[id]`, `GET /plan/{id}/measurement`) :
+protocole figé, table baseline → observation (valeurs réelles), écart contrôlé,
+résultat, sélection des témoins, limites, empreinte de requête. C'est cette page
+qui transforme « −1,4 pt » en résultat vérifiable, pas en chiffre magique.
+
+- **Témoins figés AVANT l'observation** (`control_selection` : control_ids,
+  matching_features, matching_score, pretrend_score, selection_at = implemented_at,
+  migration `f2a3b4c5d6e7`). Calculés à `freeze_baseline` → Noreon prouve que les
+  témoins ont été choisis avant de connaître le résultat, sur une pré-tendance
+  comparable. « Nouvelle mesure » ne recalcule NI baseline NI témoins NI seuil :
+  un nouveau `MeasurementRun` dans le même protocole (J+30, J+90 comparables).
+- **Sémantique par type** : plus de « inconclusif » forcé pour les non-impact —
+  completion/diagnostic/performance renvoient « à qualifier » avec le vocabulaire
+  et le mécanisme propres à leur type (à brancher).
+- **Actions de carte** : une action mesurée propose « Nouvelle mesure / Ajuster
+  l'action (si objectif non atteint) / Clore le suivi » ; « Abandonner » ne reste
+  que sur Retenue / Mise en œuvre.
+- **En attente vs impossible** : « Mesure non disponible · historique pré-action
+  insuffisant » quand la source ne contient pas l'historique (le temps n'y changera
+  rien), distinct d'une ingestion en cours.

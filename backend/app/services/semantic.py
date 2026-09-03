@@ -109,6 +109,7 @@ class Proposal:
     column_name: str
     confidence: float
     rationale: str
+    analytical_roles: tuple[str, ...] = ("attribute",)
     needs_arbitration: bool = False
     arbitration_note: str | None = None
 
@@ -201,6 +202,14 @@ def generate_proposals(profiles: list[ColumnProfile]) -> list[Proposal]:
 
         if best is None:
             continue
+
+        spec = CONCEPT_LEXICON.get(best.concept_name, {})
+        if spec.get("temporal"):
+            best.analytical_roles = ("temporal",)
+        elif spec.get("numeric_only"):
+            best.analytical_roles = ("measure",)
+        elif spec.get("table_hints") and col in ("id", f"{p.table_name.rstrip('s')}_id"):
+            best.analytical_roles = ("entity_key",)
 
         # Détection des variantes piégeuses de Montant (HT vs TTC).
         if best.concept_name == "Montant":
@@ -363,6 +372,7 @@ def propose_and_persist(db: Session, conn: Connection) -> dict:
         if same is not None:
             same.confidence = pr.confidence
             same.rationale = pr.rationale
+            same.analytical_roles = list(pr.analytical_roles)
             same.needs_arbitration = pr.needs_arbitration
             same.arbitration_note = pr.arbitration_note
             updated += 1
@@ -379,6 +389,7 @@ def propose_and_persist(db: Session, conn: Connection) -> dict:
                 table_name=pr.table_name,
                 column_name=pr.column_name,
                 confidence=pr.confidence,
+                analytical_roles=list(pr.analytical_roles),
                 rationale=pr.rationale,
                 status="proposed",
                 needs_arbitration=pr.needs_arbitration,

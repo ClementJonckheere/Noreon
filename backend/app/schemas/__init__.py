@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +41,9 @@ class ConnectionOut(BaseModel):
     last_tested_at: datetime | None
     last_scanned_at: datetime | None
     created_at: datetime
+    # Espaces auxquels la source est rattachée (badge du catalogue ; vide = non
+    # rattachée). Renseigné par la route, hors ORM.
+    spaces: list[str] = []
 
     class Config:
         from_attributes = True
@@ -153,6 +157,7 @@ class QualityScoreOut(BaseModel):
     score: float
     detail: str
     dimensions: list = []
+    computed_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -174,6 +179,7 @@ class ConceptMappingOut(BaseModel):
     table_name: str
     column_name: str
     confidence: float
+    analytical_roles: list[str]
     rationale: str
     status: str
     needs_arbitration: bool
@@ -186,6 +192,9 @@ class MappingReviewIn(BaseModel):
     action: str = Field(..., pattern="^(validate|reject|correct)$")
     concept_name: str | None = None  # requis pour correct
     note: str | None = None
+    analytical_roles: list[
+        Literal["entity_key", "measure", "dimension", "temporal", "attribute"]
+    ] | None = None
 
 
 class ConceptCreateIn(BaseModel):
@@ -364,6 +373,24 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     run_analysis: bool = True
     deep_analysis: bool = True
+    request_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class DecisionFeedback(BaseModel):
+    """Retour d'un décideur sur une recommandation (mémoire métier)."""
+
+    subject: str = Field(..., min_length=1, max_length=255)   # table de faits analysée
+    role: str = Field(..., min_length=1, max_length=128)
+    recommendation: str = Field(..., min_length=1)
+    status: str = Field("retained")   # retained | implemented | successful | abandoned
+    note: str | None = None
+
+
+class PlanItemUpdate(BaseModel):
+    """Mise à jour d'une action du plan (statut / note)."""
+
+    status: str | None = None   # retained | implemented | abandoned (pas successful)
+    note: str | None = None
 
 
 # ---- Historique de conversations (côté serveur) ----
@@ -412,6 +439,7 @@ class SpaceChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     run_analysis: bool = True
     deep_analysis: bool = True
+    request_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 # ---- Rapports ----

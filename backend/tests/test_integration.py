@@ -517,6 +517,38 @@ def test_conversations_folders_and_archive(session_with_conn, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_decision_feedback_builds_business_memory(session_with_conn, monkeypatch):
+    """M3 : le retour d'un décideur est journalisé (mémoire métier) et sert à
+    annoter une recommandation proche lors d'une analyse ultérieure."""
+    from app.services import decision_memory as dmem
+
+    db, conn, _ = session_with_conn
+    client = _client_for(db, monkeypatch)
+    H = {"X-Tenant": "itest"}
+    reco = ("Auditer localement « Lyon » : conditions du point de vente, "
+            "concurrence, exécution terrain.")
+    try:
+        r = client.post(
+            f"/connections/{conn.id}/decisions/feedback",
+            json={"subject": "orders", "role": "Directeur réseau",
+                  "recommendation": reco, "status": "successful"},
+            headers=H,
+        )
+        assert r.status_code == 200 and r.json()["status"] == "successful"
+
+        records = dmem.history_for(db, conn.id, "orders")
+        assert len(records) == 1 and records[0].role == "Directeur réseau"
+        # Une reco proche (autre magasin) est annotée « déjà appliquée avec succès ».
+        annotated = dmem.annotate(
+            records, "Directeur réseau",
+            "Auditer localement « Paris » : conditions du point de vente, "
+            "concurrence, exécution terrain.")
+        assert annotated == "Déjà appliquée avec succès dans un contexte similaire."
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+
+
 def test_space_governance_end_to_end(session_with_conn, monkeypatch):
     """Espace CRM : rattacher une BDD, gouverner les tables/colonnes, et vérifier
     que le chat de l'espace respecte la gouvernance (table masquée → inaccessible)."""
@@ -625,6 +657,35 @@ def test_discoveries_proactive(session_with_conn, monkeypatch):
     assert disc_svc._stale_reason(changed, prev) == ["schéma"]
     assert disc_svc._stale_reason({**fp, "quality": "0000deadbeef"}, prev) == ["qualité"]
     assert disc_svc._stale_reason(None, prev) == []
+
+
+def test_insight_score_and_comparison(session_with_conn):
+    """Insight Score /100 (nouveauté+impact+confiance+intérêt) + rapports
+    comparables (nouvelles / corrigées / confirmées d'un relevé à l'autre)."""
+    from app.services import discoveries as disc_svc
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    d = disc_svc.run_discoveries(db, conn, cfg)
+    assert d.items
+    # Chaque insight porte un score /100 (avec ses 4 composantes) et une clé stable.
+    for it in d.items:
+        assert 0 <= it["score"] <= 100
+        assert set(it["score_parts"]) == {"impact", "novelty", "confidence", "business"}
+        assert it["key"]
+    # Les insights sont classés par niveau puis par score décroissant.
+    crit = [it for it in d.items if it["level"] == "critical"]
+    assert crit == sorted(crit, key=lambda it: -it["score"])
+
+    # Rapports comparables : diff vs le relevé précédent.
+    c1 = disc_svc.compare_and_update_baseline(db, conn.id, ["a", "b"])
+    assert c1["first_run"] is True and c1["new"] == 2
+    c2 = disc_svc.compare_and_update_baseline(db, conn.id, ["b", "c"])
+    assert c2["first_run"] is False
+    assert c2["new"] == 1 and c2["resolved"] == 1 and c2["confirmed"] == 1
 
 
 def test_sql_non_regression(session_with_conn):
@@ -794,6 +855,32 @@ def test_usage_metrics_tracking():
     assert snap["top"][0]["count"] >= snap["top"][-1]["count"]
 
 
+def test_self_critique_and_chronicle(session_with_conn):
+    """Auto-critique (« ce qui pourrait remettre en question ») + chronologie
+    narrée d'une tendance temporelle."""
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    r = chat_svc.answer_question(db, conn, "Montant total des commandes par mois",
+                                 deep_analysis=False)
+    assert r.status == "answered"
+    # Chronologie : série mensuelle → narration présente et cohérente.
+    assert r.chronicle is not None
+    assert r.chronicle["direction"] in ("hausse", "baisse", "stable")
+    assert r.chronicle["narrative"]
+    assert len(r.chronicle["periods"]) >= 3
+    # Auto-critique : au moins une limite honnête, dont la récence de la période.
+    assert r.self_critique
+    joined = " ".join(r.self_critique).lower()
+    assert "période la plus récente" in joined or "promotion" in joined
+
+    # Chronologie ignorée sur une question non temporelle.
+    r2 = chat_svc.answer_question(db, conn, "Combien de clients ?", deep_analysis=False)
+    assert r2.chronicle is None
+
+
 def test_company_context_hypotheses(session_with_conn):
     """Contexte d'entreprise (D) : les conventions (TTC, mensuel, France…) sont
     connues du moteur et apparaissent comme hypothèses retenues — sans être
@@ -907,9 +994,55 @@ def test_agent_investigation_multi_step(session_with_conn):
     # « revisions » existe (peut être vide selon les données), et si l'hypothèse
     # de départ diffère du facteur dominant, une révision est tracée.
     assert isinstance(inv["revisions"], list)
+    # Objectif détecté (K) : question causale → diagnostic.
+    assert resp.intent == "diagnostic"
+    # Decision Engine (K) : facteurs → décisions adaptées au rôle.
+    if resp.decisions is not None:
+        assert resp.decisions["decisions"]
+        assert all({"role", "priority", "recommendation"} <= set(x)
+                   for x in resp.decisions["decisions"])
     # Une question simple ne déclenche PAS l'agent.
     simple = chat_svc.answer_question(db, conn, "Combien de clients ?")
     assert simple.investigation is None
+
+
+def test_reasoning_memory_learns(session_with_conn):
+    """Mémoire du moteur : après une investigation, l'agent retient l'efficacité
+    des dimensions et priorise les plus fortes la fois suivante."""
+    from app.models.reasoning import ReasoningMemory
+    from app.services import agent as agent_svc
+    from app.services import reasoning_memory as memory
+
+    db, conn, _ = session_with_conn
+    cfg = conn_svc.get_source_adapter(conn)
+    snapshot, _ = scanner.scan_and_persist(db, conn, cfg)
+    _profile_all(db, conn, cfg, snapshot)
+
+    guard = {"row_limit": 10000, "timeout_seconds": 30, "max_cost": 1e9, "max_concurrent": 1}
+    inv = agent_svc.run_investigation(db, conn, cfg, "Pourquoi les ventes baissent ?",
+                                      guard_args=guard)
+    assert inv is not None
+    # Des efficacités ont été mémorisées pour le sujet (orders).
+    rows = db.execute(
+        select(ReasoningMemory).where(ReasoningMemory.connection_id == conn.id)
+    ).scalars().all()
+    assert rows, "la mémoire devrait contenir des dimensions évaluées"
+    assert all(r.observations >= 1 for r in rows)
+
+    # rank() priorise les dimensions à forte efficacité éprouvée.
+    eff = memory.effectiveness_map(db, conn.id, "orders")
+    assert eff
+
+    class _D:
+        def __init__(self, label):
+            self.label = label
+
+    strong = max(eff, key=eff.get)
+    dims = [_D("axe inconnu"), _D(strong)]
+    ordered, prioritized = memory.rank(dims, db, conn.id, "orders")
+    if eff[strong] > 0:
+        assert ordered[0].label == strong
+        assert strong in prioritized
 
 
 def test_space_conversations_history(session_with_conn, monkeypatch):

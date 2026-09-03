@@ -184,3 +184,77 @@ def build_cloud_provider(provider: str, model: str) -> LLMProvider | None:
         log.warning("Fournisseur '%s' demandé mais clé absente — repli heuristique.", provider)
         return None
     return cls(model=model, api_key=key)
+
+
+# --- Planificateur analytique (Phase 2) : OVHcloud AI Endpoints -------------
+class PlannerConfigError(RuntimeError):
+    """Configuration du planificateur absente/incomplète — erreur EXPLICITE
+    (jamais un changement silencieux de fournisseur ni un modèle par défaut)."""
+
+
+class OVHcloudProvider(_HTTPChatProvider):
+    """OVHcloud AI Endpoints — OpenAI-compatible (`/v1/chat/completions`).
+    Le `base_url` inclut déjà `/v1`. Aucun modèle par défaut."""
+
+    name = "ovhcloud"
+
+    def __init__(self, model: str, api_key: str, base_url: str) -> None:
+        super().__init__(model=model, api_key=api_key)
+        self._base_url = base_url.rstrip("/")
+
+    def _post(self, system: str, user: str, response_format: dict) -> str:  # pragma: no cover - I/O réseau
+        resp = httpx.post(
+            f"{self._base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json={
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0,
+                "response_format": response_format,
+            },
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+    def _chat(self, system: str, user: str) -> str:  # pragma: no cover - I/O réseau
+        return self._post(system, user, {"type": "json_object"})
+
+    def plan(self, *, system: str, user: str, json_schema: dict) -> str:  # pragma: no cover - I/O réseau
+        # Sortie CONTRAINTE au JSON Schema (généré par les modèles Pydantic).
+        rf = {"type": "json_schema",
+              "json_schema": {"name": "analysis_interpretation", "strict": True, "schema": json_schema}}
+        return self._post(system, user, rf)
+
+
+_OVH_TOKEN_ENV = "OVH_AI_ENDPOINTS_ACCESS_TOKEN"
+
+
+def build_planner_provider() -> LLMProvider:
+    """Fournisseur du PLANIFICATEUR analytique, strictement selon la config.
+
+    - `NOREON_LLM_PROVIDER=ovhcloud` explicite (aucun mode anonyme) ;
+    - `NOREON_OVH_BASE_URL`, `NOREON_OVH_MODEL` et `OVH_AI_ENDPOINTS_ACCESS_TOKEN`
+      requis (aucun modèle par défaut) ;
+    - toute absence lève `PlannerConfigError` — le repli honnête (offline) est
+      décidé PAR L'APPELANT, jamais par un changement silencieux ici.
+    """
+    from app.core.config import settings
+
+    provider = (settings.llm_provider or "").lower()
+    if provider != "ovhcloud":
+        raise PlannerConfigError(
+            f"NOREON_LLM_PROVIDER='{provider or '(vide)'}' n'est pas un planificateur."
+        )
+    base_url = settings.ovh_base_url
+    model = settings.ovh_model
+    token = os.getenv(_OVH_TOKEN_ENV, "")
+    missing = [name for name, val in (
+        ("NOREON_OVH_BASE_URL", base_url), ("NOREON_OVH_MODEL", model),
+        (_OVH_TOKEN_ENV, token)) if not val]
+    if missing:
+        raise PlannerConfigError("Configuration OVHcloud incomplète : " + ", ".join(missing))
+    return OVHcloudProvider(model=model, api_key=token, base_url=base_url)

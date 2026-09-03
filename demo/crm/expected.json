@@ -1,0 +1,7 @@
+{
+  "question": "Pourquoi le churn augmente-t-il ?",
+  "intent": "diagnostic",
+  "trend_direction": "hausse",
+  "attribution": { "dimension_contains": "acquisition_channel", "segment_contains": "Publicité payante", "min_contribution_pct": 90 },
+  "lead_role": "Responsable des opérations"
+}

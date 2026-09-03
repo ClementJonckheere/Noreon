@@ -1,0 +1,30 @@
+{
+  "name": "crm",
+  "domain": "crm",
+  "version": "1.0",
+  "concepts": [
+    {"entity_ref": "concept:account", "entity_label": "Compte"},
+    {"entity_ref": "concept:subscription", "entity_label": "Abonnement"},
+    {"entity_ref": "concept:ticket", "entity_label": "Ticket"},
+    {"entity_ref": "concept:agent", "entity_label": "Agent"},
+    {"entity_ref": "concept:user", "entity_label": "Utilisateur"}
+  ],
+  "metrics": [
+    {"metric_ref": "metric:mrr", "metric_label": "Revenu récurrent mensuel", "unit": "eur"},
+    {"metric_ref": "metric:tenure", "metric_label": "Ancienneté"},
+    {"metric_ref": "metric:resolution_time", "metric_label": "Durée de résolution", "unit": "hours"},
+    {"metric_ref": "metric:ticket_count", "metric_label": "Nombre de tickets"},
+    {"metric_ref": "metric:contract_value", "metric_label": "Valeur contractuelle", "unit": "eur"}
+  ],
+  "dimensions": [
+    {"dimension_ref": "dimension:plan", "dimension_label": "Formule"},
+    {"dimension_ref": "dimension:channel", "dimension_label": "Canal"},
+    {"dimension_ref": "dimension:category", "dimension_label": "Catégorie de ticket"}
+  ],
+  "relations": [
+    {"relation_ref": "subscriptions_accounts", "cardinality": "many_to_one"},
+    {"relation_ref": "tickets_agents", "cardinality": "many_to_one"},
+    {"relation_ref": "tickets_accounts", "cardinality": "many_to_one"}
+  ],
+  "stats": {"row_count_bucket": "10k-100k"}
+}

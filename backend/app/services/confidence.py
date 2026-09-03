@@ -36,6 +36,9 @@ class Confidence:
     score: float  # 0..1
     factors: list[str] = field(default_factory=list)
     breakdown: list[dict] = field(default_factory=list)  # [{factor, weight_pct, subscore_pct, contribution_pct}]
+    # État de confiance des tables RÉELLEMENT utilisées (dimensions + incidents),
+    # pour la dimension « Qualité des données » du panneau Comprendre.
+    quality: dict | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -43,6 +46,7 @@ class Confidence:
             "percent": round(self.score * 100),
             "factors": self.factors,
             "breakdown": self.breakdown,
+            "quality": self.quality,
         }
 
 
@@ -58,42 +62,76 @@ def compute(
 ) -> Confidence:
     table_names = [t.split(".")[-1] for t in tables_used]
     factors: list[str] = []
+    # État auditable par dimension (évaluée / non évaluée / partielle) + détail
+    # chiffré — pour lever la contradiction « 70 % » vs « non évaluée » côté UI.
+    meta: dict[str, dict] = {}
 
-    # --- Composante QUALITÉ : score qualité auditable des tables (Module 4) ---
+    # --- Composante QUALITÉ : contrôles des tables RÉELLEMENT utilisées (Module 4) ---
+    # On branche l'analyse sur les contrôles pertinents : dimensions + incidents des
+    # tables utilisées seulement. Une colonne obsolète ailleurs ne pénalise pas.
     q_sub = 0.7  # neutre si inconnu
+    quality_trust: dict | None = None
     if table_names:
-        from app.services.quality import table_scores_map  # import local (évite cycle)
+        from app.services.quality import table_scores_map, tables_trust  # local (évite cycle)
 
         tscores = table_scores_map(db, connection_id)
         used = [tscores[t] for t in table_names if t in tscores]
+        quality_trust = tables_trust(db, connection_id, table_names)
+        st = quality_trust["state"]
         if used:
             q_sub = sum(used) / len(used)
-            if q_sub < 0.95:
-                factors.append(f"score qualité moyen des tables utilisées : {q_sub*100:.0f}%")
+        if st == "not_evaluated":
+            meta["qualité"] = {"state": "not_evaluated", "detail": "aucun contrôle sur les tables utilisées"}
+            factors.append("tables utilisées non évaluées (contrôles qualité absents)")
+        elif st == "partial":
+            weak = ", ".join(quality_trust["weak"])
+            detail = f"{quality_trust['conform_count']}/{quality_trust['total']} dimensions conformes · {weak} à surveiller"
+            meta["qualité"] = {"state": "partial", "detail": detail}
+            factors.append(f"qualité en réserve sur les tables utilisées : {weak}")
         else:
-            factors.append("tables utilisées non évaluées (qualité inconnue)")
+            meta["qualité"] = {"state": "evaluated",
+                               "detail": f"{quality_trust['conform_count']}/{quality_trust['total']} dimensions conformes"}
+    else:
+        meta["qualité"] = {"state": "not_evaluated", "detail": None}
 
     # --- Composante CONCEPTS (Module 5) ---
     from app.models.semantic import ConceptMapping  # import local (évite cycle)
 
     c_sub = 0.5
     if table_names:
-        statuses = set(db.execute(
+        rows = db.execute(
             select(ConceptMapping.status).where(
                 ConceptMapping.connection_id == connection_id,
                 ConceptMapping.table_name.in_(table_names),
             )
-        ).scalars().all())
+        ).scalars().all()
+        statuses = set(rows)
+        n_validated = sum(1 for s in rows if s in ("validated", "corrected"))
+        n_proposed = sum(1 for s in rows if s == "proposed")
+
+        def _concept_detail() -> str:
+            parts = []
+            if n_proposed:
+                parts.append(f"{n_proposed} concept{'s' if n_proposed > 1 else ''} proposé{'s' if n_proposed > 1 else ''}")
+            parts.append(f"{n_validated} validé{'s' if n_validated > 1 else ''}")
+            return ", ".join(parts)
+
         if not statuses:
             c_sub = 0.5
+            meta["concepts"] = {"state": "not_evaluated", "detail": "aucun concept défini"}
             factors.append("aucun concept métier défini sur les tables utilisées")
         elif statuses & {"validated", "corrected"}:
             c_sub = 1.0 if "proposed" not in statuses else 0.8
+            meta["concepts"] = {"state": "evaluated" if c_sub >= 1.0 else "partial",
+                                "detail": _concept_detail()}
             if c_sub < 1.0:
                 factors.append("certains concepts mobilisés restent proposés (non validés)")
         else:
             c_sub = 0.6
+            meta["concepts"] = {"state": "partial", "detail": _concept_detail()}
             factors.append("les concepts des tables utilisées ne sont pas encore validés")
+    else:
+        meta["concepts"] = {"state": "not_evaluated", "detail": None}
 
     # --- Composante RELATIONS (Module 6) : validation des jointures mobilisées ---
     r_sub = _relation_subscore(db, connection_id, table_names, factors)
@@ -134,6 +172,8 @@ def compute(
                 "weight_pct": round(_WEIGHTS[k] * 100),
                 "subscore_pct": round(subs[k] * 100),
                 "contribution_pct": round(_WEIGHTS[k] * subs[k] * 100, 1),
+                "state": meta.get(k, {}).get("state", "evaluated"),
+                "detail": meta.get(k, {}).get("detail"),
             }
             for k in _WEIGHTS
         ],
@@ -144,7 +184,7 @@ def compute(
     if not factors:
         factors.append("tous les signaux de confiance sont au vert")
 
-    return Confidence(score=score, factors=factors, breakdown=breakdown)
+    return Confidence(score=score, factors=factors, breakdown=breakdown, quality=quality_trust)
 
 
 def _relation_subscore(

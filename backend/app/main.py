@@ -15,8 +15,11 @@ from app.api.routes import (
     definitions,
     health,
     metrics,
+    notifications,
+    plan,
     profiling,
     quality,
+    relations,
     reports,
     schema,
     semantic,
@@ -37,6 +40,21 @@ app = FastAPI(
         "d'exécution et transparence."
     ),
 )
+
+@app.on_event("startup")
+def _log_shadow_readiness() -> None:
+    """Affiche au démarrage l'état du planner shadow (aide au diagnostic campagne)."""
+    import os
+
+    from app.core.logging import get_logger
+    mode = (settings.planner_mode or "legacy").lower()
+    ovh_ready = bool(settings.ovh_base_url and os.getenv("OVH_AI_ENDPOINTS_ACCESS_TOKEN")
+                     and settings.ovh_model_main and settings.ovh_model_simple)
+    get_logger("noreon.startup").info(
+        "planner_mode=%s · ovh_ready=%s (base=%s, models=%s/%s, token=%s)",
+        mode, ovh_ready, bool(settings.ovh_base_url), settings.ovh_model_main or "∅",
+        settings.ovh_model_simple or "∅", bool(os.getenv("OVH_AI_ENDPOINTS_ACCESS_TOKEN")))
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,6 +81,9 @@ app.include_router(conversations.router)
 app.include_router(spaces.router)
 app.include_router(space_conversations.router)
 app.include_router(reports.router)
+app.include_router(relations.router)
+app.include_router(plan.router)
+app.include_router(notifications.router)
 app.include_router(metrics.router)
 
 

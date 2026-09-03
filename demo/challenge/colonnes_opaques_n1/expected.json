@@ -1,0 +1,15 @@
+{
+  "mode": "challenge",
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "intent": "diagnostic",
+  "trend_direction": "baisse",
+  "difficulty": "Toutes les colonnes sont opaques (col_003, a3, b6…). Le moteur ne peut plus s'appuyer sur les noms.",
+  "ideal": "Retrouver la mesure par le PROFIL (col_003 = montant), suivre les relations, attribuer la baisse au bon segment PAR SA VALEUR (« Provence-Alpes-Côte d'Azur »), ET router vers le bon décideur via le CONCEPT (valeurs = régions → Directeur réseau).",
+  "robustness": {
+    "measure_from_data": true,
+    "segment_contains": "Provence",
+    "min_contribution_pct": 85,
+    "expected_role": "Directeur réseau"
+  },
+  "resolved_by": "Responsibility Engine (ADR D-35) : le concept est détecté par les VALEURS (régions → zone géographique → Directeur réseau), plus par le nom de la colonne."
+}

@@ -1,0 +1,15 @@
+{
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "analyst_profile": "Data Analyst confirmé, ~45 min, accès SQL + tableur.",
+  "time_label": "~45 min",
+  "main_cause": true,
+  "secondary_causes": true,
+  "recommendations": true,
+  "projection": false,
+  "self_critique": false,
+  "evidence_trail": false,
+  "reproducible": false,
+  "business_context": true,
+  "notes": "L'analyste trouve la région PACA et cite le concurrent (contexte terrain qu'il connaît). Il donne des recommandations. Mais en 45 min il documente rarement une auto-critique formelle, ne livre pas de trace SQL rejouable, et ne fait pas de projection chiffrée de l'inaction. Son analyse n'est pas reproductible à l'identique.",
+  "verdict": "Complémentaires : l'humain apporte le CONTEXTE (le concurrent) et le jugement causal ; Noreon apporte la VITESSE, la rigueur (auto-critique, preuves, projection) et la reproductibilité. Le meilleur dispositif combine les deux."
+}

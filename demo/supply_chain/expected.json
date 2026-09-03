@@ -1,0 +1,7 @@
+{
+  "question": "Pourquoi les ruptures de stock augmentent-elles ?",
+  "intent": "diagnostic",
+  "trend_direction": "hausse",
+  "attribution": { "dimension_contains": "fournisseur", "segment_contains": "Delta", "min_contribution_pct": 90 },
+  "lead_role": "Directeur supply chain"
+}

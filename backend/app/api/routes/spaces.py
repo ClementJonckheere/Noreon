@@ -279,6 +279,7 @@ def space_chat(
         run_analysis=payload.run_analysis, deep_analysis=payload.deep_analysis,
         hidden_tables=spaces_svc.hidden_tables(db, space.id, payload.connection_id),
         hidden_columns=spaces_svc.hidden_columns(db, space.id, payload.connection_id),
+        request_id=payload.request_id,
     )
     db.commit()
     return response.as_dict()

@@ -2,62 +2,232 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================================
+   Noreon — jetons de design (handoff). Aucun composant n'écrit une couleur en
+   dur : tout passe par ces variables. Le mode sombre se fera en redéfinissant
+   :root, sans toucher aux composants.
+   Les polices (--font-sans / --font-mono) sont fournies par next/font.
+   ============================================================================= */
 :root {
   color-scheme: light;
+
+  /* Surfaces et texte */
+  --background-primary: #FCFBF9;
+  --background-secondary: #F5F4F1;
+  --surface-raised: #FFFFFF;
+  --text-primary: #101820;
+  --text-secondary: #4A5560;
+  --text-tertiary: #646E79;
+  --text-disabled: #A9AFB6;
+  --border-subtle: #E8E6E1;
+  --border-default: #DBD8D2;
+  --border-strong: #C4C0B8;
+  --divider-inset: #F0EFEB;
+
+  /* Bleu marque */
+  --blue-50: #F4F8FF;
+  --blue-100: #E7F0FF;
+  --blue-200: #C9DDFF;
+  --blue-300: #9EC3FF;
+  --blue-400: #67A0F5;
+  --blue-500: #357FEA;
+  --blue-600: #1769E0;
+  --blue-700: #1458BE;
+  --blue-800: #164B98;
+  --blue-900: #173F78;
+
+  /* Accents sémantiques — cinq rôles, jamais interchangeables */
+  --accent-brand-subtle: #E7F0FF;
+  --accent-brand: #1769E0;
+  --accent-brand-hover: #1458BE;
+
+  --accent-reasoning-subtle: #EEEBFC;
+  --accent-reasoning: #5B4BD6;
+  --accent-reasoning-hover: #4A3BC0;
+
+  --status-success-subtle: #E2F3EB;
+  --status-success: #1F8A5F;
+  --status-success-hover: #166B49;
+  --status-success-border: #A9D6C0;
+  --status-success-bg: #F2FAF6;
+
+  --status-warning-subtle: #FBF0DE;
+  --status-warning: #C77A13;
+  --status-warning-hover: #8F5609;
+  --status-warning-border: #E8C98A;
+  --status-warning-bg: #FDF8EF;
+
+  --status-blocker-subtle: #FAE7E4;
+  --status-blocker: #C0392B;
+  --status-blocker-hover: #A32C1F;
+  --status-blocker-border: #E3BBB4;
+  --status-blocker-bg: #FDF4F2;
+
+  /* Rayons */
+  --radius-field: 4px;
+  --radius-button: 7px;
+  --radius-card: 10px;
+
+  /* Élévation — le niveau 0 est plat, l'ombre est l'exception */
+  --elevation-1: 0 1px 2px rgba(16, 24, 32, .05);
+  --elevation-2: 0 8px 28px rgba(16, 24, 32, .12);
 }
 
-body {
-  @apply bg-noreon-bg text-slate-800;
+@layer base {
+  body {
+    @apply bg-bg-primary text-ink-primary antialiased;
+    text-wrap: pretty;
+  }
+  /* Focus clavier toujours visible, jamais supprimé (a11y). */
+  :focus-visible {
+    @apply outline-none ring-[3px] ring-brand-200;
+  }
+  ::selection { @apply bg-brand-100 text-ink-primary; }
 }
 
-.card {
-  @apply bg-noreon-panel border border-noreon-border rounded-xl shadow-card;
+@layer components {
+  /* -- Boutons (§3) --------------------------------------------------------
+     Un seul bouton plein par zone d'action. Le bleu dit « vous pouvez agir » :
+     un bouton inactif n'est jamais bleu pâli, il devient neutre. Le rouge n'est
+     jamais un bouton plein — refuser reste réversible.                         */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-button
+           px-[15px] py-[9px] text-[12.5px] font-medium leading-none
+           transition-colors duration-150 select-none
+           focus-visible:shadow-focus-brand disabled:cursor-not-allowed;
+  }
+  .btn-sm { @apply px-3 py-[7px] rounded-[6px] text-[11.5px]; }
+  .btn-lg { @apply px-[19px] py-3 rounded-[8px] text-[13.5px]; }
+
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700
+           disabled:bg-line-inset disabled:text-ink-disabled;
+  }
+  .btn-secondary {
+    @apply btn border border-line text-ink-primary bg-transparent
+           hover:border-line-strong disabled:text-ink-disabled;
+  }
+  .btn-ghost {
+    @apply btn border-0 text-ink-secondary bg-transparent hover:text-ink-primary;
+  }
+  .btn-danger {
+    @apply btn border border-blocker-border text-blocker-hover bg-transparent hover:bg-blocker-bg;
+  }
+
+  /* -- Champs (§3) --------------------------------------------------------- */
+  .field {
+    @apply w-full rounded-[6px] border border-line bg-surface-raised px-[13px] py-[10px]
+           text-[12.5px] text-ink-primary placeholder-ink-tertiary transition-shadow
+           focus:border-brand-600 focus:shadow-focus-field focus:outline-none;
+  }
+  .field-label { @apply block text-label uppercase text-ink-tertiary mb-1.5; }
+  /* Barre de question principale (§3). */
+  .ask-bar {
+    @apply w-full rounded-[8px] border border-line bg-brand-50 px-[14px] py-3
+           text-[13.5px] text-ink-primary placeholder-ink-tertiary
+           focus:border-brand-600 focus:shadow-focus-field focus:outline-none;
+  }
+  /* Chip de filtre actif. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-[6px] border border-brand-300
+           bg-brand-100 px-2 py-1 text-[12px] font-medium text-brand-700;
+  }
+  /* Badge DÉMO — un espace vitrine ne se confond jamais avec un espace live. */
+  .tag-demo {
+    @apply inline-flex items-center rounded-[4px] border border-line-strong
+           bg-bg-secondary px-1.5 py-0.5 text-[10px] font-semibold tracking-wide
+           text-ink-tertiary uppercase;
+  }
+
+  /* -- Cartes -------------------------------------------------------------
+     Une carte = « un objet qu'on peut ouvrir, valider ou dater ». Jamais un
+     simple regroupement visuel. Élévation 0 (plate) par défaut.               */
+  .card { @apply bg-surface-raised border border-line-subtle rounded-card; }
+  .card-raised { @apply bg-surface-raised border border-line rounded-card shadow-card; }
+  .rule { @apply border-t border-line-inset; }
+
+  /* -- Étiquettes d'état / badges (§3) : mono 10px caps, radius 5px --------- */
+  .tag {
+    @apply inline-flex items-center gap-1.5 rounded-[5px] px-2 py-[3px]
+           font-mono text-[10px] leading-[1.4] font-medium uppercase tracking-[0.06em];
+  }
+  .tag-brand   { @apply bg-brand-subtle text-brand-hover; }
+  .tag-reason  { @apply bg-reasoning-subtle text-reasoning-hover; }
+  .tag-success { @apply bg-success-subtle text-success-hover; }
+  .tag-warning { @apply bg-warning-subtle text-warning-hover; }
+  .tag-blocker { @apply bg-blocker-subtle text-blocker-hover; }
+  .tag-neutral { @apply bg-line-inset text-ink-secondary; }
+
+  /* -- Blocs d'état — les quatre seuls (§3). Ne pas en inventer. ----------- */
+  .state {
+    @apply rounded-[8px] border px-[15px] py-[13px];
+  }
+  .state-title { @apply text-label uppercase font-medium mb-1; }
+  .state-body  { @apply text-[12.5px] leading-[1.55] text-ink-secondary; }
+  .state-limit,
+  .state-abstain { @apply border-warning-border bg-warning-bg; }
+  .state-limit   .state-title,
+  .state-abstain .state-title { @apply text-warning-hover; }
+  .state-blocker  { @apply border-blocker-border bg-blocker-bg; }
+  .state-blocker  .state-title { @apply text-blocker-hover; }
+  .state-validate { @apply border-success-border bg-success-bg; }
+  .state-validate .state-title { @apply text-success-hover; }
+
+  /* -- Score de confiance — TOUJOURS violet (§3, non négociable). ---------
+     C'est la machine qui estime sa propre certitude ; ne devient jamais verte,
+     seul un humain valide.                                                     */
+  .confidence-track {
+    @apply h-[5px] w-full rounded-[3px] bg-line-inset overflow-hidden;
+  }
+  .confidence-fill {
+    @apply h-full rounded-[3px] bg-reasoning transition-[width] duration-200;
+  }
+  .confidence-fill-below { @apply bg-warning; }
+
+  /* -- Mono : les sept usages autorisés (chiffres, SQL, ids, versions…) ---- */
+  .mono   { @apply font-mono; }
+  .metric { @apply font-mono text-metric text-ink-primary tabular-nums; }
+  .meta   { @apply font-mono text-[11px] text-ink-tertiary tabular-nums; }
+  .kbd {
+    @apply font-mono text-[10px] text-ink-tertiary border border-line rounded-[4px]
+           px-1 py-px bg-bg-secondary;
+  }
+
+  /* -- Compat : classes des écrans pas encore repris ----------------------- */
+  .input {
+    @apply w-full rounded-[6px] border border-line bg-surface-raised px-[13px] py-[10px]
+           text-[12.5px] text-ink-primary placeholder-ink-tertiary
+           focus:border-brand-600 focus:shadow-focus-field focus:outline-none;
+  }
+  .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-small font-medium; }
 }
 
-.btn {
-  @apply inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition;
+/* -- Densité : règle officielle (niveau d'expertise de l'écran) -------------
+   Aérée (Décision/Rapport/Accueil) · Équilibrée (Comprendre/Découvertes) ·
+   Dense (Preuve/Données/Qualité/Journal/Concepts/Gouvernance).               */
+.density-airy  { --row: 44px; --pad: 24px; --gap: 16px; }
+.density-even  { --row: 36px; --pad: 16px; --gap: 10px; }
+.density-dense { --row: 28px; --pad: 12px; --gap: 5px; }
+
+/* -- Attente : une analyse ne se représente jamais par un rond qui tourne.
+   La chronologie d'investigation s'affiche en violet, étape par étape.        */
+.reasoning-dots span {
+  @apply inline-block w-1.5 h-1.5 rounded-full bg-reasoning;
+  animation: noreon-pulse 1s infinite both;
 }
-.btn-primary {
-  @apply btn bg-noreon-accent text-white hover:brightness-110;
-}
-.btn-ghost {
-  @apply btn bg-white border border-noreon-border text-slate-700 hover:bg-slate-50;
+.reasoning-dots span:nth-child(2) { animation-delay: 0.2s; }
+.reasoning-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes noreon-pulse {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
 }
 
-.input {
-  @apply w-full rounded-lg bg-white border border-noreon-border px-3 py-2 text-sm
-         text-slate-800 placeholder-slate-400 outline-none focus:border-noreon-accent;
-}
-
-.badge {
-  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-/* Fluidité : apparition douce des réponses et blocs. */
+.fade-in { animation: noreon-fadein 0.22s ease-out; }
 @keyframes noreon-fadein {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.fade-in {
-  animation: noreon-fadein 0.22s ease-out;
-}
-
-/* Indicateur « en cours » : trois points qui pulsent. */
-.dots span {
-  @apply inline-block w-1.5 h-1.5 rounded-full bg-sky-500;
-  animation: noreon-blink 1s infinite both;
-}
-.dots span:nth-child(2) { animation-delay: 0.2s; }
-.dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes noreon-blink {
-  0%, 80%, 100% { opacity: 0.25; }
-  40% { opacity: 1; }
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .fade-in, .dots span { animation: none; }
+  .fade-in, .reasoning-dots span { animation: none; }
 }
