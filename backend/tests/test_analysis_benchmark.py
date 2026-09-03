@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from app.analysis import benchmark as B
-from app.analysis.contracts import validate_interpretation
+from app.analysis.contracts import INTERPRETATION_SCHEMA_VERSION, validate_interpretation
 from app.analysis.eval_cases import EvalCase
 from app.analysis.interpreter import PlannerCatalog
 from app.analysis.planner_stub import StubPlanner
@@ -15,16 +15,36 @@ def _cat():
     return PlannerCatalog(
         concepts=[{"entity_ref": "concept:customer"}, {"entity_ref": "concept:order"}],
         metrics=[{"metric_ref": "metric:net_revenue"}],
-        dimensions=[{"dimension_ref": "dimension:city"}], relations=[], stats={})
+        dimensions=[{"dimension_ref": "dimension:city"},
+                    {"dimension_ref": "dimension:time"}], relations=[], stats={})
 
 
 def _interp(type_, extra=()):
-    goals = [{"id": "g1", "priority": 1, "type": type_, "intent_text": "x",
-              "entity_ref": "concept:customer"}]
+    def goal(goal_id, priority, goal_type, entity_ref, depends_on=()):
+        payload = {
+            "id": goal_id, "priority": priority, "type": goal_type,
+            "intent_text": "x", "entity_ref": entity_ref, "entity_label": None,
+            "metrics": [], "dimensions": [], "filters": [], "method": None,
+            "depends_on": list(depends_on), "ambiguities": [],
+            "binning_requested": False, "sort": [], "limit": None,
+            "temporal": None,
+        }
+        if goal_type == "trend":
+            payload["metrics"] = [{
+                "ref": "metric:net_revenue", "of_ref": None, "aggregation": "sum",
+            }]
+            payload["temporal"] = {
+                "dimension_ref": "dimension:time", "grain": "month", "timezone": "UTC",
+            }
+        if goal_type in {"attribution", "segmentation", "affinity", "cohort", "correlation"}:
+            payload["method"] = {"name": goal_type, "version": "1.0", "params": {}}
+        return payload
+
+    goals = [goal("g1", 1, type_, "concept:customer")]
     for i, t in enumerate(extra, start=2):
-        goals.append({"id": f"g{i}", "priority": i, "type": t, "intent_text": "x",
-                      "entity_ref": "concept:order", "depends_on": ["g1"]})
-    return validate_interpretation({"plan_schema_version": "1.2", "goals": goals,
+        goals.append(goal(f"g{i}", i, t, "concept:order", ("g1",)))
+    return validate_interpretation({"plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+                                    "goals": goals,
                                     "unresolved_terms": []})
 
 
@@ -80,10 +100,11 @@ def test_invented_ref_eliminates_even_cross_domain():
     crm_case = EvalCase("x", "combien d'abonnements", 1, frozenset({"count"}), domain="crm")
     def plan_fn(model, q, cat):
         from app.analysis.contracts import validate_interpretation
+        payload = _interp("count").goals[0].raw
+        payload["entity_ref"] = "concept:invented_entity"
         return B.PlanResult(interp=validate_interpretation({
-            "plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
-                {"id": "g1", "priority": 1, "type": "count", "intent_text": "x",
-                 "entity_ref": "concept:invented_entity"}]}))
+            "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+            "unresolved_terms": [], "goals": [payload]}))
     rep = B.run_model(MAIN, [crm_case], _cat_domain("retail"), plan_fn=plan_fn, tier="main")
     assert rep.results[0].semantic is False
     assert rep.eliminated and "référence hors catalogue" in rep.elimination_reasons()

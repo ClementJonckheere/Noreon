@@ -12,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -67,6 +66,8 @@ def is_sampled(request_id: str, rate: float) -> bool:
 @dataclass
 class ShadowPlanResult:
     interp: object | None = None
+    provider_raw_json: dict | None = None
+    normalized_interpretation_json: dict | None = None
     status: str = "skipped"            # ok|contract_error|network_error|provider_error|timeout|skipped
     latency_ms: int | None = None
     tokens_prompt: int | None = None
@@ -138,35 +139,12 @@ def dispatch_shadow(*, response, question: str, tenant_id: int, connection_id: i
         return "error_isolated"
 
 
-# --- catalogue provisoire (jusqu'à C6/CapabilityResolver) -------------------
-def _ref_token(*parts: str) -> str:
-    raw = "_".join(p for p in parts if p)
-    return re.sub(r"[^a-z0-9_]", "_", raw.lower()).strip("_") or "x"
-
-
-_NUMERIC = ("int", "float", "numeric", "double", "decimal", "real", "money", "serial")
-
-
 def build_provisional_catalog(session, connection_id: int) -> PlannerCatalog | None:
-    """Catalogue best-effort dérivé du snapshot (PROVISOIRE — remplacé par le vrai
-    CapabilityResolver en C6). Renvoie None si aucun schéma scanné."""
-    from app.services.schema_context import current_snapshot
+    """Alias historique vers le catalogue canonique, sans heuristique numérique."""
+    from app.analysis.capability.db_context import build_catalog_and_context
 
-    snap = current_snapshot(session, connection_id)
-    if snap is None or not snap.tables:
-        return None
-    concepts, metrics, dimensions = [], [], []
-    for t in snap.tables:
-        concepts.append({"entity_ref": f"concept:{_ref_token(t.table_name)}", "entity_label": t.table_name})
-        for c in getattr(t, "columns", []) or []:
-            dt = (c.data_type or "").lower()
-            ref_tok = _ref_token(t.table_name, c.name)
-            if any(n in dt for n in _NUMERIC):
-                metrics.append({"metric_ref": f"metric:{ref_tok}", "metric_label": c.name})
-            else:
-                dimensions.append({"dimension_ref": f"dimension:{ref_tok}", "dimension_label": c.name})
-    return PlannerCatalog(concepts=concepts, metrics=metrics, dimensions=dimensions,
-                          relations=[], stats={}, domain=getattr(snap, "domain", "") or "")
+    catalog, _context = build_catalog_and_context(session, connection_id)
+    return catalog
 
 
 # --- plan_fn instrumenté (prod) ---------------------------------------------
@@ -210,9 +188,14 @@ def _build_plan_fn(settings):
             interp = validate_interpretation(repaired)
         except ContractError as exc:
             return ShadowPlanResult(status="contract_error", error_kind="contract",
-                                    error_detail=f"{exc.code}@{exc.path}", latency_ms=latency, repair=repair)
+                                    error_detail=f"{exc.code}@{exc.path}", latency_ms=latency,
+                                    repair=repair, provider_raw_json=data)
         usage = getattr(prov, "last_usage", None) or {}
-        return ShadowPlanResult(interp=interp, status="ok", latency_ms=latency, repair=repair,
+        normalized = _interpretation_json(interp)
+        return ShadowPlanResult(
+                                interp=interp, status="ok", latency_ms=latency, repair=repair,
+                                provider_raw_json=data,
+                                normalized_interpretation_json=normalized,
                                 tokens_prompt=usage.get("prompt_tokens"),
                                 tokens_completion=usage.get("completion_tokens"),
                                 tokens_total=usage.get("total_tokens"))
@@ -276,13 +259,21 @@ def run_shadow_evaluation(envelope: dict, *, session, plan_fn, catalog,
     safety_verdict, safety_detail = analytical_safety_delta(resolved_plan, legacy_exec)
 
     plan_json = None
+    provider_raw_json = None
+    normalized_interpretation_json = None
     resolved_json = None
     capres_json = None
     legacy_json = None
     purge_after = None
-    if store_plan and res.interp is not None:
-        plan_json = {"goals": [g.raw for g in res.interp.goals],
-                     "unresolved_terms": list(res.interp.unresolved_terms)}
+    if store_plan and (res.interp is not None or res.provider_raw_json is not None):
+        provider_raw_json = res.provider_raw_json
+        normalized_interpretation_json = (
+            res.normalized_interpretation_json
+            or (_interpretation_json(res.interp) if res.interp is not None else None)
+        )
+        # Alias historique conservé pendant la transition ; il pointe uniquement
+        # vers l'interprétation normalisée, jamais vers le JSON brut provider.
+        plan_json = normalized_interpretation_json
         resolved_json = resolved_plan
         capres_json = capability_resolution.to_json() if capability_resolution else None
         legacy_json = legacy_exec or None
@@ -301,7 +292,10 @@ def run_shadow_evaluation(envelope: dict, *, session, plan_fn, catalog,
         router_version=ROUTER_VERSION, planner_prompt_version=PLANNER_PROMPT_VERSION,
         comparator_version=COMPARATOR_VERSION, projection_version=PROJECTION_VERSION,
         llm_status=llm_status, fallback_status=fallback_status,
-        llm_plan_json=plan_json, plan_purge_after=purge_after,
+        llm_plan_json=plan_json,
+        provider_raw_json=provider_raw_json,
+        normalized_interpretation_json=normalized_interpretation_json,
+        plan_purge_after=purge_after,
         llm_projection_json=llm_proj.to_json() if llm_proj else None,
         fallback_projection_json=fb_proj.to_json(),
         comparison_outcome=comparison.outcome, comparison_json=comparison.to_json(),
@@ -326,6 +320,15 @@ def run_shadow_evaluation(envelope: dict, *, session, plan_fn, catalog,
     session.add(row)
     session.commit()
     return row
+
+
+def _interpretation_json(interp) -> dict:
+    """Sérialisation normalisée, sans aucune décision analytique ajoutée."""
+    return {
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+        "goals": [goal.raw for goal in interp.goals],
+        "unresolved_terms": list(interp.unresolved_terms),
+    }
 
 
 def _count_capability_states(resolution) -> dict:

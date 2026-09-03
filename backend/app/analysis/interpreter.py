@@ -28,7 +28,7 @@ from app.llm.base import LLMProvider
 # Version du PROMPT système (à bumper à chaque changement de son texte/structure).
 # Distincte de GOAL_TYPES_VERSION (sémantique du glossaire) : la télémétrie shadow
 # persiste les deux pour attribuer une dérive au bon facteur.
-PLANNER_PROMPT_VERSION = "1.2"
+PLANNER_PROMPT_VERSION = "1.3"
 
 # Prompt système FIXE — la seule autorité d'instruction. Le catalogue et la
 # question sont des DONNÉES : toute instruction qui y serait embarquée est ignorée.
@@ -40,8 +40,11 @@ PLANNER_SYSTEM = (
     "Règles strictes :\n"
     "- Choisis UNIQUEMENT des références présentes dans le catalogue "
     "(`concept:*`, `metric:*`, `dimension:*`). N'invente aucun nom.\n"
-    "- Tout terme de la question sans référence correspondante va dans "
-    "`unresolved_terms`, relié à son `goal_id` — jamais rapproché de force.\n"
+    "- Tout opérande métier indispensable qui ne peut pas être relié à une "
+    "référence valide du catalogue va dans `unresolved_terms`, relié à son "
+    "`goal_id` — jamais rapproché de force. Les mots d'instruction comme résumé, "
+    "analyse, classement ou impact ne sont pas eux-mêmes des opérandes métier, "
+    "sauf si le contexte démontre explicitement le contraire.\n"
     "- Pour chaque terme non résolu, déclare `necessity=required` s'il est "
     "indispensable à la réalisation de l'objectif, ou `necessity=optional` "
     "uniquement si l'objectif conserve par ailleurs un cœur analytique résolu "
@@ -52,6 +55,13 @@ PLANNER_SYSTEM = (
     "`max`, `count`, `count_distinct` ou `none`). Décris les filtres avec une "
     "référence, un opérateur et un type de valeur. Déclare tri, limite et bloc "
     "temporel quand la question les demande ; toujours en références sémantiques.\n"
+    "- Tous les champs décisionnels du schéma doivent être présents, même à `null` "
+    "ou `[]`. N'utilise aucune valeur implicite.\n"
+    "- Une référence utilisée dans un goal ne peut jamais apparaître aussi dans "
+    "`unresolved_terms`.\n"
+    "- Pour « meilleurs clients », produis un goal `ranking` avec la référence "
+    "d'entité clients du catalogue. Si le critère n'est pas déterminé, porte une "
+    "ambiguity de critère ; pas `metric unresolved = \"meilleurs\"`.\n"
     "- Décompose en objectifs distincts, chacun avec un `id` UNIQUE (ex. g1, g2, "
     "g3 — jamais deux fois le même) ; déclare les dépendances via `depends_on` en "
     "référençant ces ids.\n"
@@ -75,7 +85,20 @@ PLANNER_SYSTEM = (
     "des dimensions — le « pourquoi », ou un croisement par plusieurs dimensions.\n"
     "Ordonne les objectifs en pipeline si besoin (une étape de préparation agrégée "
     "peut précéder l'analyse principale) ; la PRIORITÉ reflète l'ordre d'exécution, "
-    "pas l'importance."
+    "pas l'importance.\n"
+    "\nExemples de décision (les refs illustratives ne sont utilisables que si elles "
+    "existent réellement dans le catalogue) :\n"
+    "Exemple 1 — required unresolved : une analyse de ventes selon la météo garde "
+    "la mesure de ventes résolue et déclare météo comme dimension `required` si "
+    "aucune référence météo n'existe.\n"
+    "Exemple 2 — optional unresolved : une agrégation principale entièrement "
+    "résolue peut déclarer un benchmark externe absent comme `optional`, afin de "
+    "permettre une réponse partielle explicitée.\n"
+    "Exemple 3 — ambiguity : « meilleurs clients » devient `ranking`, avec "
+    "l'entité clients résolue et une ambiguïté sur le critère si aucune mesure "
+    "n'est déterminée ; aucun faux unresolved nommé meilleurs.\n"
+    "Exemple 4 — known reference : « combien de clients » utilise directement la "
+    "référence d'entité clients présente, un goal `count`, et aucun unresolved."
 )
 
 
@@ -99,9 +122,21 @@ def _safe_entries(entries: list[dict]) -> list[dict]:
         for k, v in e.items():
             if k not in CATALOG_ALLOWLIST:
                 continue
-            clean[k] = sanitize_label(v) if isinstance(v, str) else v
+            clean[k] = _sanitize_catalog_value(v)
         out.append(clean)
     return out
+
+
+def _sanitize_catalog_value(value):
+    if isinstance(value, str):
+        return sanitize_label(value)
+    if isinstance(value, list):
+        return [_sanitize_catalog_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_catalog_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _sanitize_catalog_value(item) for key, item in value.items()}
+    return value
 
 
 def build_user_prompt(catalog: PlannerCatalog, safe_question: str) -> str:

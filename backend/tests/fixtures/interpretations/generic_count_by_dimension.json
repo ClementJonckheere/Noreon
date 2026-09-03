@@ -1,6 +1,6 @@
 {
   "domain": "generic",
-  "plan_schema_version": "1.2",
+  "plan_schema_version": "1.3",
   "goals": [
     {
       "id": "g1",
@@ -8,12 +8,17 @@
       "type": "count",
       "intent_text": "Nombre d'entités par région",
       "entity_ref": "concept:customer",
-      "dimensions": [
-        {
-          "ref": "dimension:region"
-        }
-      ],
-      "depends_on": []
+      "entity_label": null,
+      "metrics": [],
+      "dimensions": [{"ref": "dimension:region"}],
+      "filters": [],
+      "method": null,
+      "depends_on": [],
+      "ambiguities": [],
+      "binning_requested": false,
+      "sort": [],
+      "limit": null,
+      "temporal": null
     }
   ],
   "unresolved_terms": []

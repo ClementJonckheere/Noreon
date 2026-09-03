@@ -28,7 +28,7 @@ from app.analysis.capability.model import (
     STRAT_SEMI_ADDITIVE,
 )
 from app.analysis.capability.resolver import resolve
-from app.analysis.contracts import validate_interpretation
+from app.analysis.contracts import INTERPRETATION_SCHEMA_VERSION, validate_interpretation
 
 _SNAPSHOT_PATH = Path(__file__).resolve().parent / "eval_snapshots.json"
 _FANOUT_CARDS = {"one_to_many", "many_to_many"}
@@ -61,12 +61,14 @@ class ResolverCase:
 
 
 def _goal(gtype, *, entity="concept:e", metrics=(), dims=()):
-    g = {"id": "g1", "priority": 1, "type": gtype, "intent_text": "x", "entity_ref": entity}
-    if metrics:
-        g["metrics"] = [{"ref": m} for m in metrics]
-    if dims:
-        g["dimensions"] = [{"ref": d} for d in dims]
-    return g
+    return {
+        "id": "g1", "priority": 1, "type": gtype, "intent_text": "x",
+        "entity_ref": entity, "entity_label": None,
+        "metrics": [{"ref": m, "of_ref": None, "aggregation": "sum"} for m in metrics],
+        "dimensions": [{"ref": d} for d in dims], "filters": [], "method": None,
+        "depends_on": [], "ambiguities": [], "binning_requested": False,
+        "sort": [], "limit": None, "temporal": None,
+    }
 
 
 # Catalogues partagés (déclaratifs, domain-agnostic — les noms ne servent qu'aux fixtures).
@@ -298,7 +300,8 @@ def run_eval(*, snapshots: dict | None = None) -> dict:
     for case in CASES:
         ctx = DictCatalogAdapter().to_context(case.catalog)
         interp = validate_interpretation(
-            {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [case.goal]})
+            {"plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+             "unresolved_terms": [], "goals": [case.goal]})
         resolution, plan = resolve(interp, ctx)
         sig = signature(resolution, plan)
         item = plan["resolution"][0]
@@ -345,7 +348,8 @@ def write_snapshots() -> dict:
     for case in CASES:
         ctx = DictCatalogAdapter().to_context(case.catalog)
         interp = validate_interpretation(
-            {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [case.goal]})
+            {"plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+             "unresolved_terms": [], "goals": [case.goal]})
         resolution, plan = resolve(interp, ctx)
         sigs[case.id] = signature(resolution, plan)
     _SNAPSHOT_PATH.write_text(json.dumps(sigs, ensure_ascii=False, indent=2, sort_keys=True),

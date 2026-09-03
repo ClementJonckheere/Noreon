@@ -24,25 +24,36 @@ from app.analysis.eval_cases import CASES
 # --- interprétation valide de référence (RFM) --------------------------------
 def _valid_interpretation() -> dict:
     return {
-        "plan_schema_version": "1.2",
+        "plan_schema_version": C.INTERPRETATION_SCHEMA_VERSION,
         "goals": [
             {"id": "g1", "priority": 1, "type": "segmentation",
              "intent_text": "Segmenter les clients par valeur (RFM)",
-             "entity_ref": "concept:customer",
-             "metrics": [{"ref": "metric:recency", "of_ref": "concept:order"},
-                         {"ref": "metric:frequency", "of_ref": "concept:order"},
-                         {"ref": "metric:net_revenue", "of_ref": "concept:order"}],
-             "method": {"name": "rfm"}, "depends_on": []},
+             "entity_ref": "concept:customer", "entity_label": None,
+             "metrics": [{"ref": "metric:recency", "of_ref": "concept:order", "aggregation": "none"},
+                         {"ref": "metric:frequency", "of_ref": "concept:order", "aggregation": "none"},
+                         {"ref": "metric:net_revenue", "of_ref": "concept:order", "aggregation": "none"}],
+             "dimensions": [], "filters": [],
+             "method": {"name": "rfm", "version": "1.0", "params": {}},
+             "depends_on": [], "ambiguities": [], "binning_requested": False,
+             "sort": [], "limit": None, "temporal": None},
             {"id": "g2", "priority": 2, "type": "affinity",
              "intent_text": "Affinité produits par segment",
-             "entity_ref": "concept:product", "depends_on": ["g1"]},
+             "entity_ref": "concept:product", "entity_label": None,
+             "metrics": [], "dimensions": [], "filters": [],
+             "method": {"name": "co_occurrence", "version": "1.0", "params": {}},
+             "depends_on": ["g1"], "ambiguities": [], "binning_requested": False,
+             "sort": [], "limit": None, "temporal": None},
             {"id": "g3", "priority": 3, "type": "distribution",
              "intent_text": "Répartition par tranche d'âge",
-             "entity_ref": None, "depends_on": []},
+             "entity_ref": None, "entity_label": None,
+             "metrics": [], "dimensions": [], "filters": [], "method": None,
+             "depends_on": [], "ambiguities": [], "binning_requested": False,
+             "sort": [], "limit": None, "temporal": None},
         ],
         "unresolved_terms": [
             {"goal_id": "g3", "term": "tranche d'âge", "role": "dimension",
-             "source_span": "par quelle tranche d'âge", "reason": "aucune dimension âge"}
+             "necessity": "required", "source_span": "par quelle tranche d'âge",
+             "reason": "aucune dimension âge"}
         ],
     }
 
@@ -84,9 +95,15 @@ def test_dag_rejects_duplicate_ids():
 
 def test_repair_renumbers_safe_duplicate_ids():
     """Slip mécanique (ids en double) SANS dépendance vers le doublon → réparé."""
-    p = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
-        {"id": "g1", "priority": 1, "type": "count", "intent_text": "a", "entity_ref": "concept:customer"},
-        {"id": "g1", "priority": 2, "type": "aggregate", "intent_text": "b", "entity_ref": "concept:order"}]}
+    p = _valid_interpretation()
+    p["goals"] = [
+        {**p["goals"][0], "id": "g1", "priority": 1, "type": "count",
+         "intent_text": "a", "entity_ref": "concept:customer", "metrics": [], "method": None},
+        {**p["goals"][0], "id": "g1", "priority": 2, "type": "aggregate",
+         "intent_text": "b", "entity_ref": "concept:order",
+         "metrics": [{"ref": "metric:recency", "of_ref": None, "aggregation": "sum"}],
+         "method": None}]
+    p["unresolved_terms"] = []
     repaired = C.repair_goal_ids(p)
     ids = [g["id"] for g in repaired["goals"]]
     assert len(ids) == len(set(ids))                # rendus uniques
@@ -95,10 +112,12 @@ def test_repair_renumbers_safe_duplicate_ids():
 
 def test_repair_leaves_ambiguous_duplicate_untouched():
     """Si un depends_on pointe un id dupliqué, le plan est ambigu → non réparé, rejeté."""
-    p = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
-        {"id": "g2", "priority": 1, "type": "segmentation", "intent_text": "a", "entity_ref": "concept:customer"},
-        {"id": "g2", "priority": 2, "type": "affinity", "intent_text": "b",
-         "entity_ref": "concept:product", "depends_on": ["g2"]}]}
+    p = _valid_interpretation()
+    p["goals"] = [
+        {**p["goals"][0], "id": "g2", "priority": 1, "intent_text": "a"},
+        {**p["goals"][1], "id": "g2", "priority": 2, "intent_text": "b",
+         "depends_on": ["g2"]}]
+    p["unresolved_terms"] = []
     repaired = C.repair_goal_ids(p)
     assert [g["id"] for g in repaired["goals"]] == ["g2", "g2"]   # inchangé
     with pytest.raises(C.ContractError) as e:
@@ -195,7 +214,7 @@ def test_filter_value_must_match_its_declared_type():
     p = _valid_interpretation()
     p["goals"][0]["filters"] = [{
         "ref": "dimension:age", "operator": "gte", "value_type": "integer",
-        "value": "18",
+        "value": "18", "conjunction": "and",
     }]
     with pytest.raises(C.ContractError) as e:
         C.validate_interpretation(p)
@@ -223,10 +242,13 @@ def _valid_resolved() -> dict:
         }],
     })
     interpretation = C.validate_interpretation({
-        "plan_schema_version": "1.2", "unresolved_terms": [], "goals": [{
+        "plan_schema_version": C.INTERPRETATION_SCHEMA_VERSION, "unresolved_terms": [], "goals": [{
             "id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x",
-            "entity_ref": "concept:order", "metrics": [{"ref": "metric:amount"}],
+            "entity_ref": "concept:order", "entity_label": None,
+            "metrics": [{"ref": "metric:amount", "of_ref": None, "aggregation": "sum"}],
             "dimensions": [{"ref": "dimension:item"}],
+            "filters": [], "method": None, "depends_on": [], "ambiguities": [],
+            "binning_requested": False, "sort": [], "limit": None, "temporal": None,
         }],
     })
     return resolve(interpretation, context)[1]

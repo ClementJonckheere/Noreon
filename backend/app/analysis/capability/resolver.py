@@ -6,7 +6,8 @@ C7 n'aura ni catalogue vivant à consulter ni décision analytique à reprendre.
 """
 from __future__ import annotations
 
-from app.analysis.capability.grain import analyze_measure, overall_traversal
+from app.analysis.capability.grain import analyze_measure, overall_traversal, step_multiplies
+from app.analysis.capability.joinpath import find_path
 from app.analysis.capability.model import (
     ADD_FULL,
     CAUSE_ACCESS,
@@ -15,6 +16,7 @@ from app.analysis.capability.model import (
     ONE_TO_ONE,
     S_AVAILABLE,
     S_BLOCKED,
+    S_NOT_EVALUATED,
     S_RESERVE,
     S_UNRESOLVED,
     CapabilityRequirement,
@@ -104,6 +106,16 @@ def _missing_requirement(kind: str, ref: str, reason_code: str,
         cause_class=CAUSE_CAPABILITY, reason_code=reason_code, reason_detail=detail)
 
 
+def _not_evaluated(kind: str, ref: str, prerequisite: str) -> CapabilityRequirement:
+    return CapabilityRequirement(
+        kind=kind,
+        ref=ref,
+        capability_state=S_NOT_EVALUATED,
+        reason_code=f"prerequisite_{prerequisite}",
+        reason_detail=f"contrôle non évalué : prérequis {prerequisite}",
+    )
+
+
 def _physical_requirement(kind: str, ref: str, physical: str | None, *,
                           qualified: bool = False) -> CapabilityRequirement:
     valid = bool(physical) and (not qualified or physical_parts(physical)[0] is not None)
@@ -138,7 +150,7 @@ def _unresolved_requirements(interp, goal) -> list[CapabilityRequirement]:
     for index, term in enumerate(interp.unresolved_terms):
         if not isinstance(term, dict) or term.get("goal_id") != goal.id:
             continue
-        declared = term.get("necessity") or "required"
+        declared = term["necessity"]
         optional = declared == "optional" and has_core
         role = str(term.get("role") or "unknown")
         if optional:
@@ -212,10 +224,95 @@ def _resolved_sort(goal, metric_refs: list[str], reqs: list[CapabilityRequiremen
     if raw:
         return raw
     if goal.type == "ranking":
-        if metric_refs:
-            return [{"ref": next(iter(metric_refs)), "direction": "desc", "nulls": "last"}]
         reqs.append(_missing_requirement("sort", goal.id, "ranking_sort_missing"))
     return []
+
+
+def _select_root_entity(goal, context: ResolutionContext, metric_refs: list[str],
+                        dimension_refs: list[str]) -> tuple[str | None, bool, list[str]]:
+    """Choisit une racine depuis l'ensemble des opérandes, jamais leur ordre.
+
+    Une racine métrique est préférée à une racine uniquement dimensionnelle. Si
+    plusieurs candidates ont la même sûreté de traversée, le choix est ambigu.
+    """
+    if goal.entity_ref is not None:
+        return goal.entity_ref, False, []
+
+    metric_homes = {
+        measure.home_entity for ref in metric_refs
+        if (measure := context.measures.get(ref)) is not None and measure.home_entity
+    }
+    dimension_homes = {
+        dimension.home_entity for ref in dimension_refs
+        if (dimension := context.dimensions.get(ref)) is not None and dimension.home_entity
+    }
+    all_homes = metric_homes | dimension_homes
+    candidates = metric_homes or dimension_homes
+    if not candidates:
+        return None, False, []
+    if len(candidates) == 1:
+        return next(iter(candidates)), False, []
+
+    scored: list[tuple[tuple[int, int, int], str]] = []
+    for candidate in sorted(candidates):
+        paths = [find_path(context, candidate, target) for target in sorted(all_homes - {candidate})]
+        if any(path.status == "none" for path in paths):
+            continue
+        if any(path.status == "ambiguous" for path in paths):
+            continue
+        steps = [step for path in paths for step in path.steps]
+        score = (
+            sum(step.cardinality == "many_to_many" for step in steps),
+            sum(step_multiplies(step.cardinality) for step in steps),
+            len(steps),
+        )
+        scored.append((score, candidate))
+    if not scored:
+        return None, True, sorted(candidates)
+    scored.sort()
+    best_score = scored[0][0]
+    best = [candidate for score, candidate in scored if score == best_score]
+    if len(best) != 1:
+        return None, True, best
+    return best[0], False, []
+
+
+def _readiness(goal, reqs: list[CapabilityRequirement], graph: dict, *, ambiguous: bool) -> dict:
+    required_unresolved = any(
+        req.kind == "unresolved_term" and req.necessity == "required"
+        for req in reqs
+    )
+    semantic_kinds = {
+        "entity", "measure", "dimension", "operation", "method", "temporal",
+        "root_entity", "measure_home", "unresolved_term",
+    }
+    semantic_complete = not ambiguous and not required_unresolved and not any(
+        req.kind in semantic_kinds and req.state in (S_UNRESOLVED, S_BLOCKED)
+        for req in reqs
+    )
+    internally_consistent = not ambiguous and not any(
+        req.kind == "consistency" and req.state in (S_UNRESOLVED, S_BLOCKED)
+        for req in reqs
+    )
+    physical_kinds = {
+        "root_entity", "relation", "physical_entity", "physical_column",
+        "physical_join", "pre_aggregation_key", "count_key",
+    }
+    physically_resolved = bool(graph.get("root_entity_ref") and graph.get("nodes")) and not any(
+        req.kind in physical_kinds and req.state in (S_UNRESOLVED, S_BLOCKED, S_NOT_EVALUATED)
+        for req in reqs
+    )
+    analytically_safe = not any(
+        req.kind in {"grain", "fanout", "pre_aggregation_key", "count_key"}
+        and req.state in (S_UNRESOLVED, S_BLOCKED, S_RESERVE, S_NOT_EVALUATED)
+        for req in reqs
+    )
+    return {
+        "semantic_complete": semantic_complete,
+        "internally_consistent": internally_consistent,
+        "physically_resolved": physically_resolved,
+        "analytically_safe": analytically_safe,
+    }
 
 
 def _dedupe_semantic_requirements(context: ResolutionContext, refs: list[str]) -> list[CapabilityRequirement]:
@@ -271,12 +368,37 @@ def resolve(interp, context: ResolutionContext):
         if goal.type in _METHOD_REQUIRED and not (goal.raw.get("method") or {}).get("name"):
             reqs.append(_missing_requirement("method", goal.id, "exact_method_missing"))
 
-        root_entity = goal.entity_ref
-        if root_entity is None and metric_refs:
-            first_measure = context.measures.get(next(iter(metric_refs)))
-            root_entity = first_measure.home_entity if first_measure else None
-        if root_entity is None:
+        root_entity, root_ambiguous, root_alternatives = _select_root_entity(
+            goal, context, metric_refs, dimension_refs,
+        )
+        c4_ambiguous = bool(goal.raw.get("ambiguities"))
+        ambiguous = c4_ambiguous or root_ambiguous
+        if root_ambiguous:
+            reqs.append(_missing_requirement(
+                "root_entity", goal.id, "ambiguous_root_entity",
+                f"racines également plausibles : {root_alternatives}",
+            ))
+        elif root_entity is None:
             reqs.append(_missing_requirement("root_entity", goal.id, "root_entity_missing"))
+
+        if root_entity is None:
+            prerequisite = "ambiguous_root_entity" if root_ambiguous else "root_entity_missing"
+            reqs.append(_not_evaluated("join_path", goal.id, prerequisite))
+            if goal.type == "count":
+                reqs.append(_not_evaluated("count_key", goal.id, prerequisite))
+            reqs.append(_not_evaluated("fanout", goal.id, prerequisite))
+            tree = select_join_tree(context, None, set())
+            graph = join_graph(context, tree)
+            readiness = _readiness(goal, reqs, graph, ambiguous=ambiguous)
+            status = _goal_status(reqs, ambiguous=ambiguous)
+            resolution.goals.append(GoalResolution(
+                goal_id=goal.id, status=status, requirements=reqs,
+            ))
+            plan_items.append(_plan_item(
+                goal, status, reqs, context, graph, [], metric_specs, dimension_refs,
+                filter_specs, sort_specs, temporal_spec, readiness,
+            ))
+            continue
 
         target_entities = {home for ref in metric_refs + dimension_refs + filter_refs + sort_refs
                            if (home := _home_entity(context, ref))}
@@ -286,7 +408,7 @@ def resolve(interp, context: ResolutionContext):
             target_entities.add(root_entity)
 
         tree = select_join_tree(context, root_entity, target_entities)
-        ambiguous = tree.status == "ambiguous"
+        ambiguous = ambiguous or tree.status == "ambiguous"
         if tree.status == "none":
             reqs.append(_missing_requirement(
                 "relation", f"{root_entity}->{tree.missing_target}", "no_validated_relation"))
@@ -337,7 +459,7 @@ def resolve(interp, context: ResolutionContext):
                         "pre_aggregation_key", ref, "pre_aggregation_key_missing"))
             analyses.append({
                 "index": index, "ref": ref, "measure": measure, "source": source or path_source,
-                "aggregation": metric_spec.get("aggregation") or "sum", "grain": grain,
+                "aggregation": metric_spec["aggregation"], "grain": grain,
                 "relation_ids": sorted(unique_steps), "cardinalities": cardinalities,
             })
 
@@ -347,7 +469,11 @@ def resolve(interp, context: ResolutionContext):
                      if root_entity and _home_entity(context, dim_ref)]
             unique_steps = {step.relation_id: step for path in paths for step in path}
             cardinalities = [unique_steps[key].cardinality for key in sorted(unique_steps)]
-            grain = analyze_measure(None, cardinalities, agg_dims=frozenset(aggregation_dimensions), is_count=True)
+            is_count_operation = goal.type in {"count", "distribution"}
+            grain = analyze_measure(
+                None, cardinalities, agg_dims=frozenset(aggregation_dimensions),
+                is_count=is_count_operation,
+            )
             reqs.append(CapabilityRequirement(
                 kind="grain", ref=root_entity or "grain", capability_state=grain.state,
                 strategy=grain.strategy, reason_code=grain.reason_code,
@@ -359,15 +485,23 @@ def resolve(interp, context: ResolutionContext):
                     reqs.append(_missing_requirement("count_key", goal.id, "count_distinct_key_missing"))
             analyses.append({
                 "index": 0, "ref": root_entity or "count", "measure": None,
-                "source": root_entity, "aggregation": "count_distinct", "grain": grain,
+                "source": root_entity,
+                "aggregation": "count_distinct" if is_count_operation else "none",
+                "grain": grain,
                 "relation_ids": sorted(unique_steps), "cardinalities": cardinalities,
             })
 
+        readiness = _readiness(goal, reqs, graph, ambiguous=ambiguous)
         status = _goal_status(reqs, ambiguous=ambiguous)
+        if status == "SUPPORTED" and not all(readiness.values()):
+            reqs.append(_missing_requirement(
+                "compile_readiness", goal.id, "compile_readiness_incomplete",
+            ))
+            status = "UNSUPPORTED"
         resolution.goals.append(GoalResolution(goal_id=goal.id, status=status, requirements=reqs))
         plan_items.append(_plan_item(
             goal, status, reqs, context, graph, analyses, metric_specs, dimension_refs,
-            filter_specs, sort_specs, temporal_spec))
+            filter_specs, sort_specs, temporal_spec, readiness))
 
     goal_statuses = [item["status"] for item in plan_items]
     coverage_status = _coverage_status(goal_statuses)
@@ -407,7 +541,8 @@ def _compile_blockers(reqs: list[CapabilityRequirement]) -> list[str]:
 
 
 def _plan_item(goal, status, reqs, context, graph, analyses, metric_specs,
-               dimension_refs, filter_specs, sort_specs, temporal_spec) -> dict:
+               dimension_refs, filter_specs, sort_specs, temporal_spec,
+               readiness: dict) -> dict:
     concepts = ([goal.entity_ref] if goal.entity_ref else [])
     concepts += [item["ref"] for item in metric_specs]
     concepts += dimension_refs
@@ -416,7 +551,8 @@ def _plan_item(goal, status, reqs, context, graph, analyses, metric_specs,
     base = {
         "goal_id": goal.id,
         "status": status,
-        "compile_ready": status in ("SUPPORTED", "PARTIAL"),
+        "compile_ready": all(readiness.values()),
+        "readiness": readiness,
         "compile_blockers": _compile_blockers(reqs),
         "depends_on": list(goal.depends_on),
         "concepts": concepts,
@@ -424,7 +560,7 @@ def _plan_item(goal, status, reqs, context, graph, analyses, metric_specs,
     }
     if status == "NEEDS_CLARIFICATION":
         return {**base, "compile_ready": False,
-                "clarification": "chemin de jointure ambigu — préciser la relation à utiliser"}
+                "clarification": "décision analytique ambiguë — préciser l'opérande ou la relation"}
     if status == "UNSUPPORTED":
         blocker = base["compile_blockers"][0] if base["compile_blockers"] else "non_resolved"
         return {**base, "compile_ready": False, "unsupported_reason": blocker}
@@ -446,7 +582,13 @@ def _plan_item(goal, status, reqs, context, graph, analyses, metric_specs,
             "operator": _OPERATOR_BY_GOAL_TYPE[goal.type],
             "metrics": metrics,
             "count_distinct_keys": count_keys,
-            "parameters": {"binning_requested": bool(goal.raw.get("binning_requested"))},
+            "parameters": {
+                "binning_requested": goal.raw["binning_requested"],
+                "ranked_axis_refs": (
+                    ([goal.entity_ref] if goal.entity_ref else []) + dimension_refs
+                    if goal.type == "ranking" else []
+                ),
+            },
         },
         "physical": {
             "root_entity_ref": graph["root_entity_ref"],
@@ -467,8 +609,8 @@ def _plan_item(goal, status, reqs, context, graph, analyses, metric_specs,
     }
     if isinstance(method, dict) and method.get("name"):
         item["method"] = {
-            "name": method["name"], "version": str(method.get("version") or "1.0"),
-            "params": method.get("params") or {},
+            "name": method["name"], "version": method["version"],
+            "params": method["params"],
         }
     return item
 
@@ -503,14 +645,14 @@ def _filter_mapping(context: ResolutionContext, spec: dict, aliases: dict[str, s
     return {
         **_column_mapping(context, spec["ref"], aliases),
         "operator": spec["operator"], "value_type": spec["value_type"],
-        "value": spec.get("value"), "conjunction": spec.get("conjunction") or "and",
+        "value": spec["value"], "conjunction": spec["conjunction"],
     }
 
 
 def _sort_mapping(context: ResolutionContext, spec: dict, aliases: dict[str, str]) -> dict:
     return {
         **_column_mapping(context, spec["ref"], aliases),
-        "direction": spec["direction"], "nulls": spec.get("nulls") or "last",
+        "direction": spec["direction"], "nulls": spec["nulls"],
     }
 
 
@@ -527,7 +669,7 @@ def _temporal_mapping(context: ResolutionContext, spec: dict | None,
         "physical": mapping["physical"],
         "data_type": mapping["data_type"],
         "grain": spec["grain"],
-        "timezone": spec.get("timezone") or "UTC",
+        "timezone": spec["timezone"],
     }
 
 

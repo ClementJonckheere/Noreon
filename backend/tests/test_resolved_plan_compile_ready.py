@@ -45,15 +45,16 @@ def _context(*, omit_amount_physical: bool = False):
 
 def _multi_goal_interpretation():
     return validate_interpretation({
-        "plan_schema_version": "1.2",
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
         "unresolved_terms": [],
         "goals": [
             {
                 "id": "g1", "priority": 1, "type": "aggregate",
                 "intent_text": "mesures par produit et mois", "entity_ref": "concept:order",
+                "entity_label": None,
                 "metrics": [
-                    {"ref": "metric:amount", "aggregation": "sum"},
-                    {"ref": "metric:item_cost", "aggregation": "avg"},
+                    {"ref": "metric:amount", "of_ref": None, "aggregation": "sum"},
+                    {"ref": "metric:item_cost", "of_ref": None, "aggregation": "avg"},
                 ],
                 "dimensions": [{"ref": "dimension:product"}, {"ref": "dimension:ordered_at"}],
                 "filters": [{
@@ -64,14 +65,18 @@ def _multi_goal_interpretation():
                 "limit": 10,
                 "temporal": {"dimension_ref": "dimension:ordered_at", "grain": "month",
                              "timezone": "Europe/Paris"},
-                "depends_on": [],
+                "method": None, "depends_on": [], "ambiguities": [],
+                "binning_requested": False,
             },
             {
                 "id": "g2", "priority": 2, "type": "ranking",
                 "intent_text": "classement dérivé", "entity_ref": "concept:order",
-                "metrics": [{"ref": "metric:amount", "aggregation": "sum"}],
+                "entity_label": None,
+                "metrics": [{"ref": "metric:amount", "of_ref": None, "aggregation": "sum"}],
+                "dimensions": [], "filters": [], "method": None,
                 "sort": [{"ref": "metric:amount", "direction": "desc", "nulls": "last"}],
-                "limit": 5, "depends_on": ["g1"],
+                "limit": 5, "depends_on": ["g1"], "ambiguities": [],
+                "binning_requested": False, "temporal": None,
             },
         ],
     })
@@ -155,9 +160,13 @@ def test_filters_sort_limit_temporal_and_preaggregation_are_complete():
 
 def test_count_distinct_embeds_the_exact_physical_key():
     interpretation = validate_interpretation({
-        "plan_schema_version": "1.2", "unresolved_terms": [], "goals": [{
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+        "unresolved_terms": [], "goals": [{
             "id": "g1", "priority": 1, "type": "count", "intent_text": "compter",
-            "entity_ref": "concept:order", "dimensions": [{"ref": "dimension:product"}],
+            "entity_ref": "concept:order", "entity_label": None,
+            "metrics": [], "dimensions": [{"ref": "dimension:product"}],
+            "filters": [], "method": None, "depends_on": [], "ambiguities": [],
+            "binning_requested": False, "sort": [], "limit": None, "temporal": None,
         }],
     })
     _, plan = resolve(interpretation, _context())

@@ -9,7 +9,7 @@ import pytest
 
 from app.analysis import benchmark as B
 from app.analysis import routing as R
-from app.analysis.contracts import validate_interpretation
+from app.analysis.contracts import INTERPRETATION_SCHEMA_VERSION, validate_interpretation
 from app.analysis.eval_cases import CASES, CASES_BY_ID
 from app.analysis.interpreter import PlannerCatalog
 
@@ -29,8 +29,30 @@ def test_preroute_matches_expected_tier(case):
 
 # --- Allowlist déterministe sur le PLAN -------------------------------------
 def _interp(goals, unresolved=None):
+    complete = []
+    for raw in goals:
+        goal = {
+            "id": raw["id"], "priority": raw["priority"], "type": raw["type"],
+            "intent_text": raw["intent_text"], "entity_ref": raw.get("entity_ref"),
+            "entity_label": None, "metrics": [], "dimensions": [], "filters": [],
+            "method": None, "depends_on": [], "ambiguities": [],
+            "binning_requested": False, "sort": [], "limit": None, "temporal": None,
+        }
+        goal.update(raw)
+        goal["metrics"] = [
+            {"of_ref": None, "aggregation": "sum", **metric}
+            for metric in goal["metrics"]
+        ]
+        if goal["type"] == "trend" and not goal["temporal"]:
+            goal["temporal"] = {
+                "dimension_ref": "dimension:city", "grain": "month", "timezone": "UTC",
+            }
+        if goal["type"] in {"attribution", "segmentation", "affinity", "cohort", "correlation"} \
+                and goal["method"] is None:
+            goal["method"] = {"name": goal["type"], "version": "1.0", "params": {}}
+        complete.append(goal)
     return validate_interpretation({
-        "plan_schema_version": "1.2", "goals": goals,
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION, "goals": complete,
         "unresolved_terms": unresolved or []})
 
 
@@ -43,10 +65,10 @@ def test_single_count_goal_is_eligible():
 
 @pytest.mark.parametrize("mutation,expect_reason", [
     ({"type": "segmentation"}, "hors allowlist"),
-    ({"method": {"name": "rfm", "params": {}}}, "méthode"),
+    ({"method": {"name": "rfm", "version": "1.0", "params": {}}}, "méthode"),
     ({"depends_on": ["g0"]}, None),   # dépendance → inéligible (raison variable)
     ({"ambiguities": [{"q": "?"}]}, "ambiguïté"),
-    ({"entity_ref": None}, "entité non résolue"),
+    ({"entity_ref": None, "ambiguities": [{"code": "entity_missing"}]}, "ambiguïté"),
 ])
 def test_plan_ineligible_on_complexity(mutation, expect_reason):
     goal = {"id": "g1", "priority": 1, "type": "count", "intent_text": "x",
@@ -70,20 +92,20 @@ def test_plan_ineligible_on_complexity(mutation, expect_reason):
 def test_escalation_is_audited_when_20b_plan_is_complex():
     """20b pré-routé mais plan complexe (2 objectifs) → rejet + relance 120b,
     avec audit complet."""
-    simple_plan = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
+    simple_goals = [
         {"id": "g1", "priority": 1, "type": "segmentation", "intent_text": "seg",
          "entity_ref": "concept:customer"},
         {"id": "g2", "priority": 2, "type": "affinity", "intent_text": "aff",
-         "entity_ref": "concept:product", "depends_on": ["g1"]}]}
-    main_plan = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
+         "entity_ref": "concept:product", "depends_on": ["g1"]}]
+    main_goals = [
         {"id": "g1", "priority": 1, "type": "segmentation", "intent_text": "seg",
-         "entity_ref": "concept:customer"}]}
+         "entity_ref": "concept:customer"}]
 
     calls = []
 
     def plan_fn(model, question, catalog):
         calls.append(model)
-        return validate_interpretation(simple_plan if model == SIMPLE else main_plan)
+        return _interp(simple_goals if model == SIMPLE else main_goals)
 
     # question pré-routée simple mais plan complexe
     interp, dec = R.route_and_plan("combien", None, plan_fn=plan_fn, main_model=MAIN, simple_model=SIMPLE)
@@ -95,14 +117,14 @@ def test_escalation_is_audited_when_20b_plan_is_complex():
 
 
 def test_no_escalation_when_20b_plan_is_simple():
-    plan = {"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
+    goals = [
         {"id": "g1", "priority": 1, "type": "count", "intent_text": "combien",
-         "entity_ref": "concept:customer"}]}
+         "entity_ref": "concept:customer"}]
     calls = []
 
     def plan_fn(model, question, catalog):
         calls.append(model)
-        return validate_interpretation(plan)
+        return _interp(goals)
 
     interp, dec = R.route_and_plan("combien de clients", None, plan_fn=plan_fn,
                                    main_model=MAIN, simple_model=SIMPLE)

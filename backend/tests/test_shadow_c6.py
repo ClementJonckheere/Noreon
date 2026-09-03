@@ -9,10 +9,27 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.analysis.capability.adapter import DictCatalogAdapter
-from app.analysis.contracts import validate_interpretation
+from app.analysis.contracts import INTERPRETATION_SCHEMA_VERSION, validate_interpretation
 from app.analysis.shadow import safety as SF
 from app.analysis.shadow import service as S
 from app.analysis.shadow.legacy_projection import project_legacy_execution
+
+
+def _interpretation(goal_type, entity_ref, *, metrics=(), dimensions=()):
+    goal = {
+        "id": "g1", "priority": 1, "type": goal_type, "intent_text": "x",
+        "entity_ref": entity_ref, "entity_label": None,
+        "metrics": [
+            {"ref": ref, "of_ref": None, "aggregation": "sum"} for ref in metrics
+        ],
+        "dimensions": [{"ref": ref} for ref in dimensions],
+        "filters": [], "method": None, "depends_on": [], "ambiguities": [],
+        "binning_requested": False, "sort": [], "limit": None, "temporal": None,
+    }
+    return validate_interpretation({
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+        "unresolved_terms": [], "goals": [goal],
+    })
 
 
 # --- projection d'exécution legacy ------------------------------------------
@@ -44,9 +61,9 @@ def _fanout_resolved():
         "relations": [{"id": 1, "from_entity": "concept:o", "to_entity": "concept:i", "cardinality": "1-n",
                        "status": "validated", "from_key": "o.id", "to_key": "i.oid"}]})
     from app.analysis.capability.resolver import resolve
-    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
-        {"id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x", "entity_ref": "concept:o",
-         "metrics": [{"ref": "metric:rev"}], "dimensions": [{"ref": "dimension:p"}]}]})
+    interp = _interpretation(
+        "aggregate", "concept:o", metrics=["metric:rev"], dimensions=["dimension:p"],
+    )
     _, plan = resolve(interp, ctx)
     return plan
 
@@ -68,9 +85,7 @@ def test_safety_llm_safer_on_count_star_vs_count_distinct():
         "relations": [{"id": 1, "from_entity": "concept:o", "to_entity": "concept:i", "cardinality": "1-n",
                        "status": "validated", "from_key": "o.id", "to_key": "i.oid"}]})
     from app.analysis.capability.resolver import resolve
-    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
-        {"id": "g1", "priority": 1, "type": "count", "intent_text": "x", "entity_ref": "concept:o",
-         "dimensions": [{"ref": "dimension:p"}]}]})
+    interp = _interpretation("count", "concept:o", dimensions=["dimension:p"])
     _, plan = resolve(interp, ctx)                # C6 : count_distinct
     legacy = {"sql_present": True, "aggregations": ["count"], "joins": 1, "pre_aggregated": False,
               "count_star": True, "count_distinct": False}
@@ -96,9 +111,7 @@ def test_safety_same_when_no_fanout():
                       "physical": "o.rev"}],
         "dimensions": [], "relations": []})
     from app.analysis.capability.resolver import resolve
-    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
-        {"id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x", "entity_ref": "concept:o",
-         "metrics": [{"ref": "metric:rev"}]}]})
+    interp = _interpretation("aggregate", "concept:o", metrics=["metric:rev"])
     _, plan = resolve(interp, ctx)
     legacy = {"sql_present": True, "aggregations": ["sum"], "joins": 0, "pre_aggregated": False,
               "count_star": False, "count_distinct": False}
@@ -121,9 +134,9 @@ def test_run_shadow_evaluation_persists_three_stages_and_safety():
         "dimensions": [{"ref": "dimension:p", "home_entity": "concept:i", "physical": "i.p"}],
         "relations": [{"id": 1, "from_entity": "concept:o", "to_entity": "concept:i", "cardinality": "1-n",
                        "status": "validated", "from_key": "o.id", "to_key": "i.oid"}]})
-    interp = validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [
-        {"id": "g1", "priority": 1, "type": "aggregate", "intent_text": "x", "entity_ref": "concept:o",
-         "metrics": [{"ref": "metric:rev"}], "dimensions": [{"ref": "dimension:p"}]}]})
+    interp = _interpretation(
+        "aggregate", "concept:o", metrics=["metric:rev"], dimensions=["dimension:p"],
+    )
     env = {"tenant_id": 1, "connection_id": 7, "request_id": "r1", "question_hash": "h",
            "safe_question": "revenu par produit", "planner_mode": "shadow", "sample_rate": 1.0,
            "fallback_view": {"status": "answered"}, "fallback_status": "answered",
@@ -151,8 +164,10 @@ def test_db_context_builds_consistent_refs(monkeypatch):
     monkeypatch.setattr(db_context, "_load_relations", lambda *a: ([], []))
     catalog, context = db_context.build_catalog_and_context(object(), 7)
     assert "concept:orders" in context.entities
-    assert "metric:orders_amount" in context.measures     # numérique → mesure
-    assert "dimension:orders_city" in context.dimensions   # texte → dimension
+    assert "metric:orders_amount" not in context.measures
+    assert context.column_roles["orders.amount"] == ("attribute",)
+    assert "dimension:orders_city" not in context.dimensions
+    assert context.column_roles["orders.city"] == ("attribute",)
     # cohérence catalogue ↔ contexte (mêmes refs)
     cat_refs = {c["entity_ref"] for c in catalog.concepts}
     assert cat_refs == set(context.entities)

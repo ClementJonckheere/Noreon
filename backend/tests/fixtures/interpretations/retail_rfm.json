@@ -1,6 +1,6 @@
 {
   "domain": "retail",
-  "plan_schema_version": "1.2",
+  "plan_schema_version": "1.3",
   "goals": [
     {
       "id": "g1",
@@ -8,24 +8,21 @@
       "type": "segmentation",
       "intent_text": "Segmenter les clients par valeur (RFM)",
       "entity_ref": "concept:customer",
+      "entity_label": null,
       "metrics": [
-        {
-          "ref": "metric:recency",
-          "of_ref": "concept:order"
-        },
-        {
-          "ref": "metric:frequency",
-          "of_ref": "concept:order"
-        },
-        {
-          "ref": "metric:monetary",
-          "of_ref": "concept:order"
-        }
+        {"ref": "metric:recency", "of_ref": "concept:order", "aggregation": "none"},
+        {"ref": "metric:frequency", "of_ref": "concept:order", "aggregation": "none"},
+        {"ref": "metric:monetary", "of_ref": "concept:order", "aggregation": "none"}
       ],
-      "method": {
-        "name": "rfm"
-      },
-      "depends_on": []
+      "dimensions": [],
+      "filters": [],
+      "method": {"name": "rfm", "version": "1.0", "params": {}},
+      "depends_on": [],
+      "ambiguities": [],
+      "binning_requested": false,
+      "sort": [],
+      "limit": null,
+      "temporal": null
     },
     {
       "id": "g2",
@@ -33,14 +30,17 @@
       "type": "distribution",
       "intent_text": "Répartition des produits par segment",
       "entity_ref": "concept:product",
-      "dimensions": [
-        {
-          "ref": "dimension:product_category"
-        }
-      ],
-      "depends_on": [
-        "g1"
-      ]
+      "entity_label": null,
+      "metrics": [],
+      "dimensions": [{"ref": "dimension:product_category"}],
+      "filters": [],
+      "method": null,
+      "depends_on": ["g1"],
+      "ambiguities": [],
+      "binning_requested": false,
+      "sort": [],
+      "limit": null,
+      "temporal": null
     },
     {
       "id": "g3",
@@ -48,9 +48,17 @@
       "type": "distribution",
       "intent_text": "Répartition par tranche d'âge",
       "entity_ref": "concept:customer",
-      "depends_on": [
-        "g1"
-      ]
+      "entity_label": null,
+      "metrics": [],
+      "dimensions": [],
+      "filters": [],
+      "method": null,
+      "depends_on": ["g1"],
+      "ambiguities": [],
+      "binning_requested": true,
+      "sort": [],
+      "limit": null,
+      "temporal": null
     }
   ],
   "unresolved_terms": [
@@ -58,6 +66,7 @@
       "goal_id": "g3",
       "term": "tranche d'âge",
       "role": "dimension",
+      "necessity": "required",
       "source_span": "par quelle tranche d'âge",
       "reason": "aucune dimension âge dans le catalogue"
     }

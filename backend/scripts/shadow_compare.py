@@ -37,6 +37,39 @@ def main() -> int:
         after_value = comparison["after"][key]
         print(f"  {label:<40} {before_value:>3} → {after_value:<3} "
               f"(Δ {comparison['deltas'][key]:+d})")
+    before_semantic = comparison["before"]["goal_semantic_completeness"]
+    after_semantic = comparison["after"]["goal_semantic_completeness"]
+    print("\nP0-C ACCEPTANCE")
+    print("  goal semantic completeness              "
+          f"{before_semantic['complete']}/{before_semantic['total']} "
+          f"({before_semantic['rate']:.1%}) → "
+          f"{after_semantic['complete']}/{after_semantic['total']} "
+          f"({after_semantic['rate']:.1%})")
+    for key, label in (
+        ("goal_without_operand_and_without_reason", "goal sans opérande/raison"),
+        ("diagnostic_cascade_count", "diagnostics cascade"),
+        ("known_refs_false_unresolved", "known refs false unresolved"),
+        ("resolved_semantic_ready_goals", "goals sémantiquement résolus"),
+        ("compile_ready_goals", "goals compile-ready"),
+        ("required_unresolved", "unresolved required"),
+        ("optional_unresolved", "unresolved optional"),
+        ("aggregation_contradictions", "contradictions agrégation"),
+        ("contract_errors", "contract errors"),
+        ("provider_errors", "provider errors"),
+        ("repairs", "repairs"),
+    ):
+        before_value = comparison["before"][key]
+        after_value = comparison["after"][key]
+        print(f"  {label:<40} {before_value:>3} → {after_value:<3} "
+              f"(Δ {comparison['deltas'][key]:+d})")
+    print(f"  goal statuses                           "
+          f"{comparison['before']['goal_statuses']} → {comparison['after']['goal_statuses']}")
+    print(f"  relations constraint exécutables        "
+          f"{comparison['before']['relations_constraint_present']} → "
+          f"{comparison['after']['relations_constraint_present']}")
+    print(f"  relations inferred ignorées             "
+          f"{comparison['before']['relations_inferred_nonvalidated_ignored']} → "
+          f"{comparison['after']['relations_inferred_nonvalidated_ignored']}")
     print(f"  cas dont les faits ont changé             {len(comparison['changed_cases'])}")
     if args.json_output:
         args.json_output.write_text(

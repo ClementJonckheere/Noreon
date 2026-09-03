@@ -19,16 +19,22 @@ from app.analysis.capability.model import (
     S_UNRESOLVED,
 )
 from app.analysis.capability.resolver import resolve
-from app.analysis.contracts import validate_interpretation, validate_resolved
+from app.analysis.contracts import INTERPRETATION_SCHEMA_VERSION, validate_interpretation, validate_resolved
 
 
 def _goal(gtype, metrics=(), dims=(), entity="concept:e"):
-    g = {"id": "g1", "priority": 1, "type": gtype, "intent_text": "x", "entity_ref": entity}
-    if metrics:
-        g["metrics"] = [{"ref": m} for m in metrics]
-    if dims:
-        g["dimensions"] = [{"ref": d} for d in dims]
-    return validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [g]})
+    g = {
+        "id": "g1", "priority": 1, "type": gtype, "intent_text": "x",
+        "entity_ref": entity, "entity_label": None,
+        "metrics": [{"ref": m, "of_ref": None, "aggregation": "sum"} for m in metrics],
+        "dimensions": [{"ref": d} for d in dims], "filters": [], "method": None,
+        "depends_on": [], "ambiguities": [], "binning_requested": False,
+        "sort": [], "limit": None, "temporal": None,
+    }
+    return validate_interpretation({
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+        "unresolved_terms": [], "goals": [g],
+    })
 
 
 def _req(res, kind):

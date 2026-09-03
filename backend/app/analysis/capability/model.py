@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-CAPABILITY_RESOLVER_VERSION = "2.0"
+CAPABILITY_RESOLVER_VERSION = "2.1"
 
 # Cardinalités canoniques (alignées sur le contrat resolved_plan).
 MANY_TO_ONE = "many_to_one"
@@ -29,6 +29,7 @@ S_AVAILABLE = "available"
 S_RESERVE = "available_with_reserve"
 S_UNRESOLVED = "unresolved"
 S_BLOCKED = "blocked"
+S_NOT_EVALUATED = "not_evaluated"
 
 # Classes de cause. `blocked` peut être access OU quality-hard-stop (#7),
 # jamais confondu avec `unresolved` (manque de structure).
@@ -49,6 +50,7 @@ class Entity:
     grain_keys: tuple[str, ...]                 # clés d'unicité (le GRAIN)
     physical: str | None = None                 # table physique
     grain_key_types: dict[str, str] = field(default_factory=dict)
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,7 @@ class Measure:
     non_additive_dims: frozenset[str] = field(default_factory=frozenset)  # axes non sommables (semi)
     physical: str | None = None
     data_type: str | None = None
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,7 @@ class Dimension:
     physical: str | None = None
     data_type: str | None = None
     is_temporal: bool = False
+    aliases: tuple[str, ...] = ()
 
 
 _INVERSE_CARD = {MANY_TO_ONE: ONE_TO_MANY, ONE_TO_MANY: MANY_TO_ONE,
@@ -86,6 +90,11 @@ class Relation:
     origin: str = "inferred"                    # constraint|inferred|declared
     coverage: float | None = None
     target_uniqueness: float | None = None
+    direction: str = "from_to"
+    validation_status: str | None = None         # system_validated|human_validated|unvalidated
+    evidence: dict | None = None
+    provenance: tuple[dict, ...] = ()
+    executable: bool | None = None
 
     @property
     def inverse_cardinality(self) -> str:
@@ -93,8 +102,13 @@ class Relation:
 
     @property
     def is_system_validated(self) -> bool:
-        # Correction #6 : une FK physique confirmée (origin=constraint) est
-        # AUTORITAIRE — utilisable sans validation humaine. L'inféré, non.
+        return self.is_executable
+
+    @property
+    def is_executable(self) -> bool:
+        if self.executable is not None:
+            return self.executable
+        # Compatibilité des catalogues déclaratifs historiques.
         return self.status == "validated" or self.origin == "constraint"
 
 
@@ -114,6 +128,7 @@ class ResolutionContext:
     entities: dict[str, Entity] = field(default_factory=dict)
     measures: dict[str, Measure] = field(default_factory=dict)
     dimensions: dict[str, Dimension] = field(default_factory=dict)
+    column_roles: dict[str, tuple[str, ...]] = field(default_factory=dict)
     relations: tuple[Relation, ...] = ()
     freshness: dict = field(default_factory=dict)     # ref → {stale: bool, ...}
     quality: dict = field(default_factory=dict)       # ref → score 0..1

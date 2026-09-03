@@ -62,10 +62,14 @@ class PlannerShadowEvaluation(Base):
     fallback_status: Mapped[str | None] = mapped_column(String(24), default=None)
 
     # Trois ÉTAGES explicites (règle #2) — rétention COURTE (opt-in, purge_after) :
-    #  1) interpretation = ce que le LLM a compris (llm_plan_json, historique) ;
+    #  1) provider_raw_json = JSON exact reçu du provider ;
+    #     normalized_interpretation_json = représentation validée/normalisée ;
+    #     llm_plan_json reste un alias historique du document normalisé ;
     #  2) capability_resolution = ce que Noreon sait réellement satisfaire (C6) ;
     #  3) legacy_execution_projection = ce que le legacy a réellement exécuté.
     llm_plan_json: Mapped[dict | None] = mapped_column(JSON, default=None)              # interpretation_json
+    provider_raw_json: Mapped[dict | None] = mapped_column(JSON, default=None)
+    normalized_interpretation_json: Mapped[dict | None] = mapped_column(JSON, default=None)
     capability_resolution_json: Mapped[dict | None] = mapped_column(JSON, default=None)  # C6 riche
     resolved_plan_json: Mapped[dict | None] = mapped_column(JSON, default=None)          # C6 → compiler (même rétention)
     legacy_execution_projection_json: Mapped[dict | None] = mapped_column(JSON, default=None)

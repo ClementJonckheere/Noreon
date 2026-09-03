@@ -18,6 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.db import SessionLocal                                   # noqa: E402
+from app.analysis.shadow.diagnostics import summarize_observations     # noqa: E402
+from app.analysis.shadow.export import serialize_row                   # noqa: E402
 from app.models.planner_shadow import PlannerShadowEvaluation as PSE   # noqa: E402
 from sqlalchemy import select                                          # noqa: E402
 
@@ -53,7 +55,7 @@ def main() -> int:
     prov_err = sum(r.llm_status in ("network_error", "provider_error", "timeout") for r in rows)
     contract_err = sum(r.llm_status == "contract_error" for r in rows)
     print(f"  ok                        {ok}/{n}")
-    print(f"  repairs                   {repairs}/{n}")
+    print(f"  repairs                   {repairs}/{n} ({repairs / n:.1%})")
     print(f"  contract errors           {contract_err}")
     print(f"  provider/network errors   {prov_err}")
 
@@ -66,8 +68,29 @@ def main() -> int:
     for r in rows:
         for state, c in (r.capability_states_json or {}).items():
             caps[state] += c
-    for state in ("available", "available_with_reserve", "unresolved", "blocked"):
+    for state in ("available", "available_with_reserve", "unresolved", "not_evaluated", "blocked"):
         print(f"  {state:<24} {caps.get(state, 0)}")
+
+    diagnostics = summarize_observations([serialize_row(row) for row in rows])
+    semantic = diagnostics["goal_semantic_completeness"]
+    _bar("P0-C ACCEPTANCE")
+    print(f"  goal semantic completeness {semantic['complete']}/{semantic['total']} "
+          f"({semantic['rate']:.1%})")
+    for key, label in (
+        ("goal_without_operand_and_without_reason", "goal sans opérande/raison"),
+        ("diagnostic_cascade_count", "diagnostics cascade"),
+        ("known_refs_false_unresolved", "known refs false unresolved"),
+        ("resolved_semantic_ready_goals", "goals sémantiquement résolus"),
+        ("compile_ready_goals", "goals compile-ready"),
+        ("required_unresolved", "unresolved required"),
+        ("optional_unresolved", "unresolved optional"),
+        ("relations_constraint_present", "relations constraint exécutables"),
+        ("relations_inferred_nonvalidated_ignored", "relations inferred ignorées"),
+        ("aggregation_contradictions", "contradictions agrégation"),
+    ):
+        print(f"  {label:<32} {diagnostics[key]}")
+    for status in ("SUPPORTED", "PARTIAL", "UNSUPPORTED", "NEEDS_CLARIFICATION"):
+        print(f"  goals {status:<26} {diagnostics['goal_statuses'].get(status, 0)}")
 
     _bar("ANALYTICAL SAFETY")
     for state in ("same_safety", "llm_safer", "fallback_safer", "not_comparable"):

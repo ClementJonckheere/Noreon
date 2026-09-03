@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.analysis.contracts import validate_interpretation
+from app.analysis.contracts import INTERPRETATION_SCHEMA_VERSION, validate_interpretation
 from app.analysis.shadow import comparator as C
 from app.analysis.shadow import service as S
 from app.analysis.shadow.executor import InProcessShadowExecutor
@@ -54,11 +54,38 @@ def _resp(status="answered", goal_type="count"):
 def _interp(*types_ids, deps=None):
     goals = []
     for i, t in enumerate(types_ids, start=1):
-        g = {"id": f"g{i}", "priority": i, "type": t, "intent_text": "x", "entity_ref": "concept:customer"}
+        g = {
+            "id": f"g{i}", "priority": i, "type": t, "intent_text": "x",
+            "entity_ref": "concept:customer", "entity_label": None,
+            "metrics": [], "dimensions": [], "filters": [], "method": None,
+            "depends_on": [], "ambiguities": [], "binning_requested": False,
+            "sort": [], "limit": None, "temporal": None,
+        }
+        if t in {"aggregate", "trend", "attribution", "ranking"}:
+            g["metrics"] = [{"ref": "metric:value", "of_ref": None, "aggregation": "sum"}]
+        if t == "trend":
+            g["temporal"] = {"dimension_ref": "dimension:time", "grain": "month", "timezone": "UTC"}
+        if t == "distribution":
+            g["dimensions"] = [{"ref": "dimension:group"}]
+        if t == "correlation":
+            g["metrics"] = [
+                {"ref": "metric:value", "of_ref": None, "aggregation": "none"},
+                {"ref": "metric:other", "of_ref": None, "aggregation": "none"},
+            ]
+        if t in {"segmentation", "affinity", "cohort", "correlation", "attribution"}:
+            g["method"] = {"name": t, "version": "1.0", "params": {}}
+        if t == "cohort":
+            g["temporal"] = {"dimension_ref": "dimension:time", "grain": "month", "timezone": "UTC"}
+        if t == "ranking":
+            g["sort"] = [{"ref": "metric:value", "direction": "desc", "nulls": "last"}]
+            g["limit"] = 10
         if deps and f"g{i}" in deps:
             g["depends_on"] = deps[f"g{i}"]
         goals.append(g)
-    return validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": goals})
+    return validate_interpretation({
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+        "unresolved_terms": [], "goals": goals,
+    })
 
 
 def _plan(interp=None, status="ok", repair=None):
@@ -188,9 +215,32 @@ def test_repair_recorded_in_telemetry():
 def test_all_versions_persisted():
     row, _ = _run("combien de clients", lambda m, q, c: _plan(_interp("count")),
                   {"status": "answered", "analysis": {"goal_type": "count"}})
-    assert row.interpretation_schema_version == "1.2" and row.goal_types_version == "1.0"
+    assert row.interpretation_schema_version == "1.3" and row.goal_types_version == "1.0"
     assert row.router_version == "1.0"
     assert row.comparator_version == "1.1" and row.projection_version == "1.1"   # promotion capabilities (#7)
+
+
+def test_provider_raw_and_normalized_payloads_persist_separately():
+    interp = _interp("count")
+    raw = {"provider": "raw", "goals": [{"id": "provider-id"}]}
+    normalized = {"normalized": True, "goals": [interp.goals[0].raw]}
+
+    def plan_fn(model, question, catalog):
+        return S.ShadowPlanResult(
+            interp=interp,
+            provider_raw_json=raw,
+            normalized_interpretation_json=normalized,
+            status="ok",
+        )
+
+    row, _ = _run(
+        "analyse complexe", plan_fn,
+        {"status": "answered", "analysis": {"goal_type": "count"}},
+    )
+    assert row.provider_raw_json == raw
+    assert row.normalized_interpretation_json == normalized
+    assert row.llm_plan_json == normalized
+    assert row.provider_raw_json is not row.normalized_interpretation_json
 
 
 def test_capabilities_informative_when_provisional():

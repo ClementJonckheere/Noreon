@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import Counter
 
+from app.analysis.shadow.diagnostics import observation_diagnostics, summarize_observations
+
 
 def _case_key(observation: dict) -> tuple[int, str]:
     case = observation.get("campaign_case") or {}
@@ -39,6 +41,7 @@ def _facts(observation: dict) -> dict:
             item.get("goal_id") for item in items
             if item.get("status") == "SUPPORTED" and item.get("compile_ready") is not True),
         "resolved_plan_version": resolved.get("resolved_plan_schema_version"),
+        "p0c": observation_diagnostics(observation),
     }
 
 
@@ -59,6 +62,7 @@ def summarize(export: dict) -> dict:
         "supported_compile_violations": sum(len(fact["supported_compile_violations"]) for fact in facts),
         "resolved_plan_versions": dict(sorted(Counter(
             str(fact["resolved_plan_version"]) for fact in facts).items())),
+        **summarize_observations(observations),
     }
 
 
@@ -91,6 +95,11 @@ def compare_exports(before: dict, after: dict) -> dict:
         for key in (
             "covers_question", "required_unresolved_supported", "supported_goals",
             "supported_compile_ready", "supported_compile_violations",
+            "goal_without_operand_and_without_reason", "diagnostic_cascade_count",
+            "known_refs_false_unresolved", "compile_ready_goals", "required_unresolved",
+            "resolved_semantic_ready_goals", "optional_unresolved",
+            "aggregation_contradictions", "repairs",
+            "contract_errors", "provider_errors",
         )
     }
     return {

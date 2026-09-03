@@ -29,10 +29,10 @@ from dataclasses import dataclass, field
 #   (prompt). Peut évoluer indépendamment de la structure.
 # Bumper l'une n'oblige pas à bumper l'autre. Toute sortie déclarant une version
 # de structure non supportée est REJETÉE (pas de réparation silencieuse).
-INTERPRETATION_SCHEMA_VERSION = "1.2"
+INTERPRETATION_SCHEMA_VERSION = "1.3"
 GOAL_TYPES_VERSION = "1.0"
-RESOLVED_PLAN_SCHEMA_VERSION = "2.0"
-CATALOG_SNAPSHOT_SCHEMA_VERSION = "1.0"
+RESOLVED_PLAN_SCHEMA_VERSION = "2.1"
+CATALOG_SNAPSHOT_SCHEMA_VERSION = "1.2"
 # Alias de compatibilité interne. Contrairement à l'historique, il désigne
 # désormais le contrat résolu, versionné indépendamment de l'interprétation.
 PLAN_SCHEMA_VERSION = RESOLVED_PLAN_SCHEMA_VERSION
@@ -244,8 +244,97 @@ def validate_interpretation(payload: dict) -> Interpretation:
     for i, t in enumerate(doc.unresolved_terms):
         _require(t.goal_id in ids, "unresolved_unknown_goal", f"$.unresolved_terms[{i}]", str(t.goal_id))
 
+    _validate_goal_semantics(doc)
+
     return Interpretation(goals=tuple(goals),
                           unresolved_terms=tuple(t.model_dump() for t in doc.unresolved_terms))
+
+
+_METHOD_REQUIRED = frozenset({"attribution", "segmentation", "affinity", "cohort", "correlation"})
+
+
+def _validate_goal_semantics(doc) -> None:
+    """Complétude C4 par type, sans inventer une décision analytique.
+
+    Une absence est tolérée uniquement lorsqu'un unresolved ou une ambiguïté du
+    même goal l'explique. C6 décidera ensuite si cela appelle une clarification
+    ou rend le goal non supporté.
+    """
+    unresolved_by_goal: dict[str, list] = {}
+    for term in doc.unresolved_terms:
+        unresolved_by_goal.setdefault(term.goal_id, []).append(term)
+
+    for index, goal in enumerate(doc.goals):
+        path = f"$.goals[{index}]"
+        reasons = unresolved_by_goal.get(goal.id, [])
+        explained = bool(reasons or goal.ambiguities)
+        operands = bool(
+            goal.entity_ref or goal.metrics or goal.dimensions or goal.filters
+            or goal.method or goal.temporal
+        )
+        _require(operands or explained, "goal_without_operand", path)
+
+        metric_refs = {metric.ref for metric in goal.metrics}
+        dimension_refs = {dimension.ref for dimension in goal.dimensions}
+        used_refs = ({goal.entity_ref} if goal.entity_ref else set()) | metric_refs | dimension_refs
+        used_refs |= {item.ref for item in goal.filters} | {item.ref for item in goal.sort}
+        if goal.temporal is not None:
+            used_refs.add(goal.temporal.dimension_ref)
+        for term in reasons:
+            _require(term.term not in used_refs, "resolved_ref_also_unresolved", path, term.term)
+
+        if goal.type == "count":
+            invalid = [metric for metric in goal.metrics
+                       if metric.aggregation not in {"count", "count_distinct"}]
+            _require(not invalid, "count_aggregation_mismatch", f"{path}.metrics")
+            countable = bool(goal.entity_ref or any(
+                metric.aggregation in {"count", "count_distinct"} for metric in goal.metrics
+            ))
+            _require(countable or explained, "count_operand_missing", path)
+
+        if goal.type == "aggregate":
+            _require(bool(goal.metrics) or explained, "aggregate_metric_missing", path)
+            if _intent_requests_average(goal.intent_text):
+                _require((not goal.metrics and explained)
+                         or any(metric.aggregation == "avg" for metric in goal.metrics),
+                         "average_aggregation_mismatch", f"{path}.metrics")
+
+        if goal.type == "distribution":
+            _require(bool(goal.dimensions) or explained, "distribution_dimension_missing", path)
+
+        if goal.type == "trend":
+            _require(bool(goal.metrics) or explained, "trend_metric_missing", path)
+            _require(goal.temporal is not None or explained, "trend_temporal_missing", path)
+
+        if goal.type == "ranking":
+            _require(bool(goal.entity_ref or goal.dimensions),
+                     "ranking_axis_missing", path)
+            _require(bool(goal.metrics) or explained, "ranking_metric_missing", path)
+            _require(bool(goal.sort) or explained, "ranking_sort_missing", path)
+            _require(goal.limit is not None or explained, "ranking_limit_missing", path)
+            for sort in goal.sort:
+                _require(sort.ref in metric_refs | dimension_refs,
+                         "ranking_sort_ref_not_selected", f"{path}.sort", sort.ref)
+
+        if goal.type == "correlation":
+            distinct = {metric.ref for metric in goal.metrics}
+            _require(len(distinct) >= 2 or explained,
+                     "correlation_requires_two_measures", path)
+
+        if goal.type == "attribution":
+            _require(bool(goal.metrics) or explained, "attribution_metric_missing", path)
+
+        if goal.type == "cohort":
+            _require(goal.temporal is not None or explained, "cohort_temporal_missing", path)
+
+        if goal.type in _METHOD_REQUIRED:
+            _require(goal.method is not None or explained, "exact_method_missing", path)
+
+
+def _intent_requests_average(intent_text: str) -> bool:
+    """Détecte uniquement le vocabulaire analytique AVG, jamais un terme métier."""
+    normalized = (intent_text or "").casefold()
+    return bool(re.search(r"\b(avg|average|mean|moyenn(?:e|es?)|moyen(?:ne|nes|s)?)\b", normalized))
 
 
 def _validate_filter_value(value: dict, path: str) -> None:
@@ -328,7 +417,7 @@ _RESOLUTION_KEYS = frozenset({
     "goal_id", "status", "compile_ready", "compile_blockers", "depends_on",
     "concepts", "coverage", "operation", "physical", "join_graph", "filters",
     "sort", "limit", "temporal", "grain", "pre_aggregations", "method",
-    "unsupported_reason", "clarification",
+    "unsupported_reason", "clarification", "readiness",
 })
 _EXECUTABLE_KEYS = frozenset({
     "operation", "physical", "join_graph", "filters", "sort", "limit",
@@ -417,6 +506,13 @@ def _validate_catalog_snapshot(snapshot, path: str) -> dict:
              "duplicate_snapshot_dimension", f"{path}.dimensions")
     _require(len({item.get("id") for item in snapshot["relations"]}) == len(snapshot["relations"]),
              "duplicate_snapshot_relation", f"{path}.relations")
+    for key in ("entities", "measures", "dimensions"):
+        _require(all(isinstance(item.get("aliases"), list)
+                     and all(isinstance(alias, str) and alias for alias in item["aliases"])
+                     for item in snapshot[key]),
+                 "bad_snapshot_aliases", f"{path}.{key}")
+    _require(all(isinstance(item.get("executable"), bool) for item in snapshot["relations"]),
+             "bad_snapshot_relation_executable", f"{path}.relations")
     return snapshot
 
 
@@ -460,6 +556,20 @@ def _validate_resolved_item(item, path: str, snapshot: dict) -> None:
     _require(isinstance(item.get("goal_id"), str) and item["goal_id"], "bad_goal_id", path)
     _require(item.get("status") in RESOLUTION_STATUS, "bad_status", path)
     _require(isinstance(item.get("compile_ready"), bool), "missing_compile_ready", path)
+    readiness = item.get("readiness")
+    _require(isinstance(readiness, dict), "missing_compile_readiness", f"{path}.readiness")
+    _no_extra_keys(readiness, frozenset({
+        "semantic_complete", "internally_consistent", "physically_resolved",
+        "analytically_safe",
+    }), f"{path}.readiness")
+    _require(all(isinstance(readiness.get(key), bool) for key in (
+        "semantic_complete", "internally_consistent", "physically_resolved",
+        "analytically_safe",
+    )), "bad_compile_readiness", f"{path}.readiness")
+    if item["status"] == "SUPPORTED":
+        _require(item["compile_ready"] is True, "supported_not_compile_ready", path)
+    _require(item["compile_ready"] == all(readiness.values()),
+             "compile_readiness_mismatch", f"{path}.compile_ready")
     blockers = item.get("compile_blockers")
     _require(isinstance(blockers, list) and all(isinstance(value, str) for value in blockers),
              "bad_compile_blockers", path)
@@ -471,8 +581,6 @@ def _validate_resolved_item(item, path: str, snapshot: dict) -> None:
              "incoherent_goal_coverage", f"{path}.coverage.status")
 
     # Invariant éliminatoire P0-B : aucun SUPPORTED seulement théorique.
-    if item["status"] == "SUPPORTED":
-        _require(item["compile_ready"] is True, "supported_not_compile_ready", path)
     if item["compile_ready"]:
         _require(not blockers, "compile_ready_with_blockers", path)
         _require(_EXECUTABLE_KEYS <= set(item), "compile_ready_missing_instruction", path)
@@ -499,6 +607,14 @@ def _validate_executable(item: dict, path: str, snapshot: dict) -> None:
              and not isinstance(item["limit"], bool) and 1 <= item["limit"] <= 10000),
              "bad_limit", f"{path}.limit")
     _validate_temporal(item["temporal"], f"{path}.temporal")
+    if item["operation"]["kind"] == "ranking":
+        axes = item["operation"]["parameters"].get("ranked_axis_refs")
+        _require(isinstance(axes, list) and bool(axes),
+                 "ranking_axis_missing", f"{path}.operation.parameters.ranked_axis_refs")
+        _require(bool(item["operation"]["metrics"]),
+                 "ranking_metric_missing", f"{path}.operation.metrics")
+        _require(bool(item["sort"]), "ranking_sort_missing", f"{path}.sort")
+        _require(item["limit"] is not None, "ranking_limit_missing", f"{path}.limit")
     _validate_snapshot_bindings(item, path, snapshot)
     _validate_grain(item["grain"], f"{path}.grain")
     preaggs = item["pre_aggregations"]
@@ -553,6 +669,18 @@ def _validate_operation(operation, path: str) -> None:
     if operation["operator"] == "count_distinct":
         _require(bool(keys) and all(_qualified(key.get("physical")) for key in keys),
                  "count_distinct_key_missing", f"{path}.count_distinct_keys")
+        _require(all(mapping.get("aggregation") in {"count", "count_distinct"}
+                     for mapping in operation["metrics"]),
+                 "count_aggregation_mismatch", f"{path}.metrics")
+    expected_operator = {
+        "count": "count_distinct", "aggregate": "aggregate",
+        "trend": "time_series_aggregate", "ranking": "ranking",
+        "distribution": "distribution", "attribution": "attribution",
+        "segmentation": "segmentation", "affinity": "affinity",
+        "cohort": "cohort", "correlation": "correlation",
+    }[operation["kind"]]
+    _require(operation["operator"] == expected_operator,
+             "operation_kind_mismatch", f"{path}.operator")
     _require(isinstance(operation.get("parameters"), dict), "bad_operation_parameters", path)
 
 
@@ -600,9 +728,18 @@ def _validate_join_graph(graph, path: str, snapshot: dict) -> None:
     for index, edge in enumerate(edges):
         edge_path = f"{path}.edges[{index}]"
         _require(isinstance(edge, dict), "not_object", edge_path)
+        _no_extra_keys(edge, frozenset({
+            "validated_relation_id", "left_entity_ref", "left_alias", "left_key",
+            "right_entity_ref", "right_alias", "right_key", "cardinality",
+            "fanout_risk", "direction", "declared_direction", "origin", "status",
+            "validation_status", "coverage", "target_uniqueness", "evidence",
+            "provenance",
+        }), edge_path)
         relation_id = edge.get("validated_relation_id")
         _require(relation_id in relation_index, "join_relation_not_in_snapshot", edge_path)
         relation = relation_index[relation_id]
+        _require(relation.get("executable") is True,
+                 "join_relation_not_executable", edge_path)
         forward = (
             edge.get("left_entity_ref"), edge.get("right_entity_ref"),
             edge.get("left_key"), edge.get("right_key"), edge.get("cardinality"),
@@ -621,6 +758,13 @@ def _validate_join_graph(graph, path: str, snapshot: dict) -> None:
         )
         _require(forward in (expected_forward, expected_inverse),
                  "join_edge_not_in_snapshot", edge_path)
+        is_forward = forward == expected_forward
+        _require(edge.get("direction") == ("forward" if is_forward else "inverse"),
+                 "bad_join_direction", edge_path)
+        for key in ("declared_direction", "origin", "status", "validation_status",
+                    "coverage", "target_uniqueness", "evidence", "provenance"):
+            _require(edge.get(key) == relation.get(key),
+                     "join_provenance_not_in_snapshot", f"{edge_path}.{key}")
         _require(_qualified(edge.get("left_key")) and _qualified(edge.get("right_key")),
                  "bad_join_key", edge_path)
         _require(edge.get("cardinality") in CARDINALITIES, "bad_cardinality", edge_path)

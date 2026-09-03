@@ -17,7 +17,7 @@ from app.analysis.capability.model import (
     STRAT_SEMI_ADDITIVE,
 )
 from app.analysis.capability.resolver import resolve
-from app.analysis.contracts import validate_interpretation
+from app.analysis.contracts import INTERPRETATION_SCHEMA_VERSION, validate_interpretation
 
 _BASE_ENTITIES = [
     {"ref": "concept:order", "grain_keys": ["order_id"], "physical": "orders"},
@@ -35,12 +35,18 @@ def _ctx(measures, relations, dimensions, **extra):
 
 
 def _goal(gtype, metrics=(), dims=(), entity="concept:order"):
-    g = {"id": "g1", "priority": 1, "type": gtype, "intent_text": "x", "entity_ref": entity}
-    if metrics:
-        g["metrics"] = [{"ref": m} for m in metrics]
-    if dims:
-        g["dimensions"] = [{"ref": d} for d in dims]
-    return validate_interpretation({"plan_schema_version": "1.2", "unresolved_terms": [], "goals": [g]})
+    g = {
+        "id": "g1", "priority": 1, "type": gtype, "intent_text": "x",
+        "entity_ref": entity, "entity_label": None,
+        "metrics": [{"ref": m, "of_ref": None, "aggregation": "sum"} for m in metrics],
+        "dimensions": [{"ref": d} for d in dims], "filters": [], "method": None,
+        "depends_on": [], "ambiguities": [], "binning_requested": False,
+        "sort": [], "limit": None, "temporal": None,
+    }
+    return validate_interpretation({
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
+        "unresolved_terms": [], "goals": [g],
+    })
 
 
 _REV = [{"ref": "metric:net_revenue", "home_entity": "concept:order", "additivity": "full",

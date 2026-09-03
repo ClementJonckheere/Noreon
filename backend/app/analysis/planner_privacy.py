@@ -35,6 +35,10 @@ CATALOG_ALLOWLIST = frozenset({
     "entity_ref", "entity_label", "metric_ref", "metric_label",
     "dimension_ref", "dimension_label", "data_type", "unit",
     "relation_ref", "cardinality", "row_count_bucket",
+    "aliases", "analytical_role", "from_entity_ref", "to_entity_ref",
+    "from_key", "to_key", "direction", "origin", "status",
+    "validation_status", "executable", "coverage", "target_uniqueness",
+    "evidence", "provenance",
 })
 
 

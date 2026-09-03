@@ -15,7 +15,7 @@ from app.analysis.planner_privacy import sanitize_question
 from app.analysis.shadow.service import question_hash
 from app.models.planner_shadow import PlannerShadowEvaluation
 
-SHADOW_EXPORT_SCHEMA_VERSION = "1.0"
+SHADOW_EXPORT_SCHEMA_VERSION = "1.1"
 
 
 def latest_rows(session, *, limit: int, tenant_id: int | None = None):
@@ -88,6 +88,8 @@ def serialize_row(row, *, matched_case: dict | None = None,
         },
         "artifacts": {
             "interpretation": row.llm_plan_json,
+            "provider_raw": getattr(row, "provider_raw_json", None),
+            "normalized_interpretation": getattr(row, "normalized_interpretation_json", None),
             "capability_resolution": row.capability_resolution_json,
             "resolved_plan": row.resolved_plan_json,
             "legacy_execution_projection": row.legacy_execution_projection_json,

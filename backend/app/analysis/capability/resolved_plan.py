@@ -46,6 +46,7 @@ def catalog_snapshot(context: ResolutionContext) -> dict:
             "ref": entity.ref,
             "physical_table": entity.physical,
             "grain_keys": entity_grain_keys(context, entity.ref),
+            "aliases": list(entity.aliases),
         }
         for entity in sorted(context.entities.values(), key=lambda value: value.ref)
     ]
@@ -57,6 +58,7 @@ def catalog_snapshot(context: ResolutionContext) -> dict:
             "data_type": measure.data_type or "unknown",
             "additivity": measure.additivity,
             "non_additive_dimensions": sorted(measure.non_additive_dims),
+            "aliases": list(measure.aliases),
         }
         for measure in sorted(context.measures.values(), key=lambda value: value.ref)
     ]
@@ -67,6 +69,7 @@ def catalog_snapshot(context: ResolutionContext) -> dict:
             "physical": dimension.physical,
             "data_type": dimension.data_type or "unknown",
             "is_temporal": dimension.is_temporal,
+            "aliases": list(dimension.aliases),
         }
         for dimension in sorted(context.dimensions.values(), key=lambda value: value.ref)
     ]
@@ -80,9 +83,16 @@ def catalog_snapshot(context: ResolutionContext) -> dict:
             "cardinality": relation.cardinality,
             "status": relation.status,
             "origin": relation.origin,
+            "direction": relation.direction,
+            "declared_direction": relation.direction,
+            "validation_status": relation.validation_status,
+            "coverage": relation.coverage,
+            "target_uniqueness": relation.target_uniqueness,
+            "evidence": relation.evidence,
+            "provenance": list(relation.provenance),
+            "executable": relation.is_executable,
         }
         for relation in sorted(context.relations, key=lambda value: value.id)
-        if relation.is_system_validated
     ]
     body = {
         "schema_version": CATALOG_SNAPSHOT_SCHEMA_VERSION,
@@ -227,6 +237,15 @@ def join_graph(context: ResolutionContext, tree: JoinTreeResult) -> dict:
             "right_key": right_key,
             "cardinality": cardinality,
             "fanout_risk": cardinality in ("one_to_many", "many_to_many"),
+            "direction": "inverse" if inverse else "forward",
+            "declared_direction": relation.direction,
+            "origin": relation.origin,
+            "status": relation.status,
+            "validation_status": relation.validation_status,
+            "coverage": relation.coverage,
+            "target_uniqueness": relation.target_uniqueness,
+            "evidence": relation.evidence,
+            "provenance": list(relation.provenance),
         })
         joined.add(right_ref)
         pending.remove(relation_id)

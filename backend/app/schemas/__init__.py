@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -178,6 +179,7 @@ class ConceptMappingOut(BaseModel):
     table_name: str
     column_name: str
     confidence: float
+    analytical_roles: list[str]
     rationale: str
     status: str
     needs_arbitration: bool
@@ -190,6 +192,9 @@ class MappingReviewIn(BaseModel):
     action: str = Field(..., pattern="^(validate|reject|correct)$")
     concept_name: str | None = None  # requis pour correct
     note: str | None = None
+    analytical_roles: list[
+        Literal["entity_key", "measure", "dimension", "temporal", "attribute"]
+    ] | None = None
 
 
 class ConceptCreateIn(BaseModel):

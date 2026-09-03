@@ -51,7 +51,8 @@ def _mapping_out(m: ConceptMapping, c: BusinessConcept) -> ConceptMappingOut:
     return ConceptMappingOut(
         id=m.id, concept_name=c.name, concept_description=c.description,
         schema_name=m.schema_name, table_name=m.table_name, column_name=m.column_name,
-        confidence=m.confidence, rationale=m.rationale, status=m.status,
+        confidence=m.confidence, analytical_roles=list(m.analytical_roles or []),
+        rationale=m.rationale, status=m.status,
         needs_arbitration=m.needs_arbitration, arbitration_note=m.arbitration_note,
         review_note=m.review_note, reviewed_at=m.reviewed_at,
     )
@@ -108,6 +109,9 @@ def review_mapping(
         mapping.status = "corrected"
         mapping.needs_arbitration = False
 
+    if payload.action in {"validate", "correct"} and payload.analytical_roles is not None:
+        mapping.analytical_roles = list(dict.fromkeys(payload.analytical_roles))
+
     mapping.reviewed_at = now
     mapping.reviewed_by = "user"
     mapping.review_note = payload.note
@@ -143,6 +147,7 @@ def export_dictionary(
             "colonne": m.column_name,
             "statut": m.status,
             "confiance": m.confidence,
+            "roles_analytiques": ";".join(m.analytical_roles or []),
             "justification": m.rationale,
         }
         for m, c in rows

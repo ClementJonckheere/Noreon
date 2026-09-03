@@ -53,30 +53,40 @@ class DictCatalogAdapter(CapabilityCatalogAdapter):
         for e in spec.get("entities", []):
             entities[e["ref"]] = Entity(
                 ref=e["ref"], grain_keys=tuple(e.get("grain_keys") or ()),
-                physical=e.get("physical"), grain_key_types=dict(e.get("grain_key_types") or {}))
+                physical=e.get("physical"), grain_key_types=dict(e.get("grain_key_types") or {}),
+                aliases=tuple(e.get("aliases") or ()))
         measures = {}
         for m in spec.get("measures", []):
             measures[m["ref"]] = Measure(
                 ref=m["ref"], home_entity=m.get("home_entity", ""),
                 additivity=m.get("additivity", ADD_FULL),
                 non_additive_dims=frozenset(m.get("non_additive_dims") or ()),
-                physical=m.get("physical"), data_type=m.get("data_type"))
+                physical=m.get("physical"), data_type=m.get("data_type"),
+                aliases=tuple(m.get("aliases") or ()))
         dimensions = {}
         for d in spec.get("dimensions", []):
             dimensions[d["ref"]] = Dimension(
                 ref=d["ref"], home_entity=d.get("home_entity", ""),
                 physical=d.get("physical"), data_type=d.get("data_type"),
-                is_temporal=bool(d.get("is_temporal", False)))
+                is_temporal=bool(d.get("is_temporal", False)),
+                aliases=tuple(d.get("aliases") or ()))
         relations = tuple(
             Relation(id=int(r["id"]), from_entity=r["from_entity"], to_entity=r["to_entity"],
                      cardinality=normalize_cardinality(r.get("cardinality")),
                      from_key=r.get("from_key"), to_key=r.get("to_key"),
                      status=r.get("status", "candidate"), origin=r.get("origin", "inferred"),
-                     coverage=r.get("coverage"), target_uniqueness=r.get("target_uniqueness"))
+                     coverage=r.get("coverage"), target_uniqueness=r.get("target_uniqueness"),
+                     direction=r.get("direction", "from_to"),
+                     validation_status=r.get("validation_status"),
+                     evidence=r.get("evidence"),
+                     provenance=tuple(r.get("provenance") or ()),
+                     executable=r.get("executable"))
             for r in spec.get("relations", []))
         pol = spec.get("policy") or {}
         return ResolutionContext(
-            entities=entities, measures=measures, dimensions=dimensions, relations=relations,
+            entities=entities, measures=measures, dimensions=dimensions,
+            column_roles={key: tuple(value) for key, value in (spec.get("column_roles") or {}).items()},
+            relations=relations,
             freshness=spec.get("freshness") or {}, quality=spec.get("quality") or {},
             access=spec.get("access") or {},
             policy=ResolutionPolicy(

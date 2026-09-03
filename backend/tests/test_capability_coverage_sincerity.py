@@ -10,7 +10,7 @@ import pytest
 from app.analysis.capability.adapter import DictCatalogAdapter
 from app.analysis.capability.model import S_RESERVE, S_UNRESOLVED
 from app.analysis.capability.resolver import resolve
-from app.analysis.contracts import validate_interpretation
+from app.analysis.contracts import ContractError, INTERPRETATION_SCHEMA_VERSION, validate_interpretation
 
 
 def _context():
@@ -32,17 +32,22 @@ def _interpretation(term: str, role: str, *, necessity: str = "required", core: 
         "type": "aggregate",
         "intent_text": f"Analyser {term}",
         "entity_ref": "concept:subject" if core else None,
-        "metrics": [{"ref": "metric:value"}] if core else [],
-        "depends_on": [],
+        "entity_label": None,
+        "metrics": ([{"ref": "metric:value", "of_ref": None, "aggregation": "sum"}]
+                    if core else []),
+        "dimensions": [], "filters": [], "method": None, "depends_on": [],
+        "ambiguities": [], "binning_requested": False, "sort": [],
+        "limit": None, "temporal": None,
     }
     return validate_interpretation({
-        "plan_schema_version": "1.2",
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
         "goals": [goal],
         "unresolved_terms": [{
             "goal_id": "g1",
             "term": term,
             "role": role,
             "necessity": necessity,
+            "source_span": None,
             "reason": "absent du catalogue",
         }],
     })
@@ -116,16 +121,23 @@ def test_optional_cannot_disguise_a_goal_without_resolved_core():
     assert plan["coherence"]["coverage_status"] == "none"
 
 
-def test_missing_necessity_is_conservatively_required():
-    payload = validate_interpretation({
-        "plan_schema_version": "1.2",
+def test_missing_necessity_is_rejected_in_schema_13():
+    payload = {
+        "plan_schema_version": INTERPRETATION_SCHEMA_VERSION,
         "goals": [{
             "id": "g1", "priority": 1, "type": "aggregate",
             "intent_text": "Analyser la météo", "entity_ref": "concept:subject",
-            "metrics": [{"ref": "metric:value"}], "depends_on": [],
+            "entity_label": None,
+            "metrics": [{"ref": "metric:value", "of_ref": None, "aggregation": "sum"}],
+            "dimensions": [], "filters": [], "method": None, "depends_on": [],
+            "ambiguities": [], "binning_requested": False, "sort": [],
+            "limit": None, "temporal": None,
         }],
         "unresolved_terms": [{
             "goal_id": "g1", "term": "météo", "role": "dimension",
+            "source_span": None, "reason": None,
         }],
-    })
-    assert payload.unresolved_terms[0]["necessity"] == "required"
+    }
+    with pytest.raises(ContractError) as exc:
+        validate_interpretation(payload)
+    assert exc.value.code == "schema_invalid"

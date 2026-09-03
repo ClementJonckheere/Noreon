@@ -176,7 +176,7 @@
     "traversal": "many_to_many"
   },
   "s_balance_over_month": {
-    "compile_ready": true,
+    "compile_ready": false,
     "covers_question": false,
     "creates_row_multiplication": false,
     "join_graph": [],

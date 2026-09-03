@@ -1,6 +1,6 @@
 {
   "domain": "retail",
-  "plan_schema_version": "1.2",
+  "plan_schema_version": "1.3",
   "goals": [
     {
       "id": "g1",
@@ -8,20 +8,20 @@
       "type": "attribution",
       "intent_text": "Expliquer la baisse du chiffre d'affaires",
       "entity_ref": "concept:order",
-      "metrics": [
-        {
-          "ref": "metric:net_revenue"
-        }
-      ],
+      "entity_label": null,
+      "metrics": [{"ref": "metric:net_revenue", "of_ref": null, "aggregation": "sum"}],
       "dimensions": [
-        {
-          "ref": "dimension:product_category"
-        },
-        {
-          "ref": "dimension:region"
-        }
+        {"ref": "dimension:product_category"},
+        {"ref": "dimension:region"}
       ],
-      "depends_on": []
+      "filters": [],
+      "method": {"name": "descriptive_decomposition", "version": "1.0", "params": {}},
+      "depends_on": [],
+      "ambiguities": [],
+      "binning_requested": false,
+      "sort": [],
+      "limit": null,
+      "temporal": null
     }
   ],
   "unresolved_terms": []
