@@ -71,6 +71,7 @@ export interface Connection {
   read_only_detail: string | null;
   last_error: string | null;
   last_scanned_at: string | null;
+  spaces?: string[]; // espaces de rattachement (badge ; vide = non rattachée)
 }
 
 export interface Probe {
@@ -171,6 +172,7 @@ export interface QualityScore {
   score: number;
   detail: string;
   dimensions: QualityDimension[];
+  computed_at?: string | null;
 }
 
 export interface ConceptMapping {
@@ -287,6 +289,50 @@ export interface ChatResponse {
   } | null;
   // Sources citées : tables sur lesquelles s'appuie la réponse (comme un article).
   sources: { table: string; role: "principale" | "jointe"; quality_pct: number | null; level?: "strong" | "medium" | "weak" }[];
+  // Auto-critique : ce qui pourrait remettre en question la conclusion.
+  self_critique: string[];
+  // Chronologie narrée d'une tendance.
+  chronicle: {
+    periods: string[];
+    values: number[];
+    direction: "hausse" | "baisse" | "stable";
+    streak: number;
+    total_pct: number;
+    stable_prefix: string | null;
+    tempo: "accélération" | "ralentissement" | null;
+    narrative: string;
+  } | null;
+  // Objectif détecté derrière la question.
+  intent: string | null;
+  // Objectif reformulé en langage naturel.
+  intent_restated: string | null;
+  // Decision Engine : décisions adaptées au rôle.
+  decisions: {
+    intent: string;
+    intent_label: string;
+    restated: string;
+    inaction: string | null;
+    decisions: {
+      role: string;
+      priority: string;
+      recommendation: string;
+      justification: string;
+      impact: string | null;
+      impact_confidence: string | null;
+      effort: string;         // Faible | Moyen | Élevé
+      impact_level: string;   // Faible | Moyen | Élevé
+      stars: number;          // priorité effort/impact (1..5)
+      history: string | null; // mémoire métier (« déjà appliquée avec succès… »)
+    }[];
+  } | null;
+  // Sérendipité : découverte adjacente parfois plus importante que la demande.
+  serendipity: {
+    title: string;
+    detail: string;
+    table: string;
+    score: number;
+    score_label: string;
+  } | null;
   // « What if ? » : projection d'un scénario.
   simulation: {
     scenario: string;
@@ -321,6 +367,32 @@ export interface ChatResponse {
     trend_rows: any[][];
     journal: { t: string; phase: string; status: string; detail: string }[];
     revisions: string[];
+    // Vérification automatique : ce qui a été testé, chiffré (pas un journal introspectif).
+    verification?: {
+      text: string;
+      metric?: string;            // « contribution_to_change » : échelle unique
+      measure_label?: string;     // légende de la colonne (« part du recul concentrée »)
+      winner: { dimension: string; segment: string; pct: number };
+      tested: { dimension: string; segment: string; pct: number }[];
+    } | null;
+    // Semantic Layer : concept métier + lignage physique (pour la Preuve).
+    subject_label?: string;
+    measure_label_concept?: string;
+    lineage?: {
+      measure: {
+        concept: string; concept_id: string; table: string | null; column: string | null;
+        aggregation: string | null; physical_label: string;
+        definition_version: number | null; scope: string;
+      };
+      dimensions: {
+        concept: string; concept_id: string; physical: string | null; physical_label: string;
+        definition_version: number | null; scope: string;
+      }[];
+    };
+    concepts?: {
+      kind: string; id: string; label: string; definition_version: number | null;
+      scope: string; physical?: string | null; physical_label?: string;
+    }[];
   } | null;
   deep: {
     subject: string;
@@ -347,7 +419,17 @@ export interface ChatResponse {
   confidence: {
     percent: number;
     factors: string[];
-    breakdown?: { factor: string; weight_pct: number; subscore_pct: number; contribution_pct: number }[];
+    breakdown?: { factor: string; weight_pct: number; subscore_pct: number; contribution_pct: number; state?: "evaluated" | "partial" | "not_evaluated"; detail?: string | null }[];
+    // Confiance des tables RÉELLEMENT utilisées (dimensions + incidents).
+    quality?: {
+      state: "evaluated" | "partial" | "not_evaluated";
+      dimensions: { name: string; score: number; conform: boolean; detail: string | null }[];
+      conform_count: number;
+      total: number;
+      weak: string[];
+      incidents: { ref: string; table: string; dimension: string; severity: "reserve" | "bloquant"; score: number; detail: string | null; since: string | null }[];
+      tables: string[];
+    } | null;
   } | null;
   table_quality: Record<string, number>;
   chart: {
@@ -401,6 +483,7 @@ export interface Space {
   slug: string;
   description: string;
   connection_ids: number[];
+  mode?: "demo" | "live";
   created_at: string | null;
 }
 export interface SpaceDetail extends Space {
@@ -438,8 +521,211 @@ export interface ReportSummary {
   created_at: string | null;
   updated_at: string | null;
 }
+export interface MeasurementRunView {
+  id: number;
+  horizon_days: number;
+  raw_delta: number | null;
+  control_delta: number | null;
+  adjusted_delta: number | null;
+  result: "objectif_atteint" | "objectif_non_atteint" | "inconclusif" | "a_qualifier";
+  limitations: string[];
+  measured_at: string | null;
+}
+export interface MeasurementView {
+  measure_type: "impact" | "performance" | "completion" | "diagnostic";
+  metric_label: string;
+  threshold: number;
+  implemented_at: string | null;
+  baseline_frozen: boolean;
+  has_control: boolean;
+  latest_run: MeasurementRunView | null;
+  runs_count: number;
+}
+export interface MeasurementDetail {
+  action: { role: string; recommendation: string; status: string };
+  protocol: {
+    measure_type: string; metric_label: string; metric_concept_id: string;
+    target: string[]; target_table: string | null; comparison: string;
+    metric_definition_version: number | null;
+    control_selection: {
+      control_ids: string[]; matching_features: string[];
+      matching_score: number | null; pretrend_score: number | null; selection_at: string | null;
+      criteria?: { label: string; verdict: string; score: number | null; kind: "computed" | "declared" }[];
+      considered?: {
+        id: string; region: string | null; matching_score: number | null;
+        pretrend_score: number | null; retained: boolean; reason?: string;
+      }[] | null;
+      n_candidates?: number; n_control?: number; small_group?: boolean;
+    } | null;
+    threshold: number; protocol_version: number;
+    implemented_at: string | null;
+    baseline_window: { from: string; to: string; to_inclusive: string } | null;
+    baseline_target: number | null; baseline_control: number | null;
+    baseline_query_hash: string | null;
+  };
+  runs: {
+    id: number; horizon_days: number;
+    observation_window: { from: string; to: string; to_inclusive: string } | null;
+    baseline_target: number | null; baseline_control: number | null;
+    observed_target: number | null; observed_control: number | null;
+    raw_delta: number | null; control_delta: number | null; adjusted_delta: number | null;
+    result: string; limitations: string[]; query_hash: string | null;
+    snapshot_id: string | null; measured_at: string | null;
+  }[];
+}
+export interface FieldRef { schema: string; table: string; column: string; label: string; concept: string }
+export type RelationStatus = "candidate" | "needs_validation" | "validated" | "archived" | "rejected";
+export type RelationOrigin = "constraint" | "inferred" | "declared";
+export interface RelationAlternative { table: string; column: string; coverage: number }
+export interface RelationCandidateView extends Freshness {
+  id: number;
+  connection_id: number;
+  left: FieldRef;
+  right: FieldRef;
+  direction: string;
+  cardinality: string | null;
+  coverage: number | null;
+  target_uniqueness: number | null;
+  type_compatibility: string | null;
+  exceptions_count: number | null;
+  exceptions_note: string | null;
+  alternatives: RelationAlternative[];
+  origin: RelationOrigin;
+  valid_from: string | null;
+  valid_to: string | null;
+  status: RelationStatus;
+  validated_by: string | null;
+  validated_at: string | null;
+  validation_window: { from: string | null; to: string | null } | null;
+  evidence: Record<string, unknown> | null;
+}
+export interface RelationPreview {
+  analyses_possible: number;
+  concepts_linkable: number;
+  linkable_labels: string[];
+  examples: string[];
+}
+export type WorkItemKind =
+  | "concept_arbitration" | "relation_validation" | "quality_review"
+  | "access_approval" | "measurement_due" | "report_validation";
+export interface WorkItemView {
+  id: number;
+  kind: WorkItemKind;
+  object_type: string;
+  object_id: string;
+  title: string;
+  reason: string;
+  space_id: number | null;
+  space_label: string;
+  scope_label: string | null;
+  read: boolean;
+  created_at: string | null;
+}
+export interface ActivityView {
+  id: number;
+  kind: string;
+  title: string;
+  detail: string;
+  space_id: number | null;
+  space_label: string;
+  read: boolean;
+  created_at: string | null;
+}
+export interface NotificationsView {
+  to_process: WorkItemView[];
+  to_process_count: number;
+  activity: ActivityView[];
+}
+export type ConceptStatus = "validated" | "proposed" | "needs_arbitration" | "sans_source";
+export interface ConceptOverview {
+  id: number;
+  name: string;
+  description: string;
+  status: ConceptStatus;
+  definition_count: number;
+  reference_label: string | null;
+  reference_version: number | null;
+  scope_type: "universe" | "space";
+}
+export interface Freshness {
+  evaluated_at: string | null;
+  snapshot_id: string | null;
+  source_ids: number[];
+  is_stale: boolean;
+}
+export interface ConceptDefinitionView extends Freshness {
+  id: number;
+  label: string;
+  definition_text: string;
+  scope: string;
+  space_id: number | null;
+  status: string;
+  is_reference: boolean;
+  definition_version: number;
+  impact_count: number | null;
+  entity_label: string;
+  owner_ref: string | null;
+}
+export interface ConceptDetail extends ConceptOverview {
+  ambiguous: boolean;
+  definitions: ConceptDefinitionView[];
+}
+export interface ArbitrationPropagation {
+  answers_affected: number;
+  discoveries_to_recheck: number;
+  reports_preserved: number;
+  reports_to_revise: number;
+  preserved_labels: string[];
+  new_version: number | null;
+}
+export interface ArbitrationOption extends Freshness {
+  id: number;
+  label: string;
+  definition_text: string;
+  impact_count: number | null;
+  entity_label: string;
+  is_reference: boolean;
+}
+export interface ArbitrationPreview {
+  concept_id: number;
+  scope_type: "universe" | "space";
+  current_definition_id: number | null;
+  chosen_definition_id: number;
+  options: ArbitrationOption[];
+  chosen_is_stale: boolean;
+  any_stale: boolean;
+  propagation: ArbitrationPropagation;
+  new_version: number;
+  creates_new_version: boolean;
+}
+export interface PlanItem {
+  id: number;
+  role: string;
+  recommendation: string;
+  status: "retained" | "implemented" | "measured" | "abandoned" | "closed";
+  note: string | null;
+  connection_id: number;
+  analysis_label: string;
+  created_at: string | null;
+  measurement: MeasurementView | null;
+}
+export interface ReportVersionSummary {
+  version: number;
+  title: string;
+  label: string | null;
+  validated_by: string;
+  created_at: string | null;
+  block_count: number;
+}
+export interface ReportVersionFull extends ReportVersionSummary {
+  blocks: ReportBlock[];
+  source_tables: string[];
+}
 export interface ReportFull extends ReportSummary {
   blocks: ReportBlock[];
+  // Incidents qualité apparus sur les tables du rapport APRÈS sa validation.
+  posterior_incidents?: { ref: string; table: string; dimension: string; severity: "reserve" | "bloquant"; detail: string | null; since: string | null }[];
+  versions?: ReportVersionSummary[];
 }
 
 // ---- Découvertes (suggestions automatiques) ----
@@ -453,6 +739,19 @@ export interface DiscoveryItem {
   table: string | null;
   column: string | null;
   suggested_question: string | null;
+  key: string;
+  score: number;  // Insight Score /100
+  score_label: string;  // « Prioritaire », « À surveiller »…
+  score_parts: { impact: number; novelty: number; confidence: number; business: number };
+}
+export interface DiscoveryComparison {
+  first_run: boolean;
+  new: number;
+  resolved: number;
+  confirmed: number;
+  new_by_category: Record<string, number>;
+  resolved_by_category: Record<string, number>;
+  confirmed_by_category: Record<string, number>;
 }
 export interface AnalysisContext {
   amount_basis: "TTC" | "HT" | null;
@@ -514,11 +813,14 @@ export interface Discoveries {
   fingerprint?: DiscoveryFingerprint;
   // Composants ayant changé depuis le dernier calcul (pourquoi l'insight a été refait).
   stale_reason?: string[];
+  // Rapports comparables : diff vs le relevé précédent.
+  comparison?: DiscoveryComparison | null;
 }
 
 // ---- Endpoints ----
 export const api = {
-  listConnections: () => request<Connection[]>("/connections"),
+  listConnections: (spaceId?: number | null) =>
+    request<Connection[]>(`/connections${spaceId != null ? `?space_id=${spaceId}` : ""}`),
   getConnection: (id: number) => request<Connection>(`/connections/${id}`),
   createConnection: (payload: any) =>
     request<CreateResult>("/connections", {
@@ -590,6 +892,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question, deep_analysis: deep }),
     }),
+  // Mémoire métier : retour d'un décideur sur une recommandation.
+  decisionFeedback: (
+    id: number,
+    body: { subject: string; role: string; recommendation: string; status: string; note?: string },
+  ) =>
+    request<{ id: number; status: string; subject: string }>(
+      `/connections/${id}/decisions/feedback`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   queries: (id: number) => request<any[]>(`/connections/${id}/queries`),
   discoveries: (id: number, force = false) =>
     request<Discoveries>(`/connections/${id}/discoveries${force ? "?refresh=true" : ""}`),
@@ -746,6 +1057,54 @@ export const api = {
     }),
   reportExportUrl: (rid: number, format: "docx" | "pdf" | "md") =>
     `${API_BASE}/reports/${rid}/export?format=${format}`,
+  // --- Plan d'action ---
+  // Cloisonné par espace : une action portée par une source hors de l'espace
+  // courant n'est pas renvoyée (un scénario de démo ne fuite jamais dans un live).
+  plan: (includeClosed = false, spaceId?: number | null) => {
+    const qs = new URLSearchParams();
+    if (includeClosed) qs.set("include_closed", "true");
+    if (spaceId != null) qs.set("space_id", String(spaceId));
+    const q = qs.toString();
+    return request<PlanItem[]>(`/plan${q ? `?${q}` : ""}`);
+  },
+  planUpdate: (id: number, body: { status?: string; note?: string }) =>
+    request<PlanItem>(`/plan/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  planMeasure: (id: number) => request<PlanItem>(`/plan/${id}/measure`, { method: "POST" }),
+  measurementDetail: (id: number) => request<MeasurementDetail>(`/plan/${id}/measurement`),
+
+  // --- Concepts & arbitrage (générique : « Magasin actif » n'est que de la donnée) ---
+  // Résolus pour l'espace courant : définition héritée de l'Univers ou surchargée.
+  conceptsOverview: (spaceId?: number | null) =>
+    request<ConceptOverview[]>(`/concepts/overview${spaceId != null ? `?space_id=${spaceId}` : ""}`),
+  conceptDetail: (id: number, spaceId?: number | null) =>
+    request<ConceptDetail>(`/concepts/${id}${spaceId != null ? `?space_id=${spaceId}` : ""}`),
+  conceptArbitrationPreview: (id: number, definitionId: number, spaceId?: number | null) =>
+    request<ArbitrationPreview>(`/concepts/${id}/arbitration-preview?definition_id=${definitionId}${spaceId != null ? `&space_id=${spaceId}` : ""}`),
+  conceptRecomputeImpact: (id: number, definitionId: number) =>
+    request<ConceptDefinitionView>(`/concepts/${id}/definitions/${definitionId}/recompute`, { method: "POST" }),
+  conceptArbitrate: (id: number, definitionId: number, spaceId?: number | null) =>
+    request<ConceptDetail>(`/concepts/${id}/arbitrate?definition_id=${definitionId}${spaceId != null ? `&space_id=${spaceId}` : ""}`, { method: "POST" }),
+
+  // --- Relations candidates (générique : évaluées sur des faits, jamais un nom métier) ---
+  relationCandidates: (connectionId?: number | null, spaceId?: number | null) => {
+    const qs = new URLSearchParams();
+    if (connectionId != null) qs.set("connection_id", String(connectionId));
+    if (spaceId != null) qs.set("space_id", String(spaceId));
+    const q = qs.toString();
+    return request<RelationCandidateView[]>(`/relations${q ? `?${q}` : ""}`);
+  },
+  relationDetail: (id: number) => request<RelationCandidateView>(`/relations/${id}`),
+  relationPreview: (id: number) => request<RelationPreview>(`/relations/${id}/preview`),
+  relationValidate: (id: number) => request<RelationCandidateView>(`/relations/${id}/validate`, { method: "POST" }),
+  relationReject: (id: number) => request<RelationCandidateView>(`/relations/${id}/reject`, { method: "POST" }),
+
+  // --- Notifications : À traiter (WorkItem) + Suivi (ActivityEvent) ---
+  notifications: () => request<NotificationsView>(`/notifications`),
+  notificationsMarkRead: () => request<NotificationsView>(`/notifications/read`, { method: "POST" }),
+
+  reportValidate: (rid: number) => request<ReportFull>(`/reports/${rid}/validate`, { method: "POST" }),
+  reportVersions: (rid: number) => request<ReportVersionSummary[]>(`/reports/${rid}/versions`),
+  reportVersion: (rid: number, v: number) => request<ReportVersionFull>(`/reports/${rid}/versions/${v}`),
 
   // --- Conversations d'espace ---
   spaceConvList: (sid: number, archived = false) =>

@@ -54,12 +54,19 @@ class _Col:
     data_type: str
     is_pk: bool
     profile: ColumnProfile | None = None
+    is_fk: bool = False   # renseigné par _load_schema à partir des relations
 
     @property
     def is_numeric(self) -> bool:
         d = self.data_type.lower()
         num = any(k in d for k in ("int", "numeric", "decimal", "real", "double", "float", "money", "dec"))
         return num and "point" not in d
+
+    @property
+    def _is_integer_type(self) -> bool:
+        d = self.data_type.lower()
+        return (("int" in d or "serial" in d)
+                and not any(k in d for k in ("numeric", "decimal", "real", "double", "float", "money")))
 
     @property
     def is_temporal(self) -> bool:
@@ -72,6 +79,18 @@ class _Col:
     def is_key_like(self) -> bool:
         n = self.name.lower()
         return self.is_pk or n == "id" or n.endswith("_id") or n.endswith("id")
+
+    @property
+    def is_identifier(self) -> bool:
+        """Identifiant probable — À PARTIR DES DONNÉES, pas seulement du nom.
+        Clé, FK déclarée/inférée, nom en `xxx_id`, OU entier quasi-unique
+        (distinct_ratio ≈ 1) : c'est un identifiant, jamais une mesure ni un axe.
+        Robuste aux colonnes opaques (« x17 », « col_002 »)."""
+        if self.is_key_like or self.is_fk:
+            return True
+        p = self.profile
+        return bool(self._is_integer_type and p and p.distinct_ratio is not None
+                    and p.distinct_ratio >= 0.98)
 
 
 @dataclass
@@ -148,6 +167,13 @@ def _load_schema(db: Session, connection_id: int) -> _Schema | None:
             )
         ).scalars().all()
     ]
+    # Marque les colonnes portant une relation (FK) — pour exclure des mesures/axes
+    # même quand leur nom n'est pas parlant (« col_002 »).
+    for rel in relations:
+        t = tables.get(rel.from_table)
+        c = t.col(rel.from_column) if t else None
+        if c is not None:
+            c.is_fk = True
     return _Schema(tables=tables, relations=relations)
 
 
@@ -246,11 +272,11 @@ def _candidate_dimensions(
         if col.is_temporal:
             add(_Dimension(label=f"{col.name} (par mois)",
                            expr=_date_bucket(adapter, "month", col_sql), kind="temporal"))
-        elif col.is_numeric and not col.is_key_like:
+        elif col.is_numeric and not col.is_identifier:
             band = _numeric_band_expr(adapter, col, fa)
             if band is not None:
                 add(band)
-        elif not col.is_key_like and _is_low_cardinality(col):
+        elif not col.is_identifier and _is_low_cardinality(col):
             add(_Dimension(label=col.name, expr=col_sql, kind="categorical"))
 
     # Dimensions des tables liées (1 saut) : fact.<fk> -> dim.<pk>.
@@ -268,7 +294,7 @@ def _candidate_dimensions(
         )
         added_here = False
         for col in dim_table.columns:
-            if _is_pii(col) or col.is_key_like:
+            if _is_pii(col) or col.is_identifier:
                 continue
             if col.is_temporal:
                 band = None  # les périodes d'une dimension liée restent secondaires
@@ -519,18 +545,31 @@ _COUNT_INTENT = re.compile(r"\b(combien|nombre|count|compter|how many|effectif)\
 
 
 def _pick_measure(adapter, fact: _Table, question: str) -> _Measure:
+    # Une mesure additive n'est ni un identifiant (clé/FK/entier quasi-unique) ni
+    # une date. Le filtre `is_identifier` s'appuie sur les DONNÉES : il tient même
+    # quand les colonnes sont opaques (« col_003 »).
     numeric = [
         c for c in fact.columns
-        if c.is_numeric and not c.is_key_like and not _is_pii(c)
+        if c.is_numeric and not c.is_identifier and not c.is_temporal and not _is_pii(c)
     ]
     # Question de dénombrement (« combien de clients ») : la valeur ajoutée n'est
     # pas de sommer une mesure au hasard, mais de dresser le PROFIL de la
     # population (qui sont-ils : âge, ville, genre…). Métrique = effectif.
     measure = None
     if not _COUNT_INTENT.search(question):
+        # 1) Indice de NOM : rapide et fiable quand le nom parle (« amount », « cout »).
         measure = next(
             (c for c in numeric if any(k in c.name.lower() for k in _MEASURE_HINTS)), None
         )
+        # 2) Sinon, DÉTECTION PAR LES DONNÉES : la mesure est la variable numérique
+        # la plus « continue » (le plus de valeurs distinctes), ni clé ni catégorie.
+        # C'est ce qui permet de comprendre une base aux colonnes anonymisées.
+        if measure is None:
+            def _richness(c: _Col) -> int:
+                return (c.profile.distinct_count or 0) if c.profile else 0
+            continuous = [c for c in numeric if not _is_low_cardinality(c) and _richness(c) > 0]
+            if continuous:
+                measure = max(continuous, key=_richness)
     if measure is None:
         return _Measure(sql=None, column=None,
                         label=f"effectif de « {fact.name} » (nombre de lignes)",

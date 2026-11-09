@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_owned_connection
+from app.api.deps import get_owned_connection, require_analyst
 from app.core.db import get_db
 from app.models.connection import Connection
 from app.models.query_log import QueryLog
-from app.schemas import ChatRequest
+from app.schemas import ChatRequest, DecisionFeedback
 from app.services import chat as chat_svc
 
 router = APIRouter(prefix="/connections/{connection_id}", tags=["chat"])
@@ -23,6 +23,7 @@ def ask(
     response = chat_svc.answer_question(
         db, conn, payload.question,
         run_analysis=payload.run_analysis, deep_analysis=payload.deep_analysis,
+        request_id=payload.request_id,
     )
     db.commit()
     return response.as_dict()
@@ -43,7 +44,32 @@ def discoveries(
     from app.services.connections import get_source_adapter
 
     adapter = get_source_adapter(conn)
-    return disc_svc.cached_discoveries(db, conn, adapter, force=refresh)
+    out = disc_svc.cached_discoveries(db, conn, adapter, force=refresh)
+    db.commit()  # persiste le relevé de référence (rapports comparables)
+    return out
+
+
+@router.post("/decisions/feedback")
+def decision_feedback(
+    payload: DecisionFeedback,
+    conn: Connection = Depends(get_owned_connection),
+    _: object = Depends(require_analyst),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Journalise le retour d'un décideur sur une recommandation (mémoire métier).
+
+    Human-in-the-loop : c'est l'humain qui qualifie le résultat (retenue, mise en
+    œuvre, réussie, abandonnée). La fois suivante, sur un sujet comparable, une
+    recommandation proche est annotée « déjà appliquée avec succès… »."""
+    from app.services import decision_memory as dmem_svc
+
+    rec = dmem_svc.record_feedback(
+        db, conn.id, conn.tenant_id,
+        subject=payload.subject, role=payload.role,
+        recommendation=payload.recommendation, status=payload.status, note=payload.note,
+    )
+    db.commit()
+    return {"id": rec.id, "status": rec.status, "subject": rec.subject}
 
 
 @router.get("/queries")

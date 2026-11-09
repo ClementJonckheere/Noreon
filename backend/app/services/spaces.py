@@ -154,10 +154,20 @@ def governance_view(db: Session, space_id: int, connection_id: int) -> dict:
     return {"scanned": True, "tables": out}
 
 
+# Un espace « démo » porte le scénario vitrine (fixtures déterministes) ; un
+# espace « live » ne mélange jamais de données vitrines aux données réelles.
+# Dérivé du nom/slug pour l'instant ; cible : une vraie colonne `mode` sur Space
+# (le frontend doit connaître le mode par l'objet Espace, pas par le build).
+def space_mode(space: Space) -> str:
+    hay = f"{space.name or ''} {space.slug or ''}".lower()
+    return "demo" if ("démo" in hay or "demo" in hay) else "live"
+
+
 def space_dict(db: Session, space: Space) -> dict:
     conn_ids = space_connection_ids(db, space.id)
     return {
         "id": space.id, "name": space.name, "slug": space.slug,
         "description": space.description, "connection_ids": conn_ids,
+        "mode": space_mode(space),
         "created_at": space.created_at.isoformat() if space.created_at else None,
     }

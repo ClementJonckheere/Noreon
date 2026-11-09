@@ -1,0 +1,7 @@
+{
+  "question": "Pourquoi la marge diminue-t-elle ?",
+  "intent": "diagnostic",
+  "trend_direction": "baisse",
+  "attribution": { "dimension_contains": "ligne_produit", "segment_contains": "Composants", "min_contribution_pct": 80 },
+  "lead_role": "Directeur produit"
+}

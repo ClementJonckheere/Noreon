@@ -1,0 +1,56 @@
+# Noreon Challenge
+
+> Des scénarios conçus pour **casser** le moteur. Le but n'est pas d'avoir 100 —
+> le but, c'est que le moteur **apprenne**.
+
+Contrairement aux 5 scénarios métier (une cause nette, vérifiable), les challenges
+sont **adversariaux** : cause diffuse, causes multiples, données contradictoires,
+saisonnalité + promotion, causalité inversée, qualité catastrophique, faux
+positifs, colonnes opaques… Chaque challenge documente sa **difficulté**, la
+**réponse idéale**, et — s'il reste — la **limite connue** du moteur.
+
+```bash
+sudo -u postgres bash demo/setup_scenario.sh challenge/<nom>
+cd backend && python ../demo/benchmark.py --challenge     # verdict par challenge
+cd backend && python ../demo/verify.py challenge/<nom>    # sortie détaillée
+```
+
+Le benchmark affiche `APPRIS ✅` quand le moteur gère le piège, `À CORRIGER ❌`
+sinon (avec la limite). C'est le moteur de la boucle scientifique :
+
+```
+Challenge → Le moteur se trompe → On corrige → Le challenge passe → Nouveau challenge
+```
+
+## Challenges livrés
+
+| Challenge | Piège | État |
+|---|---|---|
+| `cause_diffuse/` | Baisse **systémique** (aucun coupable localisé) — le moteur retombait sur une tautologie (« le plus gros segment »). | **APPRIS ✅** (lift ≥ 1.5 + « baisse généralisée », ADR D-33) |
+| `colonnes_opaques_n1/` | **Toutes les colonnes opaques** (`col_003`, `a3`…) — le moteur ne peut plus lire les noms. | **APPRIS ✅** (mesure + cause par les DONNÉES/VALEURS, ADR D-34 ; **+ décideur par le concept**, ADR D-35) |
+| `colonnes_opaques_n2/` | Colonnes opaques **ET aucune FK déclarée** — la relation vers les régions doit être devinée. | **APPRIS ✅** (relation inférée par **recouvrement de valeurs**, ADR D-37) |
+| `causes_multiples/` | La baisse se répartit sur **3 foyers** (~40/35/25 %) — pas de cause unique. | **APPRIS ✅** (attribution single / **multi** / diffuse, ADR D-36) |
+| `saisonnalite/` | La baisse des 4 derniers mois est un **creux estival** normal (se répète chaque année). | **APPRIS ✅** (glissement annuel → « saisonnière, pas d'anomalie », ADR D-38) |
+| `qualite_catastrophique/` | Montants et dates **majoritairement manquants** — trop troué pour conclure. | **APPRIS ✅** (abstention honnête « je ne peux pas conclure », ADR D-39) |
+
+> **Colonnes opaques — la preuve la plus forte.** Même scénario que retail (PACA
+> 97 %), tous les noms rendus opaques. Noreon retrouve la mesure (`col_003`) par son
+> profil, la cause (« Provence-Alpes-Côte d'Azur ») par la valeur du segment, **et le
+> décideur (Directeur réseau) par le concept** (valeurs = régions → zone
+> géographique). Il comprend les **données**, pas le schéma. Valide P-01 et P-02
+> (`demo/PROPERTIES.md`).
+
+## Prochains challenges (feuille de route)
+
+- **Colonnes opaques N2** : FK **non déclarées** → inférer la relation par
+  recouvrement de valeurs (la vraie robustesse « données, pas schéma »).
+- **Colonnes opaques N3** : valeurs bruitées + synonymes métier (client → adhérent).
+- **Causes multiples** (40/35/25 %) : nommer les trois, pas une seule.
+- **Deux causes simultanées** (fermeture magasin + changement de prix).
+- **Saisonnalité + promotion** : « la baisse dépasse la saisonnalité habituelle ».
+- **Qualité catastrophique** : savoir dire « je ne peux pas conclure ».
+- **Causalité inversée** (promotions ↑ *parce que* ventes ↓) — à garder pour plus tard.
+
+> Chaque challenge résolu laisse derrière lui une **amélioration réelle du moteur**
+> — pas une fonctionnalité ajoutée « au cas où », mais une correction dictée par un
+> échec mesuré.

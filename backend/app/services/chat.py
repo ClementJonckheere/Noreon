@@ -55,6 +55,18 @@ class ChatResponse:
     sources: list[dict] = field(default_factory=list)
     # « What if ? » : projection d'un scénario (« et si le panier moyen +10% ? »).
     simulation: dict | None = None
+    # Auto-critique : « ce qui pourrait remettre en question cette conclusion ».
+    self_critique: list[str] = field(default_factory=list)
+    # Chronologie narrée d'une tendance (« dure depuis N mois »).
+    chronicle: dict | None = None
+    # Objectif détecté derrière la question (diagnostic, reporting, comparaison…).
+    intent: str | None = None
+    # Objectif reformulé en langage naturel (« Diagnostiquer une baisse des ventes »).
+    intent_restated: str | None = None
+    # Decision Engine : décisions adaptées au rôle (finance / CRM / réseau…).
+    decisions: dict | None = None
+    # Sérendipité : découverte adjacente inattendue, sur une autre table.
+    serendipity: dict | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -67,6 +79,10 @@ class ChatResponse:
     investigation: dict | None = None
     confidence: dict | None = None
     table_quality: dict = field(default_factory=dict)
+    # Couverture de la DEMANDE (0..1) et détail des objectifs réalisables /
+    # hors répertoire — une analyse substituée hors sujet vaut 0, jamais 1.
+    coverage: float | None = None
+    scope: dict | None = None
     chart: dict | None = None
     privacy: dict | None = None
 
@@ -89,7 +105,57 @@ def _pii_columns(db: Session, connection_id: int, tables_used: list[str]) -> dic
     return {p.column_name: p.pii_type for p in profiles}
 
 
+_SHADOW_EXECUTOR = None
+
+
+def _shadow_executor(settings):
+    global _SHADOW_EXECUTOR
+    if _SHADOW_EXECUTOR is None:
+        from app.analysis.shadow.executor import build_executor
+        _SHADOW_EXECUTOR = build_executor(settings)
+    return _SHADOW_EXECUTOR
+
+
+def _maybe_dispatch_shadow(conn, question, response, request_id, space_id, conversation_id) -> None:
+    """Déclenche l'observation shadow APRÈS que `response` est figée. Isolé : ne
+    peut ni muter `response` ni lever. En `legacy` (défaut) : no-op immédiat."""
+    try:
+        from app.core.config import settings
+        if (settings.planner_mode or "legacy").lower() == "legacy":
+            return
+        from app.analysis.shadow.service import dispatch_shadow
+        dispatch_shadow(
+            response=response, question=question, tenant_id=conn.tenant_id,
+            connection_id=conn.id, executor=_shadow_executor(settings), settings=settings,
+            request_id=request_id, space_id=space_id, conversation_id=conversation_id)
+    except Exception as exc:  # noqa: BLE001 - le shadow ne peut jamais impacter le chat
+        log.warning("shadow dispatch isolé après erreur : %s", exc)
+
+
 def answer_question(
+    db: Session,
+    conn: Connection,
+    question: str,
+    *,
+    user_ref: str = "system",
+    run_analysis: bool = True,
+    deep_analysis: bool = True,
+    hidden_tables: set[str] | None = None,
+    hidden_columns: set[tuple[str, str]] | None = None,
+    request_id: str | None = None,
+    space_id: int | None = None,
+    conversation_id: int | None = None,
+) -> ChatResponse:
+    """Chemin DÉCISIONNAIRE (fallback). En mode shadow, le planner LLM est ensuite
+    observé hors du chemin critique — jamais dans la réponse rendue."""
+    response = _answer_question_impl(
+        db, conn, question, user_ref=user_ref, run_analysis=run_analysis,
+        deep_analysis=deep_analysis, hidden_tables=hidden_tables, hidden_columns=hidden_columns)
+    _maybe_dispatch_shadow(conn, question, response, request_id, space_id, conversation_id)
+    return response
+
+
+def _answer_question_impl(
     db: Session,
     conn: Connection,
     question: str,
@@ -117,6 +183,20 @@ def answer_question(
             status="no_schema", question=question,
             message="Aucun schéma scanné pour cette connexion. Lancez d'abord un scan.",
         )
+
+    # HONNÊTETÉ (Phase 1) : si la demande exige une opération hors du répertoire
+    # du moteur (segmentation/RFM, cohortes, croisement multi-dimensions, tranches
+    # dérivées…), on le DIT au lieu de substituer une tendance par défaut. La
+    # couverture de la demande vaut alors 0 — jamais une conclusion hors sujet à 100 %.
+    if run_analysis:
+        from app.services import request_scope
+
+        scope = request_scope.assess(question)
+        if scope.refuse:
+            return ChatResponse(
+                status="out_of_scope", question=question,
+                message=scope.message, coverage=scope.coverage, scope=scope.as_dict(),
+            )
 
     # Gouvernance par espace : les tables/colonnes masquées n'entrent jamais
     # dans le contexte fourni au moteur SQL (il ne peut pas les proposer).
@@ -226,15 +306,92 @@ def answer_question(
                     confidence_score=conf.score, has_drivers=bool(inv.key_drivers),
                     causal_hint=True,
                 ).as_dict()
+                from app.services import chronicle as chronicle_svc
+                from app.services import self_critique as critique_svc
+
+                inv_chron = chronicle_svc.build(
+                    inv.trend_columns, inv.trend_rows, metric_label=inv.metric_label)
+                inv_critique = critique_svc.build(
+                    db, conn, question=question, sql="",
+                    tables_used=[inv.subject], has_time_series=inv_chron is not None,
+                    assumptions=[], company_conventions=None,
+                    measure_options=None, sampled=False, truncated=False,
+                )
+                # Decision Engine : mêmes données, décisions selon le rôle.
+                from app.services import decision_engine as decision_svc
+                from app.services import decision_memory as dmem_svc
+                from app.services import discoveries as disc_svc
+
+                # Mémoire métier : recommandations déjà retenues / éprouvées.
+                # Baisse SAISONNIÈRE (P-07) ou données trop douteuses (P-08) : pas
+                # de décision corrective (agir serait une erreur d'analyse).
+                if inv.seasonal or inv.low_quality:
+                    decisions = None
+                else:
+                    _dmem_records = dmem_svc.history_for(db, conn.id, inv.subject)
+                    # Contexte d'entreprise DÉCLARÉ (rôles, responsabilités) s'il existe ;
+                    # sinon vide → recommandations génériques. Jamais requis.
+                    from app.services import business_context as bctx_svc
+                    _bctx = bctx_svc.resolve_for(db, conn)
+                    decisions = decision_svc.decide(
+                        question=question, metric_label=inv.metric_label,
+                        trend_direction=inv_chron.direction if inv_chron else None,
+                        trend_pct=inv_chron.total_pct if inv_chron else None,
+                        drivers=inv.drivers_struct,
+                        recent_rate=inv_chron.recent_rate if inv_chron else None,
+                        history=(lambda role, reco: dmem_svc.annotate(_dmem_records, role, reco))
+                        if _dmem_records else None,
+                        context=_bctx,
+                    )
+                # --- Semantic Layer : le langage physique du moteur devient un
+                # langage métier AVANT d'atteindre la couche Decision ; le
+                # physique (table.colonne, SQL) reste dans la Preuve (lineage).
+                from app.services import concepts as concepts_svc
+                inv_dict = inv.as_dict()
+                _repls = concepts_svc.apply_semantic_layer(inv_dict)
+                # Message construit depuis le dict ENRICHI (conclusion reformulée
+                # + humanisée), pas depuis l'objet brut.
+                _n = len(inv.steps)
+                _subj = inv_dict.get("subject_label") or inv.subject
+                message = (f"J'ai mené une investigation en {_n} étape{'s' if _n > 1 else ''} "
+                           f"sur « {_subj} ». {inv_dict.get('conclusion') or ''}").strip()
+                decisions_dict = (concepts_svc.humanize_decision_text(
+                                      concepts_svc.translate(decisions.as_dict(), _repls))
+                                  if decisions is not None else None)
+                intent_restated_val = concepts_svc.humanize_decision_text(
+                    concepts_svc.translate(
+                        (decisions.restated if decisions is not None
+                         else decision_svc.restate_intent(
+                             question, metric_label=inv.metric_label,
+                             trend_direction=inv_chron.direction if inv_chron else None)),
+                        _repls))
                 return ChatResponse(
                     status="answered", question=question,
-                    message=agent_svc.summary_message(inv),
+                    message=message,
                     rationale="Investigation multi-étapes (planification → sous-questions → synthèse).",
                     tables_used=[inv.subject],
                     columns=inv.trend_columns, rows=inv.trend_rows, row_count=len(inv.trend_rows),
-                    investigation=inv.as_dict(), confidence=conf.as_dict(),
+                    investigation=inv_dict,
+                    confidence=concepts_svc.annotate_semantic_confidence(conf.as_dict(), inv_dict),
                     validation=inv_validation,
                     sources=_sources([inv.subject], inv.trend_columns, {}),
+                    self_critique=inv_critique,
+                    chronicle=(concepts_svc.humanize_presentation_deep(
+                                   concepts_svc.translate(inv_chron.as_dict(), _repls))
+                               if inv_chron is not None else None),
+                    intent=decision_svc.detect_intent(question),
+                    intent_restated=intent_restated_val,
+                    decisions=decisions_dict,
+                    # Sérendipité = consommateur du résultat : on humanise (pluriels,
+                    # dates) et on traduit les concepts connus. La colonne physique
+                    # d'une alerte QUALITÉ est conservée (précision actionnable, comme
+                    # dans la Preuve : « quelle colonne a des e-mails non conformes »).
+                    serendipity=concepts_svc.humanize_presentation_deep(
+                        concepts_svc.translate(
+                            disc_svc.top_side_finding(
+                                db, conn, exclude_table=inv.subject,
+                                hidden_tables=hidden_tables, hidden_columns=hidden_columns),
+                            _repls)),
                     chart=chart.as_dict() if chart else None,
                 )
 
@@ -408,12 +565,33 @@ def answer_question(
         has_drivers=has_drivers, context_hypotheses=company_hypotheses,
     ).as_dict()
 
+    # Chronologie narrée (H) : si le résultat est une série temporelle, on la raconte.
+    from app.services import chronicle as chronicle_svc
+
+    metric_label = gen.columns_used[0] if gen.columns_used else "la mesure"
+    chron = chronicle_svc.build(result.columns, result.rows, metric_label=metric_label)
+    chronicle = chron.as_dict() if chron is not None else None
+
+    # Auto-critique (H) : ce qui pourrait remettre en question la conclusion.
+    from app.services import self_critique as critique_svc
+
+    self_critique = critique_svc.build(
+        db, conn, question=question, sql=result.guarded_sql,
+        tables_used=gen.tables_used, has_time_series=chron is not None,
+        assumptions=gen.assumptions, company_conventions=company.get("conventions"),
+        measure_options=gen.measure_options, sampled=sampled, truncated=result.truncated,
+    )
+
     return ChatResponse(
         status="answered", question=question, sql=result.guarded_sql,
         tables_used=gen.tables_used, columns_used=gen.columns_used or result.columns,
         assumptions=gen.assumptions, rationale=gen.rationale, explanations=explanations,
         proof=proof, validation=validation, measure_options=gen.measure_options,
         sources=_sources(gen.tables_used, gen.columns_used, tscores),
+        self_critique=self_critique, chronicle=chronicle,
+        intent=_detect_intent(question),
+        intent_restated=_restate_intent(question, metric_label=metric_label,
+                                        trend_direction=chron.direction if chron else None),
         columns=result.columns, rows=result.rows, row_count=result.row_count,
         duration_ms=result.duration_ms, estimated_cost=result.estimated_cost,
         truncated=result.truncated, warnings=result.warnings,
@@ -438,6 +616,16 @@ def _evidence_level(*, quality_pct: int | None = None, concept: bool = False,
     if inferred or assumptions >= 1 or (quality_pct is not None and quality_pct < 90):
         return "medium"
     return "strong" if quality_pct is not None else "medium"
+
+
+def _detect_intent(question: str) -> str:
+    from app.services.decision_engine import detect_intent
+    return detect_intent(question)
+
+
+def _restate_intent(question: str, **kw) -> str:
+    from app.services.decision_engine import restate_intent
+    return restate_intent(question, **kw)
 
 
 def _sources(tables_used: list[str], columns_used: list[str], tscores: dict) -> list[dict]:

@@ -1,0 +1,13 @@
+{
+  "mode": "challenge",
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "intent": "diagnostic",
+  "trend_direction": "baisse",
+  "difficulty": "La baisse se répartit sur 3 foyers (~40/35/25 %) dans 3 régions différentes : aucune cause unique.",
+  "ideal": "Nommer les TROIS foyers (Marseille/PACA ~40 %, Lyon/ARA ~35 %, Lille/HdF ~25 %), pas un seul — et ne pas conclure « baisse généralisée » (elle est concentrée, mais multi-foyers).",
+  "multi_cause": {
+    "min_causes": 3,
+    "cumulative_min_pct": 80,
+    "segments_any": ["Provence", "Auvergne", "Hauts-de-France", "Marseille", "Lyon", "Lille"]
+  }
+}

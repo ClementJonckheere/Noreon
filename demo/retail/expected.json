@@ -1,0 +1,7 @@
+{
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "intent": "diagnostic",
+  "trend_direction": "baisse",
+  "attribution": { "dimension_contains": "region", "segment_contains": "Provence", "min_contribution_pct": 85 },
+  "lead_role": "Directeur réseau"
+}

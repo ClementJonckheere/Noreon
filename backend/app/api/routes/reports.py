@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import Principal, current_principal
 from app.core.db import get_db
 from app.models.connection import Connection
-from app.models.report import Report, ReportBlock
+from app.models.report import Report, ReportBlock, ReportVersion
 from app.schemas import (
     BlockCreate,
     BlockMove,
@@ -118,7 +118,117 @@ def get_report(
     principal: Principal = Depends(current_principal),
 ) -> dict:
     r = _get_report(db, principal, report_id)
-    return {**_summary(db, r), "blocks": [_block_dict(b) for b in r.blocks]}
+    vers = db.execute(
+        select(ReportVersion).where(ReportVersion.report_id == r.id)
+        .order_by(ReportVersion.version.desc())
+    ).scalars().all()
+    return {
+        **_summary(db, r),
+        "blocks": [_block_dict(b) for b in r.blocks],
+        "posterior_incidents": _posterior_incidents(db, r),
+        "versions": [_version_dict(v) for v in vers],
+    }
+
+
+def _latest_version(db: Session, report_id: int) -> ReportVersion | None:
+    return db.execute(
+        select(ReportVersion).where(ReportVersion.report_id == report_id)
+        .order_by(ReportVersion.version.desc())
+    ).scalars().first()
+
+
+def _posterior_incidents(db: Session, r: Report) -> list[dict]:
+    """Incidents de qualité détectés sur les tables du rapport APRÈS validation.
+    Le rapport reste tel qu'il a été publié : on ajoute une mention, on ne réécrit
+    rien. La référence temporelle est la dernière VERSION VALIDÉE si elle existe,
+    sinon la création du rapport de travail."""
+    if not r.source_connection_id or not r.source_tables:
+        return []
+    from app.models.quality import QualityScore
+    from app.services.quality import tables_trust
+
+    trust = tables_trust(db, r.source_connection_id, list(r.source_tables))
+    if not trust["incidents"]:
+        return []
+    latest_ctrl = db.execute(
+        select(func.max(QualityScore.computed_at)).where(
+            QualityScore.connection_id == r.source_connection_id
+        )
+    ).scalar_one_or_none()
+    ver = _latest_version(db, r.id)
+    ref = (ver.created_at if ver else r.created_at)
+    # Le contrôle qui révèle l'incident doit être postérieur à la validation.
+    if latest_ctrl is None or (ref and latest_ctrl <= ref):
+        return []
+    return trust["incidents"]
+
+
+def _version_dict(v: ReportVersion, *, full: bool = False) -> dict:
+    d = {
+        "version": v.version, "title": v.title, "label": v.label,
+        "validated_by": v.validated_by,
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+        "block_count": len(v.blocks or []),
+    }
+    if full:
+        d["blocks"] = v.blocks or []
+        d["source_tables"] = v.source_tables or []
+    return d
+
+
+@router.post("/{report_id}/validate")
+def validate_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    """Fige la version courante du rapport (instantané immuable + numéro)."""
+    r = _get_report(db, principal, report_id)
+    n = db.execute(
+        select(func.coalesce(func.max(ReportVersion.version), 0)).where(
+            ReportVersion.report_id == r.id
+        )
+    ).scalar_one()
+    v = ReportVersion(
+        report_id=r.id, version=n + 1, title=r.title,
+        blocks=[_block_dict(b) for b in r.blocks],
+        source_connection_id=r.source_connection_id, source_tables=r.source_tables,
+        validated_by=_user_ref(principal),
+    )
+    db.add(v)
+    db.commit()
+    return get_report(report_id, db, principal)
+
+
+@router.get("/{report_id}/versions")
+def list_versions(
+    report_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> list[dict]:
+    r = _get_report(db, principal, report_id)
+    vers = db.execute(
+        select(ReportVersion).where(ReportVersion.report_id == r.id)
+        .order_by(ReportVersion.version.desc())
+    ).scalars().all()
+    return [_version_dict(v) for v in vers]
+
+
+@router.get("/{report_id}/versions/{version}")
+def get_version(
+    report_id: int, version: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    r = _get_report(db, principal, report_id)
+    v = db.execute(
+        select(ReportVersion).where(
+            ReportVersion.report_id == r.id, ReportVersion.version == version
+        )
+    ).scalar_one_or_none()
+    if v is None:
+        raise HTTPException(status_code=404, detail="Version introuvable.")
+    return _version_dict(v, full=True)
 
 
 @router.patch("/{report_id}")
@@ -238,6 +348,11 @@ def generate(
         blocks = reports_svc.response_to_blocks(
             reports_svc.default_title(payload.prompt), resp.as_dict()
         )
+        # Mémorise la source + les tables utilisées : socle du signal « incident
+        # postérieur » (sans jamais réécrire l'instantané).
+        r.source_connection_id = conn.id
+        used = list(resp.tables_used or [])
+        r.source_tables = sorted({t.split(".")[-1] for t in used}) or (r.source_tables or [])
     else:
         blocks = reports_svc.skeleton_blocks(payload.prompt)
 

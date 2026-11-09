@@ -73,6 +73,9 @@ class ConceptMapping(Base):
     column_name: Mapped[str] = mapped_column(String(255))
 
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    # Rôles analytiques proposés puis validés avec le mapping. Une colonne ne
+    # devient jamais une mesure du seul fait de son type numérique.
+    analytical_roles: Mapped[list] = mapped_column(JSON, default=list)
     # Justification auditable de la proposition (règles déclenchées)
     rationale: Mapped[str] = mapped_column(String, default="")
 

@@ -192,6 +192,73 @@ def infer_relations(
     return inferred
 
 
+def infer_value_overlap(
+    tables: list[TableInfo],
+    related_pairs: set[tuple],
+    containment,
+    *,
+    max_checks: int = 80,
+    max_distinct: int = 100_000,
+    orphan_tol: float = 0.0,
+    coverage_min: float = 0.9,
+) -> list[RelationInfo]:
+    """Relations implicites par RECOUVREMENT DE VALEURS — indépendant des noms.
+
+    Une colonne entière (non clé, sans relation connue) dont les valeurs sont
+    (quasi) INCLUSES dans la clé primaire d'une autre table, et qui en couvre une
+    part notable, est une clé étrangère de fait — même nommée « col_002 ». C'est
+    ce qui permet de comprendre un schéma sans FK déclarées (propriété P-05).
+
+    `containment(child, ccol, parent, parent_pk) -> (orphans, distinct, parent_count)`
+    est fourni par l'adaptateur (SQL natif). `related_pairs` = colonnes déjà
+    reliées (à ne pas recalculer). Bornes strictes pour éviter les faux positifs
+    (une colonne « âge » incluse par hasard dans des identifiants).
+    """
+    parents: list[tuple[TableInfo, str]] = []
+    for t in tables:
+        pks = [c for c in t.columns if c.is_pk]
+        if len(pks) == 1 and pks[0].data_type.lower() in _INTEGER_TYPES:
+            parents.append((t, pks[0].name))
+
+    inferred: list[RelationInfo] = []
+    checks = 0
+    for child in tables:
+        for col in child.columns:
+            if col.is_pk or col.data_type.lower() not in _INTEGER_TYPES:
+                continue
+            if (child.schema, child.name, col.name) in related_pairs:
+                continue
+            for parent, pk in parents:
+                if parent.name == child.name and parent.schema == child.schema:
+                    continue
+                if checks >= max_checks:
+                    return inferred
+                checks += 1
+                try:
+                    res = containment(child, col, parent, pk)
+                except Exception:  # noqa: BLE001 - un candidat qui échoue est ignoré
+                    continue
+                if res is None:
+                    continue
+                orphans, distinct, parent_count = res
+                if distinct < 2 or distinct > max_distinct or parent_count <= 0:
+                    continue
+                coverage = distinct / parent_count
+                # Valeurs (quasi) incluses dans la PK ET couvrant une part notable
+                # des clés du parent → vraie FK (et non un simple chevauchement).
+                if orphans / distinct <= orphan_tol and coverage >= coverage_min:
+                    inferred.append(RelationInfo(
+                        from_schema=child.schema, from_table=child.name, from_column=col.name,
+                        to_schema=parent.schema, to_table=parent.name, to_column=pk,
+                        kind="inferred", confidence=0.6,
+                        details={"rule": "value_overlap",
+                                 "orphan_ratio": round(orphans / distinct, 3),
+                                 "coverage": round(coverage, 3)},
+                    ))
+                    break  # une seule cible par colonne enfant
+    return inferred
+
+
 # ---------------------------------------------------------------------------
 # Interface d'adaptateur
 # ---------------------------------------------------------------------------

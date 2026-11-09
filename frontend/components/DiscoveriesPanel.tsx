@@ -84,6 +84,26 @@ export default function DiscoveriesPanel({
         </button>
       </div>
 
+      {/* Rapports comparables : ce qui a changé depuis le dernier relevé. */}
+      {d.comparison && !d.comparison.first_run &&
+        (d.comparison.new + d.comparison.resolved + d.comparison.confirmed > 0) && (
+        <div className="text-xs rounded-lg bg-slate-50 border border-noreon-border px-3 py-2 text-slate-600">
+          Depuis le dernier relevé :{" "}
+          {d.comparison.new > 0 && (
+            <span className="text-indigo-700 font-medium">{d.comparison.new} nouvelle(s)</span>
+          )}
+          {d.comparison.new > 0 && (d.comparison.resolved > 0 || d.comparison.confirmed > 0) && " · "}
+          {d.comparison.resolved > 0 && (
+            <span className="text-emerald-700 font-medium">{d.comparison.resolved} corrigée(s)</span>
+          )}
+          {d.comparison.resolved > 0 && d.comparison.confirmed > 0 && " · "}
+          {d.comparison.confirmed > 0 && (
+            <span className="text-slate-500">{d.comparison.confirmed} confirmée(s)</span>
+          )}
+          .
+        </div>
+      )}
+
       {/* Accroche « voici ce que j'ai remarqué » */}
       {d.headline.length > 0 && (
         <div className="text-sm bg-indigo-500/5 rounded-lg p-3 space-y-0.5">
@@ -145,7 +165,20 @@ function DiscoveryCard({
     <div className={`rounded-lg border p-2.5 text-xs ${meta.card}`}>
       <div className="flex items-center gap-1.5">
         <span>{meta.dot}</span>
-        <span className="font-medium">{it.title}</span>
+        <span className="font-medium flex-1">{it.title}</span>
+        {it.score != null && (
+          <span
+            className={`badge shrink-0 ${
+              it.score >= 85 ? "bg-indigo-500/15 text-indigo-700"
+              : it.score >= 70 ? "bg-amber-500/15 text-amber-700"
+              : "bg-slate-200 text-slate-600"
+            }`}
+            title={`Score ${it.score}/100 — Impact ${it.score_parts?.impact}% · Nouveauté ${it.score_parts?.novelty}% · Confiance ${it.score_parts?.confidence}% · Intérêt métier ${it.score_parts?.business}%`}
+          >
+            {it.score_label || `${it.score}/100`}
+            <span className="ml-1 opacity-60">{it.score}</span>
+          </span>
+        )}
       </div>
       {/* La carte raconte une histoire, pas seulement un chiffre. */}
       <div className="mt-1 text-slate-600">{it.narrative || it.detail}</div>

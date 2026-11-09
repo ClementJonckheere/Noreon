@@ -1,0 +1,25 @@
+{
+  "name": "generic",
+  "domain": "generic",
+  "version": "1.0",
+  "note": "catalogue neutre (aucun vocabulaire métier) — vérifie l'absence de sur-apprentissage retail",
+  "concepts": [
+    {"entity_ref": "concept:entity_a", "entity_label": "Entité A"},
+    {"entity_ref": "concept:entity_b", "entity_label": "Entité B"},
+    {"entity_ref": "concept:entity_c", "entity_label": "Entité C"}
+  ],
+  "metrics": [
+    {"metric_ref": "metric:measure_x", "metric_label": "Mesure X"},
+    {"metric_ref": "metric:measure_y", "metric_label": "Mesure Y"},
+    {"metric_ref": "metric:item_count", "metric_label": "Effectif"}
+  ],
+  "dimensions": [
+    {"dimension_ref": "dimension:dim_1", "dimension_label": "Dimension 1"},
+    {"dimension_ref": "dimension:dim_2", "dimension_label": "Dimension 2"}
+  ],
+  "relations": [
+    {"relation_ref": "b_a", "cardinality": "many_to_one"},
+    {"relation_ref": "c_b", "cardinality": "many_to_one"}
+  ],
+  "stats": {"row_count_bucket": "1k-10k"}
+}

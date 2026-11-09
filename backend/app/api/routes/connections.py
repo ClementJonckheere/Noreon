@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -106,13 +106,39 @@ async def upload_file_connection(
 
 @router.get("", response_model=list[ConnectionOut])
 def list_connections(
+    space_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(current_tenant),
 ) -> list[ConnectionOut]:
+    """Sources du tenant. Avec `space_id`, on RESTREINT aux sources RÉELLEMENT
+    rattachées à cet espace (cloisonnement — une source d'un autre périmètre ne
+    fuit pas). Sans espace : catalogue, chaque source affichant son espace."""
     rows = db.execute(
         select(Connection).where(Connection.tenant_id == tenant.id).order_by(Connection.created_at.desc())
     ).scalars().all()
-    return [ConnectionOut.model_validate(r) for r in rows]
+
+    if space_id is not None:
+        from app.services.spaces import space_connection_ids
+        allowed = set(space_connection_ids(db, space_id))
+        rows = [r for r in rows if r.id in allowed]
+
+    # Rattachements espace → libellés (badge ; distingue « non rattachée »).
+    from app.models.space import Space, SpaceConnection
+    links = db.execute(
+        select(SpaceConnection.connection_id, Space.name)
+        .join(Space, Space.id == SpaceConnection.space_id)
+        .where(Space.tenant_id == tenant.id)
+    ).all()
+    by_conn: dict[int, list[str]] = {}
+    for cid, name in links:
+        by_conn.setdefault(cid, []).append(name)
+
+    out: list[ConnectionOut] = []
+    for r in rows:
+        o = ConnectionOut.model_validate(r)
+        o.spaces = by_conn.get(r.id, [])
+        out.append(o)
+    return out
 
 
 @router.get("/{connection_id}", response_model=ConnectionOut)

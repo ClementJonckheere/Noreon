@@ -74,3 +74,14 @@ class LLMProvider(abc.ABC):
         Contrat Privacy Engine : `rows` ne doit contenir aucune donnée brute
         identifiante — uniquement des agrégats/pseudonymisations.
         """
+
+    # Planificateur analytique (Phase 2). Par défaut NON supporté : seuls les
+    # fournisseurs capables de contraindre leur sortie à un JSON Schema strict
+    # l'implémentent. Un fournisseur sans planification → repli honnête (offline).
+    def plan(self, *, system: str, user: str, json_schema: dict) -> str:
+        """Renvoie la sortie BRUTE (chaîne JSON) conforme à `json_schema`."""
+        raise PlanningNotSupported(f"Le fournisseur « {self.name} » ne planifie pas.")
+
+
+class PlanningNotSupported(RuntimeError):
+    """Le fournisseur ne peut pas produire un plan analytique structuré."""

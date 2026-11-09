@@ -40,22 +40,30 @@ export default function LoginPage() {
 
   return (
     <div className="max-w-md mx-auto mt-16">
-      <div className="card p-6 space-y-5">
-        <div className="text-center">
-          <div className="text-2xl font-bold">Noreon</div>
-          <div className="text-xs text-noreon-soft">Comprendre. Relier. Éclairer.</div>
+      {/* Surface publique : le logotype complet, pas le monogramme. */}
+      <div className="text-center mb-6 space-y-2">
+        <div className="inline-flex items-center gap-2.5">
+          <span className="grid place-items-center w-9 h-9 rounded-button bg-ink text-white font-mono text-metric leading-none">
+            N
+          </span>
+          <span className="text-title text-ink tracking-tight">Noreon</span>
         </div>
+        <div className="text-body text-ink-3">
+          Un outil rigoureux dont les réponses se lisent comme un rapport d'analyste.
+        </div>
+      </div>
 
-        <div className="flex gap-2 text-sm">
+      <div className="card p-6 space-y-5 shadow-e2">
+        <div className="flex gap-2">
           {(["login", "register"] as const).map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
-              className={`btn flex-1 justify-center ${
-                mode === m ? "bg-noreon-accent text-white" : "border border-noreon-border text-noreon-soft"
+              className={`btn flex-1 ${
+                mode === m ? "bg-brand-600 text-white" : "bg-raised border border-line text-ink-2 hover:border-line-strong"
               }`}
             >
-              {m === "login" ? "Connexion" : "Créer l’espace"}
+              {m === "login" ? "Connexion" : "Créer l'espace"}
             </button>
           ))}
         </div>
@@ -67,17 +75,20 @@ export default function LoginPage() {
           {mfaNeeded && (
             <Field label="Code MFA (6 chiffres)" value={mfa} onChange={setMfa} mono />
           )}
-          <button className="btn-primary w-full justify-center" disabled={busy}>
-            {busy ? "…" : mode === "login" ? "Se connecter" : "Créer l’administrateur"}
+          <button className="btn-primary w-full" disabled={busy}>
+            {busy ? "…" : mode === "login" ? "Se connecter" : "Créer l'administrateur"}
           </button>
         </form>
 
         {error && (
-          <div className="text-sm text-amber-700 bg-amber-500/10 rounded-lg p-3">{error}</div>
+          <div className="state state-abstain">
+            <div className="state-title">À compléter</div>
+            <div className="state-body">{error}</div>
+          </div>
         )}
         {mode === "register" && (
-          <p className="text-xs text-noreon-soft">
-            Crée le premier compte (administrateur) d’un nouvel espace entreprise.
+          <p className="text-small text-ink-3">
+            Crée le premier compte (administrateur) d'un nouvel espace entreprise.
           </p>
         )}
       </div>
@@ -100,9 +111,9 @@ function Field({
 }) {
   return (
     <div>
-      <label className="text-xs text-noreon-soft">{label}</label>
+      <label className="field-label">{label}</label>
       <input
-        className={`input ${mono ? "mono" : ""}`}
+        className={`field ${mono ? "mono" : ""}`}
         type={type}
         required
         value={value}

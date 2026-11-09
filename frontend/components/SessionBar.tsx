@@ -30,30 +30,31 @@ export default function SessionBar() {
 
   if (!me) {
     return (
-      <Link href="/login" className="badge bg-noreon-accent/15 text-noreon-accent">
+      <Link href="/login" className="btn-secondary btn-sm w-full">
         Se connecter
       </Link>
     );
   }
 
   return (
-    <div className="flex items-center gap-3 text-xs">
-      {me.role === "admin" && (
-        <Link href="/users" className="text-noreon-soft hover:text-slate-900">
-          Utilisateurs
-        </Link>
-      )}
-      <span className="text-noreon-soft">
-        {me.email ? (
-          <>
-            {me.email} · <span className="text-noreon-accent">{ROLE_LABEL[me.role] || me.role}</span>
-          </>
-        ) : (
-          <span className="text-amber-700">mode dev (admin implicite)</span>
-        )}
-      </span>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2.5">
+        <span className="grid place-items-center w-8 h-8 rounded-full bg-brand-100 text-brand-800 text-body font-medium shrink-0">
+          {(me.email || "d")[0].toUpperCase()}
+        </span>
+        <div className="min-w-0 leading-tight">
+          {me.email ? (
+            <>
+              <div className="text-body text-ink truncate">{me.email}</div>
+              <div className="text-label uppercase text-ink-3">{ROLE_LABEL[me.role] || me.role}</div>
+            </>
+          ) : (
+            <div className="text-body text-warning-hover">mode dev · admin implicite</div>
+          )}
+        </div>
+      </div>
       {authed && (
-        <button onClick={logout} className="badge bg-slate-100 text-noreon-soft hover:text-slate-900">
+        <button onClick={logout} className="text-small text-ink-3 hover:text-ink transition-colors">
           Déconnexion
         </button>
       )}

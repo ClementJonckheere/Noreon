@@ -1,0 +1,8 @@
+{
+  "mode": "challenge",
+  "question": "Pourquoi le chiffre d'affaires baisse-t-il depuis 4 mois ?",
+  "intent": "diagnostic",
+  "difficulty": "Montants (~55 %) et dates (~50 %) majoritairement manquants : données trop trouées pour conclure.",
+  "ideal": "S'abstenir honnêtement : « je ne peux pas conclure avec suffisamment de confiance » (qualité insuffisante), et ne produire aucune décision.",
+  "expects_low_quality": true
+}
